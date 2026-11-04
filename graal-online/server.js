@@ -7,7 +7,7 @@ const skin=v=>(typeof v==='string'&&v.length<300000&&v.startsWith('data:image/pn
 const send=(c,o)=>{if(c.readyState===1)c.send(typeof o==='string'?o:JSON.stringify(o))};
 wss.on('connection',ws=>{
  const id=nid++;P.set(id,{id,x:0,y:0,nm:'?',an:'Idle_Down',al:1,ok:0,b:0,h:1,s:.6,bs:null,hs:null,lc:0});
- send(ws,{t:'id',id});
+ send(ws,{t:'id',id,v:2});
  for(const q of P.values())if(q.id!==id&&(q.bs||q.hs))send(ws,{t:'k',id:q.id,bs:q.bs,hs:q.hs});
  ws.on('message',d=>{let m;try{m=JSON.parse(d)}catch(e){return}const p=P.get(id);if(!p||!m)return;
   if(m.t==='u'){if(d.length>400)return;
