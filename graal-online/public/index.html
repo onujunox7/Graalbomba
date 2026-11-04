@@ -946,16 +946,16 @@ if(coarse){let tried=0;const go=()=>{if(tried)return;tried=1;const de=document.d
 /* ===== MULTIPLAYER (WebSocket) + SKINS + CHAT ===== */
 (()=>{
 let nick='Onu';try{nick=localStorage.getItem('graal_nick')||'';if(!nick){nick=(prompt('Seu nome no jogo:','Onu')||'Onu').trim().slice(0,12)||'Onu';localStorage.setItem('graal_nick',nick)}}catch(e){}
-const RP=new Map(),SKN=new Map(),MSG=[];let ws=null,myId=null,on=0,lastSk='';
+const RP=new Map(),SKN=new Map(),MSG=[];let ws=null,myId=null,on=0,lastSk='',pend=0;
 const mk=u=>{if(typeof u!=='string'||!u.startsWith('data:image/png'))return null;const i=new Image();i.src=u;return i};
 const url=()=>{const q=new URLSearchParams(location.search).get('server');if(q)return q;if(location.protocol==='file:')return'ws://localhost:3000';return(location.protocol==='https:'?'wss://':'ws://')+location.host};
 function conn(){try{ws=new WebSocket(url())}catch(e){return}
  ws.onopen=()=>{on=1;lastSk=''};
  ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}
-  if(m.t==='id'){myId=m.id;return}
+  if(m.t==='id'){myId=m.id;if(m.v!==2)MSG.push({id:null,nm:'⚠',x:'servidor desatualizado: troque o server.js no GitHub',t:performance.now()+25000});return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs)});return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);return}
-  if(m.t==='c'){MSG.push({id:m.id,nm:String(m.nm||'?'),x:String(m.x||''),t:performance.now()});if(MSG.length>30)MSG.shift();return}
+  if(m.t==='c'){if(m.id===myId)pend=0;MSG.push({id:m.id,nm:String(m.nm||'?'),x:String(m.x||''),t:performance.now()});if(MSG.length>30)MSG.shift();return}
   if(m.t!=='st')return;const seen=new Set();
   for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}
    r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s}
@@ -985,14 +985,22 @@ function bub(id,x,ny,now){if(id==null)return;let m=null;for(let i=MSG.length-1;i
  if(!m||now-m.t>5000)return;let t=m.x.length>32?m.x.slice(0,31)+'…':m.x;g.font='7px sans-serif';g.textAlign='center';
  const w=Math.ceil(g.measureText(t).width)+8;g.fillStyle='rgba(255,255,255,.92)';g.fillRect(x-w/2,ny-19,w,11);g.fillStyle='#111';g.fillText(t,x,ny-11)}
 /* chat: caixa de texto */
-const inp=document.createElement('input');inp.maxLength=80;inp.placeholder='Chat — Enter envia, Esc fecha';
-inp.style.cssText='position:fixed;left:50%;bottom:12px;transform:translateX(-50%);width:min(420px,90vw);z-index:9999;display:none;padding:6px 10px;font:14px sans-serif;border:2px solid #3a2a14;background:#fff8e0;border-radius:6px';
-document.body.appendChild(inp);
-const openC=()=>{try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}inp.style.display='block';inp.focus()};
-const closeC=()=>{inp.style.display='none';inp.value='';inp.blur()};
+const box=document.createElement('div'),inp=document.createElement('input'),snd=document.createElement('button');
+inp.maxLength=80;inp.placeholder='Chat — Enter envia, Esc fecha';inp.enterKeyHint='send';snd.textContent='➤';
+box.style.cssText='position:fixed;left:50%;bottom:12px;transform:translateX(-50%);width:min(440px,92vw);z-index:9999;display:none;gap:6px';
+inp.style.cssText='flex:1;min-width:0;padding:6px 10px;font:14px sans-serif;border:2px solid #3a2a14;background:#fff8e0;border-radius:6px';
+snd.style.cssText='padding:6px 12px;font:16px sans-serif;border:2px solid #3a2a14;background:#d8c99a;border-radius:6px;cursor:pointer';
+box.appendChild(inp);box.appendChild(snd);document.body.appendChild(box);
+const openC=()=>{try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}box.style.display='flex';inp.focus()};
+const closeC=()=>{box.style.display='none';inp.value='';inp.blur()};
+const sendC=()=>{const v=inp.value.trim();
+ if(v&&ws&&ws.readyState===1){ws.send(JSON.stringify({t:'c',x:v}));pend=performance.now();
+  setTimeout(()=>{if(pend&&performance.now()-pend>=1400){pend=0;MSG.push({id:null,nm:'⚠',x:'o servidor não respondeu ao chat',t:performance.now()})}},1500)}
+ else if(v)MSG.push({id:null,nm:'⚠',x:'sem conexão com o servidor',t:performance.now()});closeC()};
+snd.addEventListener('click',e=>{e.stopPropagation();sendC()});
 ['keydown','keyup','keypress'].forEach(ev=>inp.addEventListener(ev,e=>{e.stopPropagation();
- if(ev==='keydown'){if(e.key==='Enter'){const v=inp.value.trim();if(v&&ws&&ws.readyState===1)ws.send(JSON.stringify({t:'c',x:v}));closeC()}else if(e.key==='Escape')closeC()}}));
-window.addEventListener('keydown',e=>{if(e.key==='Enter'&&inp.style.display==='none'&&!ED&&!/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||'')){e.preventDefault();openC()}},true);
+ if(ev==='keydown'){if(e.key==='Enter'||e.keyCode===13){e.preventDefault();sendC()}else if(e.key==='Escape')closeC()}}));
+window.addEventListener('keydown',e=>{if(e.key==='Enter'&&box.style.display==='none'&&!ED&&!/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||'')){e.preventDefault();openC()}},true);
 const sys=document.getElementById('sys');if(sys){const b=document.createElement('button');b.textContent='💬';b.setAttribute('aria-label','Chat');
  ['click','pointerdown'].forEach(ev=>b.addEventListener(ev,e=>{e.stopPropagation();if(ev==='click')openC()}));sys.appendChild(b)}
 let lt=performance.now();
