@@ -981,15 +981,16 @@ function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr={Up:0,Left:1,Down
   if(k===0)g.drawImage(BI,sx+bo,sy,w,h,dx,dy,dw,dh);else if(k===1)g.drawImage(HI,sx+ho,sy,w,h,dx,dy,dw,dh);
   else if(k===2){if(sx===40&&sy===96)continue;g.drawImage(X.GI.misc,sx,sy,w,h,dx,dy,dw,dh)}}
  g.globalAlpha=1}
+const CF='bold 8px Verdana,Arial,sans-serif';
+function ot(t,x,y){g.lineJoin='round';g.lineWidth=2.5;g.strokeStyle='#000';g.strokeText(t,x,y);g.fillStyle='#fff';g.fillText(t,x,y)}
 function bub(id,x,ny,now){if(id==null)return;let m=null;for(let i=MSG.length-1;i>=0;i--)if(MSG[i].id===id){m=MSG[i];break}
- if(!m||now-m.t>5000)return;let t=m.x.length>32?m.x.slice(0,31)+'…':m.x;g.font='7px sans-serif';g.textAlign='center';
- const w=Math.ceil(g.measureText(t).width)+8;g.fillStyle='rgba(255,255,255,.92)';g.fillRect(x-w/2,ny-19,w,11);g.fillStyle='#111';g.fillText(t,x,ny-11)}
+ if(!m||now-m.t>5000)return;const t=m.x.length>40?m.x.slice(0,39)+'…':m.x;g.font=CF;g.textAlign='center';ot(t,x,ny-8)}
 /* chat: caixa de texto */
 const box=document.createElement('form'),inp=document.createElement('input'),snd=document.createElement('button');
 inp.maxLength=80;inp.placeholder='Chat — Enter envia, Esc fecha';inp.enterKeyHint='send';snd.textContent='➤';
 box.style.cssText='position:fixed;left:50%;bottom:12px;transform:translateX(-50%);width:min(440px,92vw);z-index:9999;display:none;gap:6px';
-inp.style.cssText='flex:1;min-width:0;padding:6px 10px;font:14px sans-serif;border:2px solid #3a2a14;background:#fff8e0;border-radius:6px';
-snd.style.cssText='padding:6px 12px;font:16px sans-serif;border:2px solid #3a2a14;background:#d8c99a;border-radius:6px;cursor:pointer';
+inp.style.cssText='flex:1;min-width:0;padding:6px 10px;font:15px Verdana,Arial,sans-serif;border:0;border-bottom:2px solid rgba(255,255,255,.8);background:transparent;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,1px 1px 2px #000;outline:none';box.id='mpchat';const st=document.createElement('style');st.textContent='#mpchat input::placeholder{color:rgba(255,255,255,.7)}';document.head.appendChild(st);
+snd.style.cssText='padding:6px 10px;font:16px sans-serif;border:0;background:transparent;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;cursor:pointer';
 box.appendChild(inp);box.appendChild(snd);document.body.appendChild(box);
 const openC=()=>{try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}box.style.display='flex';inp.focus()};
 const closeC=()=>{box.style.display='none';inp.value='';inp.blur()};
@@ -1015,9 +1016,8 @@ const _dm=draw;draw=function(){_dm();const X=window.MPX;if(!P||ED||!IM.link||!X|
   bub(r.id,x,ny,now)}catch(e){console.error('mp',e)}});
  try{bub(myId,Math.round(P.x-cam.x),Math.round(P.y-cam.y)-Math.round(8+36*X.GS),now)}catch(e){}
  g.setTransform(RS,0,0,RS,0,0);g.fillStyle='rgba(20,14,6,.55)';g.fillRect(VW-96,36,94,12);g.fillStyle=on?'#9aff9a':'#ff9a9a';g.font='7px sans-serif';g.textAlign='left';
- g.fillText(on?'🌐 '+(RP.size+1)+' online · jogo c4 · srv s'+srvV:'🌐 offline',VW-93,45);
- const L=MSG.filter(m=>now-m.t<12000).slice(-5);L.forEach((m,i)=>{const t=(m.nm+': '+m.x).slice(0,60),y=VH-26-(L.length-1-i)*9;g.font='7px sans-serif';
-  g.fillStyle='rgba(0,0,0,.4)';g.fillRect(3,y-7,Math.ceil(g.measureText(t).width)+4,9);g.fillStyle='#fff';g.fillText(t,5,y)});
+ g.fillText(on?'🌐 '+(RP.size+1)+' online · jogo c5 · srv s'+srvV:'🌐 offline',VW-93,45);
+ const L=MSG.filter(m=>now-m.t<12000).slice(-5);L.forEach((m,i)=>{const t=(m.nm+': '+m.x).slice(0,60),y=VH-26-(L.length-1-i)*10;g.font=CF;g.textAlign='left';ot(t,5,y)});
  g.restore()};
 })();
 </script>
