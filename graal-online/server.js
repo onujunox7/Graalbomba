@@ -112,8 +112,10 @@ async function flushACC() {
     try { await pgPool.query(`INSERT INTO graal_accounts (discord_id,name,avatar,created_at,last_seen,data)
       VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (discord_id) DO UPDATE SET
       name=EXCLUDED.name, avatar=EXCLUDED.avatar, last_seen=EXCLUDED.last_seen, data=EXCLUDED.data`,
-      [a.id, a.name, a.av, a.at, a.last, JSON.stringify(a.data || {})]); }
-    catch (e) { console.error('Falha ao salvar conta no PostgreSQL:', e.message); accDirty.add(id); }
+      [a.id, a.name, a.av, a.at, a.last, JSON.stringify(a.data || {})]);
+      const pl = ACTIVE_ACC.get(id); if (pl) sendTo(pl.ws, { t: 'svok', at: Date.now() }); }
+    catch (e) { console.error('Falha ao salvar conta no PostgreSQL:', e.message); accDirty.add(id);
+      const pl = ACTIVE_ACC.get(id); if (pl) sendTo(pl.ws, { t: 'sverr', m: String(e.message).slice(0, 140) }); }
   }
   if (accDirty.size && !accT) accT = setTimeout(() => flushACC().catch(e => console.error(e)), 3000);
 }
