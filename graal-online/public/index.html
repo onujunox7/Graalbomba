@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8">
+<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#14161c"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
 <script>/* config do servidor (graal-config.json): portas, mapa, tilesets, colisão, interior e levels valem para TODOS os jogadores.
@@ -2869,6 +2869,10 @@ try{if(/[?&]login=erro/.test(location.search)){history.replaceState(null,'',loca
 window.ACCX={net(m){
  ui({name:m.name,av:m.av});
  if(!applied){applied=1;const d=m.data||{};let diff=0;
+  /* outra conta neste navegador: não herda o progresso da anterior */
+  let ow=null;try{ow=localStorage.getItem('graal_acc_owner')}catch(e){}
+  if(ow&&ow!==m.id){KEYS.forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});diff=1}
+  try{localStorage.setItem('graal_acc_owner',String(m.id))}catch(e){}
   for(const k of KEYS)if(typeof d[k]==='string'&&d[k]!==ls(k)){try{localStorage.setItem(k,d[k]);diff=1}catch(e){}}
   const g='graal_acc_rl';
   if(diff){let n=0;try{n=+sessionStorage.getItem(g)||0;sessionStorage.setItem(g,String(n+1))}catch(e){}if(n<1){location.reload();return}}
