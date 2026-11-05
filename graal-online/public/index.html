@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
+<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1","graal_pos_v1","graal_pos_v1","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
 (function(){try{if(location.protocol==='file:')return;var x=new XMLHttpRequest();x.open('GET','/api/acc',false);x.send();if(x.status!==200)return;var j=JSON.parse(x.responseText);if(!j||!j.on||!j.id)return;
-var K=["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1"];
+var K=["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1","graal_pos_v1"];
 var id=String(j.id),ow=localStorage.getItem('graal_acc_owner');if(ow&&ow!==id)K.forEach(function(k){localStorage.removeItem(k)});
 localStorage.setItem('graal_acc_owner',id);var d=j.data||{};K.forEach(function(k){if(typeof d[k]==='string')localStorage.setItem(k,d[k])});window.__ACC_PRE=id}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -553,7 +553,13 @@ const CFG={SAVE_KEY:'graal_classic_save_v1',SAVE_EVERY:15,DASH_SPEED:300};
 const SAVE_FIELDS=['lvl','exp','str','res','int','wil','dmg','def','gl','pot','up','kills','hp','mp'];
 let saveT=0;
 function saveGame(){
- try{if(!P||P.dead)return;const o={v:1,q:Q};SAVE_FIELDS.forEach(k=>o[k]=P[k]);o.pts=P.pts|0;o.al=P.al;localStorage.setItem(CFG.SAVE_KEY,JSON.stringify(o))}catch(e){}
+ try{if(!P||P.dead)return;const o={v:1,q:Q};SAVE_FIELDS.forEach(k=>o[k]=P[k]);o.pts=P.pts|0;o.al=P.al;localStorage.setItem(CFG.SAVE_KEY,JSON.stringify(o));savePos(1)}catch(e){}
+}
+const POS_KEY='graal_pos_v1';let posLast='',posT=0;
+function savePos(force){ /* posição/mapa/direção do jogador; chave pequena e separada, então pode gravar o tempo todo */
+ try{if(!P||P.dead||ED)return;const I=window.INT,ir=I&&I.ret,o={x:Math.round(P.x),y:Math.round(P.y),f:P.face,l:I&&I.loc==='i'?'i':'w'};
+  if(ir&&Number.isFinite(ir.x)&&Number.isFinite(ir.y))o.r={x:Math.round(ir.x),y:Math.round(ir.y)};
+  const j=JSON.stringify(o);if(j===posLast&&!force)return;posLast=j;localStorage.setItem(POS_KEY,j)}catch(e){}
 }
 function loadGame(){
  try{
@@ -565,12 +571,19 @@ function loadGame(){
   P.hpM=mHP(P);P.mpM=mMP(P);P.stM=mST(P);P.st=P.stM;
   P.hp=o.hp>0?Math.min(o.hp,P.hpM):P.hpM;P.mp=Math.min(o.mp,P.mpM);
   if(o.q&&Number.isFinite(o.q.i)&&Number.isFinite(o.q.n))Q={i:o.q.i,n:o.q.n};
+  try{let ps=null;try{ps=JSON.parse(localStorage.getItem(POS_KEY)||'null')}catch(e){}if(!ps)ps=o.pos;if(ps&&Number.isFinite(ps.x)&&Number.isFinite(ps.y)){
+   const I=window.INT,inb=()=>ps.x>=0&&ps.y>=0&&ps.x<=WP&&ps.y<=HPX&&!blocked(ps.x,ps.y);
+   if(ps.l==='i'&&I&&I.go){I.go('i',ps.x,ps.y);
+    if(inb()){P.x=ps.x;P.y=ps.y;if(ps.r&&Number.isFinite(ps.r.x)&&Number.isFinite(ps.r.y))I.ret={x:ps.r.x,y:ps.r.y}}
+    else I.go('w')} /* interior mudou/ficou inválido: volta pro mundo no ponto inicial */
+   else if(inb()){P.x=ps.x;P.y=ps.y}
+   if(['Up','Down','Left','Right'].includes(ps.f))P.face=ps.f}}catch(e){}
   fx.push({x:P.x,y:P.y-34,txt:'Progresso carregado',t:3,c:'#9ad8ff'});
  }catch(e){}
 }
 function clearSave(){try{localStorage.removeItem(CFG.SAVE_KEY)}catch(e){}}
-function autoSave(dt){saveT+=dt;if(saveT>=CFG.SAVE_EVERY){saveT=0;saveGame()}}
-addEventListener('beforeunload',saveGame);
+function autoSave(dt){saveT+=dt;if(saveT>=CFG.SAVE_EVERY){saveT=0;saveGame()}posT+=dt;if(posT>=.5){posT=0;savePos()}}
+addEventListener('beforeunload',()=>{saveGame();savePos(1)});addEventListener('pagehide',()=>{saveGame();savePos(1)});addEventListener('visibilitychange',()=>{if(document.hidden){saveGame();savePos(1)}});
 ['keydown','keyup'].forEach(ev=>addEventListener(ev,e=>{if(e.key==='Shift')keys['shift']=ev==='keydown'?1:0}));
 addEventListener('blur',()=>{for(const k in keys)keys[k]=0});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saveGame()});
@@ -3003,11 +3016,11 @@ if(window.__GCHQ){const q=window.__GCHQ;window.__GCHQ=null;q.forEach(add)}
 <script>
 /* ===== CONTA COM DISCORD: botão de login + progresso salvo no servidor ===== */
 (()=>{
-const KEYS=['graal_nick','graal_classic_save_v1','graal_classic_zelda_v1','graal_skin_v2','graal_equip_v1','graal_playtime','graal_custom_v1'];
+const KEYS=['graal_nick','graal_classic_save_v1','graal_classic_zelda_v1','graal_skin_v2','graal_equip_v1','graal_playtime','graal_custom_v1','graal_pos_v1'];
 const ls=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
-let ready=0,applied=0,lastSent='',frozen=0;{const _si=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(frozen&&KEYS.indexOf(k)>=0)return;return _si.apply(this,arguments)}}
+let ready=0,applied=0,lastSent='',lastK={},frozen=0;{const _si=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(frozen&&KEYS.indexOf(k)>=0)return;return _si.apply(this,arguments)}}
 function snap(){const o={};KEYS.forEach(k=>{const v=ls(k);if(typeof v==='string')o[k]=v});if(JSON.stringify(o).length>590000)delete o.graal_custom_v1;return o}
-function sync(force){if(!ready||!window.MPNET||!MPNET.live())return;const o=snap(),j=JSON.stringify(o);if(!force&&j===lastSent)return;lastSent=j;MPNET.send({t:'sv',d:o});setSt('☁ enviando…','#ffd27a')}
+function sync(force){if(!ready||!window.MPNET||!MPNET.live())return;const o=snap(),j=JSON.stringify(o);if(!force&&j===lastSent)return;lastSent=j;let d=o;if(!force){d={};for(const k in o)if(o[k]!==lastK[k])d[k]=o[k]}lastK=o;MPNET.send({t:'sv',d});setSt('☁ enviando…','#ffd27a')}
 /* barra no topo: entrar / avatar + nome + sair */
 const bar=document.createElement('div');bar.id='accbar';
 bar.style.cssText='position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:60;display:none;align-items:center;gap:7px;padding:3px 11px 3px 4px;border-radius:15px;background:rgba(30,22,12,.85);border:2px solid #5a4020;color:#f3e6c4;font:600 12px Verdana,Arial,sans-serif;white-space:nowrap;user-select:none';
