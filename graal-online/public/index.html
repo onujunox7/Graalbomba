@@ -1504,7 +1504,8 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='id'){myId=m.id;srvV=m.v||1;if(m.v!==3)MSG.push({id:null,nm:'⚠',x:'servidor desatualizado: troque o server.js no GitHub',t:performance.now()+25000});return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs)});return}
   if(m.t==='cfg'){if(!localStorage.getItem('graal_admin_token')&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
-  if(m.t==='out'){location.replace('/?logout=1');return}
+  if(m.t==='out'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}location.replace('/?logout=1');return}
+  if(m.t==='dup'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}return}
   if(m.t==='role'||m.t==='cmd'||m.t==='kick'||m.t==='adm'){if(m.t==='kick')window.__KICKED=1;if(window.ADM)window.ADM(m);return}
   if(m.t==='q'){window.EQX.remote(m.id,m.e);return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);window.EQX.drop(m.id);return}
@@ -1519,6 +1520,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
 conn();
+addEventListener('pagehide',()=>{window.__KICKED=1;try{ws&&ws.close()}catch(e){}});
 window.MPNET={send:o=>{try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}catch(e){}},live:()=>!!(ws&&ws.readyState===1),
  players:()=>[...RP.values()].map(r=>({id:r.id,nm:r.nm||'?',r:r.r|0})),myId:()=>myId,
  note:t=>{MSG.push({id:null,nm:'🛡',x:String(t),t:performance.now()});if(MSG.length>30)MSG.shift()}};
