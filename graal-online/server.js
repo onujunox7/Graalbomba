@@ -336,7 +336,7 @@ const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(
 
 wss.on('connection', (ws, req) => {
   const id = nid++; ws.pid = id; ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true });
-  const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_2', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
+  const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
   sendTo(ws, { t: 'id', id, v: 3 });
@@ -513,7 +513,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'u') {
       if (d.length > 400) return;
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
-      p.an = /^(Idle|Run|Attack)_[0-3]$/.test(m.an) ? m.an : 'Idle_2'; p.al = m.al == 1 ? 1 : .4;
+      p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1;
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
@@ -533,6 +533,15 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
   ws.on('error', () => { });
 });
+
+/* animação do jogador: aceita direção por nome (Run_Down, clientes antigos) ou número 0-3 (Run_2) e guarda SEMPRE por nome,
+   que é o que todos os clientes (antigos e novos) sabem desenhar. Antes, o nome era descartado e virava Idle_2: o amigo deslizava parado. */
+const AN_DIR = ['Up', 'Left', 'Down', 'Right'];
+function normAn(a) {
+  const m = /^(Idle|Run|Attack)_([0-3]|Up|Left|Down|Right)$/.exec(a);
+  if (!m) return 'Idle_Down';
+  return m[1] + '_' + (/^[0-3]$/.test(m[2]) ? AN_DIR[+m[2]] : m[2]);
+}
 
 setInterval(() => {
   const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role, tp: p.ty | 0 }));
