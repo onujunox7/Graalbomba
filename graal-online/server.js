@@ -198,7 +198,7 @@ const srv = http.createServer((req, res) => {
     res.writeHead(302, { Location: 'https://discord.com/oauth2/authorize?' + q, 'Set-Cookie': ck(req, 'gst', st, 600) }); return res.end();
   }
   if (url === '/auth/discord/callback' && req.method === 'GET') return discordCallback(req, res);
-  if (url === '/auth/logout') { res.writeHead(302, { Location: '/', 'Set-Cookie': ck(req, 'gsid', '', 0) }); return res.end() }
+  if (url === '/auth/logout') { res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
   if (url === '/api/me' && req.method === 'GET') {
     const id = sessionOf(req), a = id && ACC[id];
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -244,6 +244,9 @@ const srv = http.createServer((req, res) => {
 /* ---------------- jogo (WebSocket, protocolo v3) ---------------- */
 const wss = new WebSocketServer({ server: srv, maxPayload: 700 * 1024 });
 let nid = 1; const P = new Map();
+// Uma única conexão ativa por conta Discord: impede que uma aba/dispositivo antigo
+// sobrescreva o progresso mais recente depois de uma nova entrada.
+const ACTIVE_ACC = new Map();
 /* arbustos cortados (compartilhado entre todos): chave "x,y" (tile) -> quando volta a crescer (ms). Mundo: 1664 x 2752 tiles. */
 const BUSH_MS = 15000, BUSH_MAX = 4000, BCUT = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, t] of BCUT) if (t <= n) BCUT.delete(k) }, 5000);
@@ -282,7 +285,8 @@ wss.on('connection', (ws, req) => {
       else if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + Math.ceil((ku - Date.now()) / 60000) + ' min.' }); setTimeout(() => ws.close(), 100) }
       else {
         KICKED.delete(p.uh);
-        for (const o of P.values()) if (o !== p && o.acc === sid) { sendTo(o.ws, { t: 'kick', r: 'Sua conta entrou em outro lugar.' }); setTimeout(() => o.ws.close(), 100) }
+        for (const o of P.values()) if (o !== p && o.acc === sid) { o.acc = null; sendTo(o.ws, { t: 'kick', r: 'Sua conta entrou em outro lugar.' }); setTimeout(() => o.ws.close(), 100) }
+        ACTIVE_ACC.set(sid, p);
         setRole(AD.admins[p.uh] ? 1 : 0);
         sendTo(ws, accMsg(ACC[sid]));
       }
@@ -371,7 +375,7 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'sv') { // salva o progresso na conta (só quem está logado; no máx. 1 a cada 2 s)
       const a = p.acc && ACC[p.acc], now = Date.now();
-      if (!a || !m.d || typeof m.d !== 'object' || now - p.svT < 2000) return; p.svT = now;
+      if (!a || ACTIVE_ACC.get(p.acc) !== p || !m.d || typeof m.d !== 'object' || now - p.svT < 2000) return; p.svT = now;
       const out = {}; let n = 0;
       for (const k of ACC_KEYS) { const v = m.d[k]; if (typeof v === 'string') { n += v.length + k.length; out[k] = v } }
       if (n > ACC_MAX) return;
@@ -405,7 +409,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
   });
-  ws.on('close', () => { P.delete(id); others(id, { t: 'l', id }) });
+  ws.on('close', () => { if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); P.delete(id); others(id, { t: 'l', id }) });
   ws.on('error', () => { });
 });
 
