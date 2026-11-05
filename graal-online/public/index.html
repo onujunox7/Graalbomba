@@ -2,6 +2,38 @@
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#14161c"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<script>/* config do servidor (graal-config.json): portas, mapa, tilesets, colisão, interior e levels valem para TODOS os jogadores.
+   Se este navegador for o ADMIN (abriu o jogo uma vez com ?admin=SEU_TOKEN), cada mudança no editor é enviada ao servidor sozinha. */
+(function(){
+var KM={doors:'graal_doors_v1',map:'graal_map_gw1',tilesets:'graal_tilesets_v1',interior:'graal_interior_v1',levels:'graal_levels_v1',tsol:'graal_tilesol_v2'};
+var LS=window.localStorage,SP=Storage.prototype,gi=SP.getItem,si=SP.setItem,ri=SP.removeItem;
+var G=function(k){try{return gi.call(LS,k)}catch(e){return null}},S=function(k,v){try{si.call(LS,k,v)}catch(e){}},R=function(k){try{ri.call(LS,k)}catch(e){}};
+var TOK='';try{var q=new URLSearchParams(location.search);if(q.get('admin')){S('graal_admin_token',q.get('admin'));q.delete('admin');var qs=q.toString();history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+location.hash)}TOK=G('graal_admin_token')||''}catch(e){}
+var dirty={};try{(JSON.parse(G('graal_cfg_dirty')||'[]')||[]).forEach(function(k){if(KM[k])dirty[k]=1})}catch(e){}
+var saveDirty=function(){var a=Object.keys(dirty);if(a.length)S('graal_cfg_dirty',JSON.stringify(a));else R('graal_cfg_dirty')};
+var have={};
+/* 1) baixa a config do servidor (síncrono, antes do jogo iniciar) */
+try{var x=new XMLHttpRequest();x.open('GET','graal-config.json?'+Date.now(),false);x.send();
+ if(x.status===200){var t=x.responseText,o=JSON.parse(t),h=x.getResponseHeader('ETag')||(t.length+':'+t.slice(0,64));
+  if(o&&typeof o==='object'){var fresh=G('graal_cfg_rev')!==h;
+   for(var k in KM){if(!(k in o))continue;have[k]=1;if(!fresh||(TOK&&dirty[k]))continue; /* edição ainda não enviada vale mais que a do servidor */
+    var v=o[k];if(v==null)R(KM[k]);else S(KM[k],typeof v==='string'?v:JSON.stringify(v))}
+   S('graal_cfg_rev',h)}}}catch(e){}
+/* 2) admin: envia ao servidor, com aviso na tela */
+var toast=function(msg,bad){var go=function(){var e=document.getElementById('cfgtoast');if(!e){e=document.createElement('div');e.id='cfgtoast';e.style.cssText='position:fixed;right:8px;bottom:8px;z-index:99999;padding:4px 10px;border-radius:6px;font:600 12px Verdana,Arial,sans-serif;color:#fff;pointer-events:none;transition:opacity .4s';document.body.appendChild(e)}
+  e.textContent=msg;e.style.background=bad?'#b00020':'#256b2e';e.style.opacity=1;clearTimeout(e._t);e._t=setTimeout(function(){e.style.opacity=0},bad?6000:1800)};
+  if(document.body)go();else addEventListener('DOMContentLoaded',go)};
+var timers={};
+function push(k){clearTimeout(timers[k]);dirty[k]=1;saveDirty();timers[k]=setTimeout(function(){
+ fetch('api/config/'+k,{method:'PUT',headers:{'Content-Type':'application/json','X-Admin-Token':TOK},body:JSON.stringify({v:G(KM[k])})})
+ .then(function(r){if(!r.ok)throw r.status;delete dirty[k];saveDirty();toast('☁ Salvo no servidor')})
+ .catch(function(e){toast(e===403?'⚠ Token de admin inválido: não salvou no servidor':'⚠ Falha ao salvar no servidor (tentando de novo na próxima edição)',1)})},700)}
+if(TOK){
+ SP.setItem=function(k,v){var r=si.apply(this,arguments);if(this===LS)for(var n in KM)if(KM[n]===k)push(n);return r};
+ SP.removeItem=function(k){var r=ri.apply(this,arguments);if(this===LS)for(var n in KM)if(KM[n]===k)push(n);return r};
+ /* primeira vez: sobe o que já existe só neste navegador e ainda não está no servidor; e reenvia o que ficou pendente */
+ for(var k2 in KM)if(dirty[k2]||(!have[k2]&&G(KM[k2])!=null))push(k2)}
+})();</script>
 <title>Graal Classic – Mapa completo</title>
 <style>
 :root{--bg:#f3efe2;--fg:#2b2b2b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -1015,6 +1047,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
  ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}
   if(m.t==='id'){myId=m.id;srvV=m.v||1;if(m.v!==3)MSG.push({id:null,nm:'⚠',x:'servidor desatualizado: troque o server.js no GitHub',t:performance.now()+25000});return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs)});return}
+  if(m.t==='cfg'){if(!localStorage.getItem('graal_admin_token')&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
   if(m.t==='q'){window.EQX.remote(m.id,m.e);return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);window.EQX.drop(m.id);return}
   if(m.t==='c'){if(m.id===myId)pend=0;MSG.push({id:m.id,nm:String(m.nm||'?'),x:String(m.x||''),t:performance.now()});if(MSG.length>30)MSG.shift();return}
@@ -1027,7 +1060,7 @@ conn();
 function skinNow(){const X=window.MPX,nb=X.nb(),nh=X.nh(),b=X.GSK.b,h=X.GSK.h;
  const bs=b>=nb?(X.cb()[b-nb]||{}).src:null,hs=h>=nh?(X.ch()[h-nh]||{}).src:null;
  return{b:Math.max(0,Math.min(b,nb-1)),h:Math.max(0,Math.min(h,nh-1)),bs:bs&&bs.length<290000?bs:null,hs:hs&&hs.length<290000?hs:null}}
-setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok)return;
+setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok||(window.INT&&INT.loc==='i'))return;
  const sk=skinNow(),key=sk.b+'|'+sk.h+'|'+(sk.bs||'').length+'|'+(sk.hs||'').length;
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
@@ -1142,8 +1175,8 @@ const EQX=window.EQX={dirty:1,swim:0,
  remote(id,e){if(e&&typeof e==='object')REM.set(id,{h:okV(e.h),s:okV(e.s),d:okV(e.d)})},drop(id){REM.delete(id)},
  pack(){return{h:EQ.h,s:EQ.s,d:EQ.d}}};
 /* ---- água: tile tipo 8 vira área de nado (o jogador atravessa, monstros não) ---- */
-let WM=null;
-const wat=(x,y)=>{const tx=Math.floor(x/8),ty=Math.floor(y/8);return tx>=0&&ty>=0&&tx<GTW&&ty<GTH&&WM[ty*GTW+tx]===1};
+let WM=null;window.__WMRESET=()=>{WM=null};
+const wat=(x,y)=>{if(window.INT&&INT.view==='i')return false;const tx=Math.floor(x/8),ty=Math.floor(y/8);return tx>=0&&ty>=0&&tx<GTW&&ty<GTH&&WM[ty*GTW+tx]===1};
 function build(){if(WM||!GWD||!GR)return;WM=new Uint8Array(GTW*GTH);
  for(let l=0;l<GNX*GNY;l++){const bx=(l%GNX)*64,by=((l/GNX)|0)*64,o=l*4096;
   for(let i=0;i<4096;i++)if(TTYPE[GWD.tiles[o+i]]===8){const k=(by+(i>>6))*GTW+bx+(i&63);WM[k]=1;GR[k]=1}}}
@@ -1221,11 +1254,14 @@ const save=()=>{try{LK.length?localStorage.setItem(KEY,JSON.stringify(LK)):local
 const inR=R=>P.x>=R[0]&&P.x<R[0]+R[2]&&P.y>=R[1]&&P.y<R[1]+R[3],cen=R=>[Math.round(R[0]+R[2]/2),Math.round(R[1]+R[3]/2)];
 function chk(){
  if(!P||P.dead||ED)return;
+ const IN=window.INT&&INT.loc==='i';
  let hit=null,end=0;
- for(const l of LK){if(inR(l.A)){hit=l;end=0;break}if(inR(l.B)){hit=l;end=1;break}}
+ for(const l of LK){if(!IN&&inR(l.A)){hit=l;end=0;break}if(IN&&inR(l.B)){hit=l;end=1;break}}
  if(lock){if(!hit)lock=false;return}
  if(!hit)return;
  const s=cen(end?hit.A:hit.B);
+ if(!end&&window.INT)INT.ret={x:cen(hit.A)[0],y:cen(hit.A)[1]};
+ if(window.INT)INT.go(end?'w':'i',s[0],s[1]);
  P.x=s[0];P.y=s[1];P.face=end?'Down':'Up';lock=true;fade=FD}
 const _u=update;update=function(dt){chk();_u(dt);if(fade>0)fade=Math.max(0,fade-dt)};
 const _d=draw;draw=function(){_d();if(fade>0&&!ED){g.save();g.setTransform(RS,0,0,RS,0,0);g.globalAlpha=Math.min(1,fade/FD);g.fillStyle='#000';g.fillRect(0,0,VW,VH);g.restore()}};
@@ -1234,8 +1270,8 @@ const _d=draw;draw=function(){_d();if(fade>0&&!ED){g.save();g.setTransform(RS,0,
 const mpUp=e=>{const c=document.getElementById('c');if(!c)return;const r=c.getBoundingClientRect();mpx=Math.floor((e.clientX-r.left)/r.width*VW+cam.x);mpy=Math.floor((e.clientY-r.top)/r.height*VH+cam.y)};
 addEventListener('pointerdown',mpUp,true);addEventListener('pointermove',mpUp,true);addEventListener('pointerup',mpUp,true);
 const stat=t=>{const e=document.getElementById('drs');if(e)e.textContent=t};
-const step1='1/2 · ARRASTE sobre a PORTA da casa para marcar a área (ou só clique para um ponto pequeno).';
-const step2='2/2 · Agora ARRASTE dentro da casa, marcando a área da saída (tapete/porta de dentro).';
+const step1='1/2 · Na aba 🌍 Mapa, ARRASTE sobre a PORTA da casa para marcar a área (ou só clique para um ponto pequeno).';
+const step2='2/2 · Abra a aba 🏠 Interior e ARRASTE lá dentro, marcando a área de entrada/saída (tapete perto da porta).';
 function jump(R){const c=cen(R);cam.x=Math.round(Math.max(0,Math.min(WP-VW,c[0]-VW/2)));cam.y=Math.round(Math.max(0,Math.min(HPX-VH,c[1]-VH/2)))}
 function build(){
  const p=document.getElementById('dr');if(!p)return;p.innerHTML='';
@@ -1247,18 +1283,18 @@ function build(){
  if(!OKST)add('span','⚠ Este navegador NÃO está guardando dados: ao recarregar, portas e edições somem. Use 💾 Exportar e envie o arquivo para ser embutido no jogo.').style.cssText='font-size:11px;color:#b00;font-weight:bold';
  const xr=add('div');xr.className='row';
  const ex=add('button','💾 Exportar tudo',xr);ex.title='Baixa um arquivo com portas e edições do mapa';ex.onclick=()=>{
-  const o={doors:LK,map:(()=>{try{return localStorage.getItem('graal_map_gw1')}catch(e){return null}})(),tilesets:(()=>{try{return localStorage.getItem('graal_tilesets_v1')}catch(e){return null}})()},t=JSON.stringify(o);
+  const o={doors:LK,map:(()=>{try{return localStorage.getItem('graal_map_gw1')}catch(e){return null}})(),tilesets:(()=>{try{return localStorage.getItem('graal_tilesets_v1')}catch(e){return null}})(),interior:(()=>{try{return localStorage.getItem('graal_interior_v1')}catch(e){return null}})(),levels:(()=>{try{return localStorage.getItem('graal_levels_v1')}catch(e){return null}})()},t=JSON.stringify(o);
   try{navigator.clipboard&&navigator.clipboard.writeText(t)}catch(e){}
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'application/json'}));a.download='graal-portas-mapa.json';document.body.appendChild(a);a.click();a.remove();stat('Arquivo baixado (e copiado). Envie para mim para embutir no jogo.')};
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'application/json'}));a.download='graal-config.json';document.body.appendChild(a);a.click();a.remove();stat('Baixado como graal-config.json: coloque na MESMA pasta do index.html no servidor/GitHub e todos os jogadores passam a ter as portas, o mapa e o interior.')};
  const im=add('button','📥 Importar',xr);const fi=add('input',null,xr);fi.type='file';fi.accept='.json,application/json';fi.hidden=true;
  im.onclick=()=>fi.click();fi.onchange=()=>{const f=fi.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const o=JSON.parse(rd.result);
-  if(Array.isArray(o.doors))localStorage.setItem(KEY,JSON.stringify(o.doors));if(o.map)localStorage.setItem('graal_map_gw1',o.map);if(o.tilesets)localStorage.setItem('graal_tilesets_v1',o.tilesets);
+  if(Array.isArray(o.doors))localStorage.setItem(KEY,JSON.stringify(o.doors));if(o.map)localStorage.setItem('graal_map_gw1',o.map);if(o.tilesets)localStorage.setItem('graal_tilesets_v1',o.tilesets);if(o.interior)localStorage.setItem('graal_interior_v1',o.interior);if(o.levels)localStorage.setItem('graal_levels_v1',o.levels);
   if(Array.isArray(o.doors)){LK=o.doors.map(fix)}stat('Importado! Recarregando...');setTimeout(()=>location.reload(),600)}catch(e){stat('Arquivo inválido.')}};rd.readAsText(f);fi.value=''};
  if(!LK.length)add('span','Nenhuma porta ligada ainda.').style.fontSize='11px';
  LK.forEach((l,i)=>{const r=add('div');r.className='row';
   const n=add('input',null,r);n.value=l.n;n.maxLength=20;n.style.width='96px';n.onchange=()=>{l.n=n.value.trim()||('Casa '+(i+1));save()};
-  const a=add('button','📍 Porta',r);a.onclick=()=>jump(l.A);
-  const b=add('button','📍 Interior',r);b.onclick=()=>jump(l.B);
+  const a=add('button','📍 Porta',r);a.onclick=()=>{window.INT&&INT.setTab('w');jump(l.A)};
+  const b=add('button','📍 Interior',r);b.onclick=()=>{window.INT&&INT.setTab('i');jump(l.B)};
   const d=add('button','🗑',r);d.title='Apagar esta ligação';d.onclick=()=>{LK.splice(i,1);save();build()}})}
 function show(){const p=document.getElementById('dr');if(!p)return;const on=typeof EDmode!=='undefined'&&EDmode==='door';if(!on){pend=null;ds=null}p.style.display=on?'flex':'none'}
 const _er=edRefresh;edRefresh=function(){_er();show()};
@@ -1276,8 +1312,9 @@ const _es=edStart;edStart=function(){
 const rectOf=(a,b)=>{let x=Math.min(a.x,b.x),y=Math.min(a.y,b.y),w=Math.abs(a.x-b.x)+1,h=Math.abs(a.y-b.y)+1;if(w<4&&h<4){x=a.x-6;y=a.y-6;w=h=13}return[x,y,w,h]};
 addEventListener('pointerup',()=>{
  if(EDmode!=='door'||!ds)return;
- const R=rectOf(ds,{x:mpx,y:mpy});ds=null;
- if(!pend){pend=R;stat(step2);return}
+ const R=rectOf(ds,{x:mpx,y:mpy});ds=null;const IV=window.INT&&INT.view==='i';
+ if(!pend){if(IV){stat('Primeiro marque a PORTA da casa na aba 🌍 Mapa (A).');return}pend=R;stat(step2);return}
+ if(!IV){stat('Agora abra a aba 🏠 Interior e marque a área de dentro (B).');return}
  LK.push({n:'Casa '+(LK.length+1),v:3,A:pend,B:R});pend=null;save();build();stat('✅ Porta ligada ao interior! Teste no jogo (T). Entrar e sair são automáticos.')},true);
 const _eg=edDrag;edDrag=function(){if(EDmode==='door')return;_eg()};
 const _ee=drawEd;drawEd=function(){const si=ms.in;if(EDmode==='door')ms.in=0;_ee();ms.in=si;mk()};
@@ -1285,12 +1322,396 @@ function box(R,c,t){const x=R[0]-cam.x,y=R[1]-cam.y;if(x<-300||y<-300||x>VW+300|
  g.fillStyle=c+'55';g.fillRect(x,y,R[2],R[3]);g.strokeStyle=c;g.lineWidth=1;g.strokeRect(x+.5,y+.5,R[2]-1,R[3]-1);
  g.lineWidth=2;g.strokeStyle='#000';g.fillStyle='#fff';g.strokeText(t,x+R[2]/2,y-3);g.fillText(t,x+R[2]/2,y-3)}
 function mk(){g.save();g.font='bold 7px sans-serif';g.textAlign='center';g.lineJoin='round';
- LK.forEach((l,i)=>{box(l.A,'#3aa0ff','P'+(i+1));box(l.B,'#ff9a2a','I'+(i+1))});
- if(pend)box(pend,'#ffe45a','P?');
+ const IV=window.INT&&INT.view==='i';
+ LK.forEach((l,i)=>{if(IV)box(l.B,'#ff9a2a','I'+(i+1));else box(l.A,'#3aa0ff','P'+(i+1))});
+ if(pend&&!IV)box(pend,'#ffe45a','P?');
  if(EDmode==='door'){
   if(ds)box(rectOf(ds,{x:mpx,y:mpy}),'#ffe45a','');
   else if(ms.in){g.fillStyle='#fff';g.fillRect(mpx-cam.x-6,mpy-cam.y,13,1);g.fillRect(mpx-cam.x,mpy-cam.y-6,1,13)}}
  g.restore()}
 })();
+</script>
+<script>
+/* ===================== INTERIORES: mapa separado do mapa normal (aba 🏠 Interior) =====================
+   Um segundo mapa (128x96 tiles de 8px) com tiles do tileset do Graal, colisão por tile (a mesma tabela
+   "Colisão por tile") + sobreposições manuais. As portas (aba 🚪 Portas) levam do Mapa para o Interior e voltam. */
+(()=>{
+const IW=2048,IH=2048,KEY='graal_interior_v1',VOID=632;
+const IT=new Uint16Array(IW*IH).fill(VOID),IO=new Uint8Array(IW*IH),ISO=new Uint8Array(IW*IH),IGR=new Uint8Array(IW*IH),IHZ=new Uint8Array(IW*IH);
+const DEF_ROOM={x:8,y:8,w:40,h:28,t:"NwO/Ar8CvwIFBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwYHBgcGBwcHvwK/Ar8CPAPtAjgDzwLOAhUHJgcmByYHJgcmByYHJgcWByYHJgcWByYHJgcmByYHJgcmByYHFgcmByYHJgcmByYHJgcmByYHJgcWByYHFwfPAs4COwP9Au0C/gI5A94CJQcmByYHJgcmByYHJgcmByYHJgcmByYHJgcmByYHJgcmByYHJgcmByYHJgcmByYHJgcmByYHJgcmByYHJgcnB98COgP8Av0C7QLuAu8CZAM1BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzYHNgc2BzcHZQPrAuwC/QLtAv4C/wLbAjYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgn6AvsC/AL9Au0C7gLvAtsCNgmvAk0FTgVPBUAHQQdCB0MHRAeuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgI2CfoC6wLsAv0C7QL+Av8C2wI2Ca4CXQVeBV8FUAdRB1IHUwdUB68CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAjYJ+gL7AvwC/QLtAu4C7wLbAjYJrwJtBW4FbQVuBWEHYgdjB2QHrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CNgn6AusC7AL9Au0C/gL/AtsCNgmuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwI2CfoC+wL8Av0C7QLuAu8C2wI2Ca8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAjYJ+gLrAuwC/QLtAv4C/wLbAjYJrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CNgn6AvsC/AL9Au0C7gLvAtsCNgmvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgI2CfoC6wLsAv0C7QL+Av8C2wI2Ca4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAjYJ+gL7AvwC/QLtAu4C7wLbAjYJNgk2CTYJNgk2CTYJNgk2CTYJNgmvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CNgn6AusC7AL9Au0C/gL/AtsCNgk2CckJyAnJCakCqgLICckJyAk2Ca4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwI2CfoC+wL8Av0C7QLuAu8C2wI2CTYJ2QnYCdkJuQK6AtgJ2QnYCTYJrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAjYJ+gLrAuwC/QLtAv4C/wLbAjYJNgnJCcgJyALKAskCqwLJCcgJNgmuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CNgn6AgIHAwcEB+0C7gLvAtsCNgk2CakCqgLYAm8FYAe7AqkCqgI2Ca8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgI2CfoCEQdFAxQH7QL+Av8C2wI2CTYJuQK6AtgCfwVwB7sCuQK6AjYJrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAjYJ+gIRB0UDJAftAu4C7wLbAjYJNgnZCdgJ6ALqAukCywLZCdgJNgmvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CNgn6AjIHMwc0B+0C/gL/AtsCNgk2CckJyAnJCakCqgLICckJyAk2Ca4CrwKuAq8CrgKvAq4CrwKsAq0CrAKtAqwCrQKsAq0CrgKvAq4CrwI2CfoC+wL8Av0C7QLuAu8C2wI2CTYJ2QnYCdkJuQK6AtgJ2QnYCTYJrwKuAq8CrgKvAq4CrwKuArwCvQK8Ar0CvAK9ArwCvQKvAq4CrwKuAjYJ+gLrAuwC/QLtAv4C/wLbAjYJNgk2CTYJNgk2CTYJNgk2CTYJNgmuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CrgKvAq4CrwKuAq8CNgn6AvsC/AL9Au0C7gLvAtsCNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CTYJNgk2CfoC6wLsAv0C7QL+Av8CdAM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DPwM/Az8DdQP7AvwC/QLtAu4CSQMKAwsDCgMLAwoDCwMKAwsDCgMLAwoDCwMKAwsDCgMLAwoDCwMKAwsDCgMLAwoDCwMKAwsDCgMLAwoDCwMKAwsDCgMLA0oD7AL9Au0CSAMbAxoDGwMaAxsDGgMbAxoDGwMaAxsDGgMbAxoDGwMaAxsDGgMbAxoDGwMaAxsDGgMbAxoDGwMaAxsDGgMbAxoDGwMaAxsDGgNLA/0CRwMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDKgMqAyoDTAM="};
+const gm=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c};
+const u8b64=u=>{let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)};
+const b64u8=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const tpos=t=>[(t>>9)*256+(t&15)*16,((t>>4)&31)*16];
+const sheetId=(col,row)=>(col>>4)*512+row*16+(col&15);
+const $=id=>document.getElementById(id);
+const INT=window.INT={view:'w',loc:'w',ret:null};
+
+/* ---------- dados ---------- */
+const cellSol=i=>{const o=IO[i];if(o===1)return 1;if(o===2)return 0;const t=IT[i];return t===VOID?1:TSOL[t]};
+const recalc=i=>{ISO[i]=cellSol(i)};
+const recalcAll=()=>{for(let i=0;i<IW*IH;i++)ISO[i]=cellSol(i)};
+function defaultRoom(){
+ IT.fill(VOID);IO.fill(0);
+ const r=DEF_ROOM,t=new Uint16Array(b64u8(r.t).buffer);
+ for(let j=0;j<r.h;j++)for(let i=0;i<r.w;i++){const k=(r.y+j)*IW+r.x+i;IT[k]=t[j*r.w+i];IO[k]=1}
+ const free=(x0,y0,x1,y1)=>{for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)IO[y*IW+x]=0};
+ free(13,13,42,30);                       /* chão */
+ const blk=(x0,y0,x1,y1)=>{for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)IO[y*IW+x]=1};
+ blk(14,13,21,15);blk(16,24,19,27);blk(31,28,38,29);   /* fogão+bancada, mesa, jarras */
+}
+function load(){
+ let ok=0;
+ try{const o=JSON.parse(localStorage.getItem(KEY)||'null');
+  if(o&&o.w>0&&o.h>0&&o.w<=IW&&o.h<=IH&&typeof o.t==='string'){let t=new Uint16Array(b64u8(o.t).buffer);const nb=o.bw!=null,bw=nb?o.bw:o.w,bh=nb?o.bh:o.h,bx=o.bx||0,by=o.by||0;
+   if(o.r){const u=new Uint16Array(bw*bh);let p=0;for(let i=0;i<t.length;i+=2){u.fill(t[i],p,p+t[i+1]);p+=t[i+1]}t=u}
+   if(t.length===bw*bh){IT.fill(VOID);IO.fill(0);for(let y=0;y<bh;y++)for(let x=0;x<bw;x++)IT[(by+y)*IW+bx+x]=t[y*bw+x];
+    if(nb)(o.q||[]).forEach(p=>{IO[p[1]*IW+p[0]]=p[2]});else(o.o||[]).forEach(p=>{IO[((p[0]/o.w)|0)*IW+p[0]%o.w]=p[1]});ok=1}}}catch(e){}
+ if(!ok)defaultRoom();
+ recalcAll();
+}
+let svT=0;
+function save(){clearTimeout(svT);svT=setTimeout(()=>{try{let x0=IW,y0=IH,x1=-1,y1=-1;
+  for(let y=0;y<IH;y++){const r=y*IW;for(let x=0;x<IW;x++)if(IT[r+x]!==VOID||IO[r+x]){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
+  if(x1<0){x0=y0=x1=y1=0}
+  const bw=x1-x0+1,bh=y1-y0+1,q=[],rl=[];let pv=-1,n=0;
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const k=y*IW+x,v=IT[k];if(IO[k])q.push([x,y,IO[k]]);if(v===pv&&n<65535)n++;else{if(n)rl.push(pv,n);pv=v;n=1}}
+  rl.push(pv,n);
+  localStorage.setItem(KEY,JSON.stringify({w:IW,h:IH,bx:x0,by:y0,bw,bh,r:1,t:u8b64(new Uint8Array(Uint16Array.from(rl).buffer)),q}))}catch(e){}},400)}
+
+/* ---------- tela do mapa (mesma interface do mapa grande) ---------- */
+class ICanvas{
+  constructor(){this.chunked=1;this.width=IW*8;this.height=IH*8}
+  cell(){}all(){}reset(){}getContext(){return this}drawImage(){}fillRect(){}
+  draw(g,cx,cy,w,h){const x0=Math.max(0,cx>>3),y0=Math.max(0,cy>>3),x1=Math.min(IW-1,(cx+w-1)>>3),y1=Math.min(IH-1,(cy+h-1)>>3);
+   for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const t=IT[y*IW+x];if(t===VOID)continue;const[sx,sy]=tpos(t);g.drawImage(IM.gt,sx,sy,16,16,x*8-cx,y*8-cy,8,8)}}
+  mini(c){const w=c.width,h=c.height,q=c.getContext('2d'),im=q.createImageData(w,h);
+   for(let j=0;j<h;j++)for(let i=0;i<w;i++){const t=IT[Math.min(IH-1,((j+.5)*IH/h)|0)*IW+Math.min(IW-1,((i+.5)*IW/w)|0)],k=(j*w+i)*4;if(t!==VOID){im.data[k]=GAVG[t*3];im.data[k+1]=GAVG[t*3+1];im.data[k+2]=GAVG[t*3+2]}im.data[k+3]=255}q.putImageData(im,0,0)}
+}
+let IC=null;
+const camS={w:{x:0,y:0},i:{x:40,y:56}};
+let WSAVE=null;
+INT.api={IW,IH,IT,IO,VOID,ensure(){if(!IC){load();IC=new ICanvas()}},refresh(){recalcAll();IC.all();MM=null;save()},get IC(){return IC}};
+
+/* ---------- troca de mapa ---------- */
+function setView(v){
+ if(v===INT.view)return;
+ if(v==='i'){
+  if(!IC){load();IC=new ICanvas()}
+  camS.w={x:cam.x,y:cam.y};
+  WSAVE={below:IM.below,SO,DW:D.W,DH:D.H,WP,HPX,CH,SK,GR,HZ,NPC,drops,dirty:0};
+  recalcAll();
+  IM.below=IC;SO=ISO;D.W=IW;D.H=IH;WP=IW*8;HPX=IH*8;CH=[];SK=[];GR=IGR;HZ=IHZ;NPC={x:-99999,y:-99999};drops=[];
+  cam.x=camS.i.x;cam.y=camS.i.y;INT.view='i';
+ }else{
+  camS.i={x:cam.x,y:cam.y};
+  const W=WSAVE;IM.below=W.below;SO=W.SO;D.W=W.DW;D.H=W.DH;WP=W.WP;HPX=W.HPX;CH=W.CH;SK=W.SK;GR=W.GR;HZ=W.HZ;NPC=W.NPC;drops=W.drops;
+  cam.x=camS.w.x;cam.y=camS.w.y;INT.view='w';
+  if(W.dirty){W.dirty=0;edRebuild()}
+ }
+ MM=null;document.body.classList.toggle('inint',INT.view==='i');fixMode();tabsUI();
+}
+function fixMode(){
+ const ed=$('ed');if(ed)ed.classList.toggle('inint',INT.view==='i');
+ if(INT.view==='i'&&EDmode!=='int'&&EDmode!=='door')EDmode='int';
+ if(INT.view==='w'&&EDmode==='int')EDmode='stamp';
+ try{edRefresh()}catch(e){}
+}
+/* jogo: porta do mapa -> interior e volta */
+INT.go=function(l,x,y){
+ INT.loc=l;setView(l);
+ if(x!=null){cam.x=Math.round(Math.max(0,Math.min(WP-VW,x-VW/2)));cam.y=Math.round(Math.max(0,Math.min(HPX-VH,y-VH/2)))}
+};
+INT.setTab=t=>{setView(t)};
+const _et=edToggle;edToggle=function(){_et();if(ED){fixMode();tabsUI()}else if(INT.view!==INT.loc)setView(INT.loc)};
+const _rs=reset;reset=function(){if(INT.loc!=='w'){INT.loc='w';setView('w')}INT.ret=null;_rs()};
+const _gap=gwApplySol;gwApplySol=function(){if(INT.view==='i'){BASES=gwSolidBase();if(WSAVE)WSAVE.dirty=1;recalcAll()}else{_gap();if(IC)recalcAll()}};
+
+/* ---------- ferramentas ---------- */
+let IMODE='stamp',SEL={w:1,h:1,ids:[686],pat:false,n:'Tile 686'},undo=[],redo=[],cur=null,curSeen=null,rc=null;
+const inb=(x,y)=>x>=0&&y>=0&&x<IW&&y<IH;
+function setCell(x,y,t,o){
+ if(!inb(x,y))return;const i=y*IW+x;if(t==null)t=IT[i];if(o==null)o=IO[i];
+ if(IT[i]===t&&IO[i]===o)return;
+ if(cur&&!curSeen.has(i)){curSeen.add(i);cur.push([i,IT[i],IO[i]])}
+ IT[i]=t;IO[i]=o;recalc(i);IC.cell(i);MM=null;save();
+}
+const selAt=(x,y,ox,oy)=>{const w=SEL.w,h=SEL.h,a=SEL.pat?x:x-ox,b=SEL.pat?y:y-oy;return SEL.ids[(((b%h)+h)%h)*w+(((a%w)+w)%w)]};
+function stampAt(ax,ay){for(let j=0;j<SEL.h;j++)for(let i=0;i<SEL.w;i++){const t=SEL.ids[j*SEL.w+i];if(t!=null&&t>=0)setCell(ax+i,ay+j,t,0)}}
+const centered=()=>[ms.tx-(SEL.w>>1),ms.ty-(SEL.h>>1)];
+const snapped=()=>[Math.floor(ms.tx/SEL.w)*SEL.w,Math.floor(ms.ty/SEL.h)*SEL.h];
+function paintTool(m){
+ const x=ms.tx,y=ms.ty;
+ if(m==='erase')setCell(x,y,VOID,0);
+ else if(m==='solid')setCell(x,y,null,1);
+ else if(m==='free')setCell(x,y,null,2);
+ else if(m==='reset')setCell(x,y,null,0);
+}
+function flood(x,y){
+ if(!inb(x,y))return;const old=IT[y*IW+x],seen=new Uint8Array(IW*IH),st=[[x,y]];let n=0;
+ while(st.length&&n<8000){const[a,b]=st.pop();if(!inb(a,b))continue;const i=b*IW+a;if(seen[i]||IT[i]!==old)continue;seen[i]=1;n++;
+  setCell(a,b,selAt(a,b,x,y),0);st.push([a+1,b],[a-1,b],[a,b+1],[a,b-1])}
+}
+const imode=()=>ms.down===2?'erase':IMODE;
+function iStart(){
+ cur=[];curSeen=new Set();rc=null;ms.lx=ms.ly=-1e9;const m=imode();
+ if(m==='stamp'){const[a,b]=centered();stampAt(a,b)}
+ else if(m==='brush'){const[a,b]=snapped();ms.lx=a;ms.ly=b;stampAt(a,b)}
+ else if(m==='rect'){rc={x:ms.tx,y:ms.ty,x2:ms.tx,y2:ms.ty}}
+ else if(m==='fill')flood(ms.tx,ms.ty);
+ else{ms.lx=ms.tx;ms.ly=ms.ty;paintTool(m)}
+}
+function iDrag(){
+ const m=imode();
+ if(m==='brush'){const[a,b]=snapped();if(a===ms.lx&&b===ms.ly)return;ms.lx=a;ms.ly=b;stampAt(a,b)}
+ else if(m==='rect'&&rc){rc.x2=ms.tx;rc.y2=ms.ty}
+ else if(m==='erase'||m==='solid'||m==='free'||m==='reset'){if(ms.tx===ms.lx&&ms.ty===ms.ly)return;ms.lx=ms.tx;ms.ly=ms.ty;paintTool(m)}
+}
+function iEnd(){
+ if(imode()==='rect'&&rc&&ms.down===1){const x0=Math.min(rc.x,rc.x2),x1=Math.max(rc.x,rc.x2),y0=Math.min(rc.y,rc.y2),y1=Math.max(rc.y,rc.y2);
+  if((x1-x0+1)*(y1-y0+1)<=6000)for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)setCell(x,y,selAt(x,y,x0,y0),0)}
+ rc=null;
+ if(cur&&cur.length){undo.push(cur.map(([i,t,o])=>[i,t,o,IT[i],IO[i]]));if(undo.length>200)undo.shift();redo=[]}
+ cur=null;curSeen=null;
+}
+function applyOp(op,back){for(let k=op.length-1;k>=0;k--){const[i,t,o,t2,o2]=op[k];IT[i]=back?t:t2;IO[i]=back?o:o2;recalc(i);IC.cell(i)}MM=null;save()}
+function iUndo(){const op=undo.pop();if(op){applyOp(op,1);redo.push(op)}}
+function iRedo(){const op=redo.pop();if(op){applyOp(op,0);undo.push(op)}}
+const _eS=edStart;edStart=function(){if(INT.view==='i'&&EDmode==='int')return iStart();_eS()};
+const _eD=edDrag;edDrag=function(){if(INT.view==='i'&&EDmode==='int')return iDrag();_eD()};
+const _eE=edEnd;edEnd=function(){if(INT.view==='i'&&EDmode==='int')return iEnd();_eE()};
+const _eU=edUndo;edUndo=function(){INT.view==='i'?iUndo():_eU()};
+const _eR=edRedo;edRedo=function(){INT.view==='i'?iRedo():_eR()};
+
+/* ---------- desenho do editor ---------- */
+const _dE=drawEd;
+drawEd=function(){
+ if(!(INT.view==='i'&&EDmode==='int'))return _dE();
+ const cx0=Math.floor(cam.x/8),cy0=Math.floor(cam.y/8),m=imode();
+ if(EDcol){g.fillStyle='rgba(255,0,0,.3)';for(let j=0;j<37;j++)for(let i=0;i<49;i++){const X=cx0+i,Y=cy0+j;if(inb(X,Y)&&ISO[Y*IW+X])g.fillRect(X*8-cam.x,Y*8-cam.y,8,8)}
+  g.fillStyle='rgba(60,255,60,.35)';for(let j=0;j<37;j++)for(let i=0;i<49;i++){const X=cx0+i,Y=cy0+j;if(inb(X,Y)&&IO[Y*IW+X]===2)g.fillRect(X*8-cam.x+2,Y*8-cam.y+2,4,4)}}
+ if(EDgrid){g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=1;g.beginPath();for(let i=0;i<=49;i++){const x=(cx0+i)*8-cam.x+.5;g.moveTo(x,0);g.lineTo(x,VH)}for(let j=0;j<=37;j++){const y=(cy0+j)*8-cam.y+.5;g.moveTo(0,y);g.lineTo(VW,y)}g.stroke()}
+ g.textAlign='left';g.lineWidth=1;
+ if(ms.in){
+  const prev=(ax,ay)=>{g.globalAlpha=.65;for(let j=0;j<SEL.h;j++)for(let i=0;i<SEL.w;i++){const t=SEL.ids[j*SEL.w+i];if(t==null||t<0)continue;const[sx,sy]=tpos(t);g.drawImage(IM.gt,sx,sy,16,16,(ax+i)*8-cam.x,(ay+j)*8-cam.y,8,8)}g.globalAlpha=1;
+   g.strokeStyle='#fff8';g.strokeRect(ax*8-cam.x+.5,ay*8-cam.y+.5,SEL.w*8,SEL.h*8)};
+  if(m==='stamp'){const[a,b]=centered();prev(a,b)}
+  else if(m==='brush'){const[a,b]=snapped();prev(a,b)}
+  else if(m==='rect'&&rc){const x0=Math.min(rc.x,rc.x2),x1=Math.max(rc.x,rc.x2),y0=Math.min(rc.y,rc.y2),y1=Math.max(rc.y,rc.y2);
+   g.globalAlpha=.5;if((x1-x0+1)*(y1-y0+1)<=1500)for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const t=selAt(x,y,x0,y0),[sx,sy]=tpos(t);g.drawImage(IM.gt,sx,sy,16,16,x*8-cam.x,y*8-cam.y,8,8)}g.globalAlpha=1;
+   g.strokeStyle='#ffe45a';g.strokeRect(x0*8-cam.x+.5,y0*8-cam.y+.5,(x1-x0+1)*8,(y1-y0+1)*8)}
+  else{g.fillStyle=m==='erase'?'rgba(255,60,60,.4)':m==='solid'?'rgba(255,160,0,.5)':m==='free'?'rgba(60,255,60,.4)':'rgba(255,255,255,.35)';g.fillRect(ms.tx*8-cam.x,ms.ty*8-cam.y,8,8)}
+ }
+ const k=inb(ms.tx,ms.ty)?ms.ty*IW+ms.tx:-1;
+ g.fillStyle='rgba(20,14,6,.75)';g.fillRect(0,VH-14,VW,14);g.fillStyle='#ffe45a';g.font='8px sans-serif';
+ g.fillText('INTERIOR · '+m+' · tile '+ms.tx+','+ms.ty+(k>=0?' · id '+IT[k]+(ISO[k]?' · sólido':''):'')+' · Z/Y desfazer · G grade · C colisão · T sair',4,VH-5);
+};
+
+/* ---------- painel ---------- */
+const PIECES=[
+ {n:'Piso tapete (vermelho/amarelo)',pat:1,r:[[686,687],[687,686]]},
+ {n:'Tapete escuro',pat:1,r:[[2504,2505],[2520,2521]]},
+ {n:'Fogão 6x3',r:[[1357,1358,1359,1856,1857,1858],[1373,1374,1375,1872,1873,1874],[1389,1390,1389,1390,1889,1890]]},
+ {n:'Bancada marrom 2x3',r:[[1859,1860],[1875,1876],[1891,1892]]},
+ {n:'Mesa 4x4',r:[[712,714,713,683],[728,730,729,699],[728,730,729,699],[744,746,745,715]]},
+ {n:'Mesa com prato 4x4',r:[[712,714,713,683],[728,1391,1888,699],[728,1407,1904,699],[744,746,745,715]]},
+ {n:'Cadeira 2x2',r:[[681,682],[697,698]]},
+ {n:'Jarra 2x2',r:[[684,685],[700,701]]},
+ {n:'Moldura (2358)',r:[[2358]]}
+];
+const pickPiece=p=>{SEL={w:p.r[0].length,h:p.r.length,ids:p.r.flat(),pat:!!p.pat,n:p.n};if(['erase','solid','free','reset'].includes(IMODE))IMODE='stamp';EDmode='int';panelRefresh();edRefresh()};
+let sheetC=null,sheetSel=null;
+function sheetDraw(){
+ const q=sheetC.getContext('2d');q.imageSmoothingEnabled=false;q.drawImage(IM.gt,0,0);
+ if(sheetSel){const[a,b,c,d]=sheetSel;q.fillStyle='rgba(255,228,90,.28)';q.fillRect(a*16,b*16,(c-a+1)*16,(d-b+1)*16);q.strokeStyle='#ffe45a';q.lineWidth=2;q.strokeRect(a*16+1,b*16+1,(c-a+1)*16-2,(d-b+1)*16-2)}
+}
+function build(){
+ const side=$('side');if(!side||$('ip'))return;
+ const tabs=document.createElement('div');tabs.id='tabs';
+ tabs.innerHTML='<button data-t="w">🌍 Mapa</button><button data-t="i">🏠 Interior</button>';
+ side.insertBefore(tabs,side.firstChild);
+ tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{setView(b.dataset.t);if(b.dataset.t==='i')cam.x=Math.round(Math.max(0,Math.min(WP-VW,cam.x)))});
+ const p=document.createElement('div');p.id='ip';
+ p.innerHTML='<b>🏠 Mapa de interiores</b><span style="font-size:11px">Este mapa é separado do mapa normal. Pinte com tiles do Graal; as portas (🚪) ligam o Mapa a este Interior.</span>'
+  +'<div class="row" id="ipT"></div><div class="row" id="ipA"></div>'
+  +'<b style="font-size:11px">Peças prontas</b><div class="row" id="ipP"></div>'
+  +'<b style="font-size:11px">Tileset do Graal — arraste para escolher 1 ou vários tiles</b>'
+  +'<div style="overflow:auto;max-height:30vh;border:2px solid #3a2a14;background:#222"><canvas id="ipS" width="2048" height="512" style="display:block;image-rendering:pixelated;touch-action:none"></canvas></div>'
+  +'<span id="ipI" style="font-size:11px"></span>';
+ const ed=$('ed');ed.parentNode.insertBefore(p,ed.nextSibling);
+ const T=$('ipT'),A=$('ipA'),P2=$('ipP');
+ const btn=(r,l,fn,t,d)=>{const b=document.createElement('button');b.innerHTML=l;b.title=t||'';b.onclick=fn;if(d)b.dataset.im=d;r.appendChild(b);return b};
+ [['stamp','🖌 Carimbo','Um clique coloca a peça/tile'],['brush','🖌 Pincel','Arraste: repete alinhado à grade'],['rect','▭ Retângulo','Arraste para preencher uma área'],['fill','🪣 Balde','Preenche a região do mesmo tile'],['erase','🧽 Apagar','Tira o tile (botão direito também)'],['solid','⛔ Bloquear','Força colisão'],['free','✅ Liberar','Força passagem livre'],['reset','↺ Auto','Volta à colisão automática do tile']]
+  .forEach(([m,l,t])=>btn(T,l,()=>{IMODE=m;EDmode='int';panelRefresh();edRefresh()},t,m));
+ btn(A,'↶ Desfazer',iUndo,'Z');btn(A,'↷ Refazer',iRedo,'Y');
+ btn(A,'# Grade',()=>{EDgrid=!EDgrid;panelRefresh()},'G',null).dataset.f='grid';
+ btn(A,'🟥 Colisão',()=>{EDcol=!EDcol;panelRefresh()},'C',null).dataset.f='col';
+ btn(A,'🚪 Portas',()=>{EDmode='door';edRefresh();panelRefresh()},'Marcar a área de entrada/saída deste interior (B)',null).dataset.f='door';
+ btn(A,'🏡 Casa modelo',()=>{if(confirm('Substituir o interior atual pela casa modelo?')){defaultRoom();recalcAll();IC.all();MM=null;undo=[];redo=[];save();panelRefresh()}},'Recria a casa do print (apaga o interior atual)');
+ btn(A,'🗑 Limpar tudo',()=>{if(confirm('Apagar TODO o interior?')){IT.fill(VOID);IO.fill(0);recalcAll();IC.all();MM=null;undo=[];redo=[];save()}},'Esvazia o mapa de interiores');
+ PIECES.forEach(pc=>{const c=gm(pc.r[0].length*8,pc.r.length*8),q=c.getContext('2d');q.imageSmoothingEnabled=false;
+  pc.r.forEach((row,j)=>row.forEach((t,i)=>{const[sx,sy]=tpos(t);q.drawImage(IM.gt,sx,sy,16,16,i*8,j*8,8,8)}));
+  c.style.cssText='max-width:44px;max-height:44px;image-rendering:pixelated;display:block';
+  const b=btn(P2,'',()=>pickPiece(pc),pc.n);b.appendChild(c)});
+ sheetC=$('ipS');sheetDraw();
+ let a=null;
+ const pos=e=>{const r=sheetC.getBoundingClientRect();return[Math.max(0,Math.min(127,Math.floor((e.clientX-r.left)*2048/r.width/16))),Math.max(0,Math.min(31,Math.floor((e.clientY-r.top)*512/r.height/16)))]};
+ const selUp=b=>{const x0=Math.min(a[0],b[0]),x1=Math.max(a[0],b[0]),y0=Math.min(a[1],b[1]),y1=Math.max(a[1],b[1]);sheetSel=[x0,y0,x1,y1];
+  const ids=[];for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)ids.push(sheetId(x,y));
+  SEL={w:x1-x0+1,h:y1-y0+1,ids,pat:false,n:ids.length===1?'Tile '+ids[0]:ids.length+' tiles (início '+ids[0]+')'};
+  if(IMODE==='erase'||IMODE==='solid'||IMODE==='free'||IMODE==='reset')IMODE='stamp';EDmode='int';sheetDraw();panelRefresh();edRefresh()};
+ sheetC.onpointerdown=e=>{a=pos(e);try{sheetC.setPointerCapture(e.pointerId)}catch(_){}selUp(a)};
+ sheetC.onpointermove=e=>{if(a)selUp(pos(e))};
+ sheetC.onpointerup=()=>{a=null};
+ tabsUI();panelRefresh();
+}
+function tabsUI(){const t=$('tabs');if(t)t.querySelectorAll('button').forEach(b=>b.classList.toggle('sel',b.dataset.t===INT.view))}
+function panelRefresh(){
+ const p=$('ip');if(!p)return;
+ p.querySelectorAll('[data-im]').forEach(b=>b.classList.toggle('sel',EDmode==='int'&&b.dataset.im===IMODE));
+ p.querySelectorAll('[data-f]').forEach(b=>{const f=b.dataset.f;b.classList.toggle('sel',f==='grid'?!!EDgrid:f==='col'?!!EDcol:EDmode==='door')});
+ const i=$('ipI');if(i)i.textContent='Seleção: '+SEL.n+' ('+SEL.w+'×'+SEL.h+')';
+}
+const st=document.createElement('style');
+st.textContent='#tabs{display:flex;gap:4px;width:100%}#tabs button,#ip button{background:#d8c99a;border:2px solid #3a2a14;border-radius:6px;padding:2px 6px;font:12px Georgia,serif;color:#2b2b2b;cursor:pointer}#tabs button{flex:1;padding:5px 6px;font-size:13px}#tabs button.sel,#ip button.sel{background:#ffe45a;border-color:#c00}#ip{display:none;flex-direction:column;gap:4px;width:100%}body.inint #ip{display:flex}body.inint #ts{display:none!important}#ed.inint>.row{display:none}#ip .row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}';
+document.head.appendChild(st);
+const iv=setInterval(()=>{if($('side')&&$('ed')&&typeof IM!=='undefined'&&IM.gt&&IM.gt.complete){clearInterval(iv);build()}},200);
+})();
+
+</script>
+<script>
+/* ===================== ABA 📂 LEVELS: carrega levels .nw do Graal em qualquer mundo =====================
+   Novo mundo no futuro:  LEVELS.register({id,name,view,grid,cols,rows,w,h,px,own,ready(),draw(canvas),label(x,y),find?(nome),put(lv,x,y)->desfazer()})
+   lv = {name,w:64,h:64,t:Uint16Array(w*h) tiles do Graal, s:placas[{x,y}], c:baús[{x,y}], l:links, p:npcs}
+   grid>0: x,y = célula (level de grid×grid tiles) · grid=0: x,y = tile livre. */
+(()=>{
+const $=id=>document.getElementById(id),KEY='graal_levels_v1',A64='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const u8b=u=>{let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)};
+const t2b=t=>u8b(new Uint8Array(t.buffer.slice(t.byteOffset,t.byteOffset+t.byteLength))),b2t=s=>new Uint16Array(Uint8Array.from(atob(s),c=>c.charCodeAt(0)).buffer);
+let SV={};try{SV=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){}
+let TRAY=[],SEL=-1,WID='',POS={x:0,y:0},UN=[],RE=[],down=0,UI=0;
+const msg=t=>{const m=$('lvM');if(m)m.textContent=t};
+const svSave=()=>{try{localStorage.setItem(KEY,JSON.stringify(SV))}catch(e){msg('Não coube salvar no navegador: use 💾 Exportar.')}};
+const pack=lv=>({name:lv.name,t:t2b(lv.t),s:lv.s,c:lv.c,l:lv.l,p:lv.p}),unpack=o=>({name:o.name,t:b2t(o.t),s:o.s||[],c:o.c||[],l:o.l||[],p:o.p||[],w:64,h:64});
+
+/* ---------- leitor de .nw (GLEVNW01): BOARD / CHEST / SIGN / LINK / NPC ---------- */
+function parseNW(txt,name){
+ const L=txt.split(/\r?\n/),lay=[],lv={name,w:64,h:64,s:[],c:[],l:[],p:[]};let rows=0,blk=null;
+ for(const ln of L){const p=ln.trim().split(/\s+/),k=p[0];
+  if(blk){if(k===blk.end)blk=null;else if(blk.np)blk.np[3]+=(blk.np[3]?'\n':'')+ln;continue}
+  if(k==='BOARD'&&p.length>=6){const x=+p[1],y=+p[2],w=+p[3],ly=+p[4],d=p[5];if(!(y>=0&&y<64&&w>0))continue;
+   const T=lay[ly]||(lay[ly]=new Uint16Array(4096));
+   for(let j=0;j<w&&j*2+1<d.length;j++){const a=A64.indexOf(d[j*2]),b=A64.indexOf(d[j*2+1]);if(x+j<64&&a>=0&&b>=0)T[y*64+x+j]=a<<6|b}rows++}
+  else if(k==='CHEST')lv.c.push({x:+p[1],y:+p[2]});
+  else if(k==='SIGN'){lv.s.push({x:+p[1],y:+p[2]});blk={end:'SIGNEND'}}
+  else if(k==='LINK'&&p.length>=6)lv.l.push({to:p[1],x:+p[2],y:+p[3],w:+p[4],h:+p[5]});
+  else if(k==='NPC'){const n=[p[1],+p[2],+p[3],''];lv.p.push(n);blk={end:'NPCEND',np:n}}
+  else if(k==='BADDY')blk={end:'BADDYEND'}}
+ if(!rows)throw new Error('sem BOARD');
+ const t=new Uint16Array(4096);lay.forEach((T,ly)=>{for(let i=0;i<4096;i++)if(ly===0||T[i])t[i]=T[i]});lv.t=t;return lv}
+
+/* leitor de .graal (GRLEV001): 64 linhas de tiles (2 chars cada) + links; o resto (baddies/NPCs) é ignorado */
+function parseGraal(txt,name){
+ const L=txt.split(/\r?\n/),lv={name,w:64,h:64,s:[],c:[],l:[],p:[]},t=new Uint16Array(4096),ok=/^[A-Za-z0-9+\/]+$/;let i=0,r=0;
+ for(;i<L.length&&r<64;i++){const d=L[i].trim();if(d.length<128||!ok.test(d.slice(0,128)))continue;
+  for(let x=0;x<64;x++)t[r*64+x]=A64.indexOf(d[x*2])<<6|A64.indexOf(d[x*2+1]);r++}
+ if(r<64)throw new Error('só '+r+'/64 linhas de tiles; início: '+JSON.stringify(txt.slice(0,24)));
+ for(;i<L.length;i++){const p=L[i].trim().split(/\s+/);if(p.length>=7&&p.slice(1,7).every(v=>v!==''&&!isNaN(+v)))lv.l.push({to:p[0],x:+p[1],y:+p[2],w:+p[3],h:+p[4]})}
+ lv.t=t;return lv}
+function parseAny(txt,name){if(/^GR-V\d/.test(txt.slice(0,8)))throw new Error('.graal binário antigo (GR-V1.xx) ainda não suportado: salve o level como .nw no editor do Graal');const gr=/\.graal$/i.test(name),nm=gr?name.replace(/\.graal$/i,'.nw'):name;
+ if(/^GRLEV/i.test(txt.trim().slice(0,8))||(gr&&!/^GLEVNW/i.test(txt.trim().slice(0,8))))return parseGraal(txt,nm);
+ try{return parseNW(txt,nm)}catch(e){return parseGraal(txt,nm)}}
+
+/* ---------- mundos ---------- */
+const WR={},ORDER=[];
+const LV=window.LEVELS={worlds:WR,register(d){WR[d.id]=d;if(!ORDER.includes(d.id))ORDER.push(d.id);if(UI)fillSel()}};
+const ORIG=new Map();
+function wData(l,lv){const G=GWD;if(!ORIG.has(l))ORIG.set(l,1);G.tiles.set(lv.t,l*4096);
+ G.meta[l]={...G.meta[l],n:lv.name,s:lv.s.map(o=>({...o})),c:lv.c.map(o=>({...o})),l:lv.l,p:lv.p}}
+function wFinish(ls){const G=GWD;
+ for(const l of ls){const bx=(l%GNX)*64,by=((l/GNX)|0)*64,o=l*4096;
+  for(let i=0;i<4096;i++){const ty=TTYPE[G.tiles[o+i]],k=(by+(i>>6))*GTW+bx+(i&63);GR[k]=TSLOW.has(ty)?1:0;HZ[k]=THURT.has(ty)?1:0}}
+ BASECH=[];G.meta.forEach((m,l)=>m.c.forEach(c=>BASECH.push({x:((l%GNX)*64+c.x+1)*8,y:(((l/GNX)|0)*64+c.y+2)*8,open:0})));
+ if(window.__WMRESET)__WMRESET();gwApplySol()}
+LV.register({id:'mundo',name:'🌍 Mundo',view:'w',grid:64,cols:GNX,rows:GNY,px:10/64,own:true,
+ ready:()=>typeof GWD!=='undefined'&&!!GWD&&!!GAVG&&!!IM.below&&!!IM.below.chunked&&!!BASES,
+ find:n=>{const b=x=>(x||'').toLowerCase().replace(/\.\w+$/,'');n=b(n);return GWD.meta.findIndex(m=>b(m.n)===n)},
+ label:(x,y)=>'Slot '+x+','+y+' · atual: '+((GWD.meta[y*GNX+x]||{}).n||'—'),
+ draw(c){const G=GWD,px=10,q=(c.width=GNX*px,c.height=GNY*px,c.getContext('2d'));
+  for(let l=0;l<GNX*GNY;l++){let r=0,gg=0,b=0;for(let j=0;j<8;j++)for(let i=0;i<8;i++){const id=G.tiles[l*4096+(j*8+4)*64+i*8+4];r+=GAVG[id*3];gg+=GAVG[id*3+1];b+=GAVG[id*3+2]}
+   q.fillStyle='rgb('+(r>>6)+','+(gg>>6)+','+(b>>6)+')';q.fillRect((l%GNX)*px,((l/GNX)|0)*px,px,px)}},
+ put(lv,x,y){const l=y*GNX+x,G=GWD,cur={t:G.tiles.slice(l*4096,l*4096+4096),m:G.meta[l]},prev=(SV.mundo||{})[l];
+  wData(l,lv);wFinish([l]);(SV.mundo=SV.mundo||{})[l]=pack(lv);svSave();
+  return()=>{G.tiles.set(cur.t,l*4096);G.meta[l]=cur.m;wFinish([l]);if(prev)SV.mundo[l]=prev;else delete SV.mundo[l];svSave()}}});
+LV.register({id:'interior',name:'🏠 Interior',view:'i',grid:0,w:2048,h:2048,px:2,own:false,
+ ready:()=>!!INT.api,label:(x,y)=>'Tile '+x+','+y+' (canto superior esquerdo do level)',
+ org:()=>[Math.floor(POS.x/128)*128,Math.floor(POS.y/96)*96],
+ draw(c){const a=INT.api;a.ensure();const[ox,oy]=this.org(),oc=document.createElement('canvas');oc.width=256;oc.height=192;const q=oc.getContext('2d'),im=q.createImageData(256,192);
+  for(let j=0;j<192;j++)for(let i=0;i<256;i++){const X=ox+i,Y=oy+j,k=(j*256+i)*4,t=X<a.IW&&Y<a.IH?a.IT[Y*a.IW+X]:a.VOID;if(t!==a.VOID){im.data[k]=GAVG[t*3];im.data[k+1]=GAVG[t*3+1];im.data[k+2]=GAVG[t*3+2]}im.data[k+3]=255}
+  q.putImageData(im,0,0);c.width=512;c.height=384;const x=c.getContext('2d');x.imageSmoothingEnabled=false;x.drawImage(oc,0,0,512,384)},
+ put(lv,x,y){const a=INT.api;a.ensure();const{IW,IH,IT,IO}=a,bk=[];
+  for(let j=0;j<lv.h;j++)for(let i=0;i<lv.w;i++){const X=x+i,Y=y+j;if(X>=IW||Y>=IH)continue;const k=Y*IW+X;bk.push([k,IT[k],IO[k]]);IT[k]=lv.t[j*lv.w+i];IO[k]=0}
+  a.refresh();return()=>{bk.forEach(([k,t,o])=>{IT[k]=t;IO[k]=o});a.refresh()}}});
+
+/* ---------- interface ---------- */
+const go=w=>{if(INT.view!==w.view)INT.setTab(w.view)};
+function doPut(lv,x,y){const w=WR[WID];go(w);const e={w,u:w.put(lv,x,y),r(){go(w);this.u=w.put(lv,x,y)}};UN.push(e);RE=[];if(UN.length>20)UN.shift()}
+function auto(){const w=WR[WID],lv=TRAY[SEL];if(!w||!lv||!w.find)return;const l=w.find(lv.name);if(l>=0){POS.x=l%w.cols;POS.y=(l/w.cols)|0}}
+function ov(){const w=WR[WID],c=$('lvC');if(!w||!c||!w.ready())return;try{w.draw(c)}catch(e){return}
+ const q=c.getContext('2d'),gw=w.grid,lv=TRAY[SEL],s=(gw||1)*w.px;
+ if(gw){q.strokeStyle='rgba(0,0,0,.4)';q.beginPath();for(let i=0;i<=w.cols;i++){q.moveTo(i*s+.5,0);q.lineTo(i*s+.5,c.height)}for(let j=0;j<=w.rows;j++){q.moveTo(0,j*s+.5);q.lineTo(c.width,j*s+.5)}q.stroke()}
+ const W=gw?s:(lv?lv.w:1)*w.px,H=gw?s:(lv?lv.h:1)*w.px;
+ const[ox,oy]=w.org?w.org():[0,0],X=(POS.x-ox)*s,Y=(POS.y-oy)*s;q.fillStyle='rgba(255,228,90,.4)';q.fillRect(X,Y,W,H);q.strokeStyle='#ffe45a';q.lineWidth=2;q.strokeRect(X+1,Y+1,W-2,H-2);
+ $('lvP').textContent=w.label(POS.x,POS.y)}
+function tray(){const T=$('lvT');T.innerHTML='';
+ TRAY.forEach((lv,i)=>{const d=document.createElement('div');d.className='it'+(i===SEL?' sel':'');
+  d.textContent=lv.name+' · '+lv.s.length+' placas · '+lv.c.length+' baús · '+lv.l.length+' links';
+  d.onclick=()=>{SEL=i;auto();tray();ov()};
+  const x=document.createElement('button');x.textContent='✕';x.onclick=e=>{e.stopPropagation();TRAY.splice(i,1);if(SEL>=TRAY.length)SEL=TRAY.length-1;tray();ov()};d.appendChild(x);T.appendChild(d)})}
+async function addFiles(fs){let ok=0;const bad=[];
+ for(const f of fs){try{const lv=parseAny(new TextDecoder('latin1').decode(await f.arrayBuffer()),f.name);TRAY=TRAY.filter(x=>x.name!==lv.name);TRAY.push(lv);SEL=TRAY.length-1;ok++}catch(e){bad.push(f.name+' ('+e.message+')')}}
+ auto();tray();ov();msg(ok+' level(s) lido(s)'+(bad.length?' · não reconhecido: '+bad.join(', '):'')+(ok?' — clique no mapa e use ⬇ Colocar.':''))}
+function fillSel(){const s=$('lvW');s.innerHTML=ORDER.map(id=>'<option value="'+id+'">'+WR[id].name+'</option>').join('');s.value=WID}
+function build(){
+ const tabs=$('tabs');if(!tabs||$('lv'))return 0;WID=WID||ORDER[0];
+ const st=document.createElement('style');st.textContent='#lv{display:none;flex-direction:column;gap:4px;width:100%}body.inlv #lv{display:flex}body.inlv #ed,body.inlv #ts,body.inlv #ip,body.inlv #gsol{display:none!important}#lv button,#lv select{background:#d8c99a;border:2px solid #3a2a14;border-radius:6px;padding:2px 6px;font:12px Georgia,serif;color:#2b2b2b;cursor:pointer}#lv .row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}#lv .it{display:flex;gap:4px;align-items:center;justify-content:space-between;border:1px solid #3a2a14;border-radius:5px;padding:2px 4px;cursor:pointer;background:#efe6c8;color:#2b2b2b}#lv .it.sel,#tabs button.sel{background:#ffe45a}';document.head.appendChild(st);
+ const b=document.createElement('button');b.id='lvb';b.textContent='📂 Levels';tabs.appendChild(b);
+ const p=document.createElement('div');p.id='lv';
+ p.innerHTML='<b>📂 Carregar levels do Graal (.nw / .graal)</b><div class="row"><select id="lvW"></select><button id="lvF">📂 Escolher .nw/.graal</button><input type="file" id="lvI" multiple hidden></div>'
+ +'<span style="font-size:11px">Escolha o mundo, carregue um ou vários .nw/.graal (ou solte aqui), selecione na lista e clique no mapa onde quer colocar. Camadas viram uma só; placas, baús, links e NPCs vêm junto.</span>'
+ +'<div id="lvT" style="display:flex;flex-direction:column;gap:3px;max-height:22vh;overflow:auto"></div>'
+ +'<div class="row"><button data-n="L">◀</button><button data-n="U">▲</button><button data-n="D">▼</button><button data-n="R">▶</button><button id="lvCt" title="Posição = centro da tela do editor">🎯 Centralizar</button><span id="lvP" style="font-size:11px"></span></div>'
+ +'<canvas id="lvC" style="width:100%;image-rendering:pixelated;border:2px solid #3a2a14;cursor:crosshair;touch-action:none"></canvas>'
+ +'<div class="row"><button id="lvPut">⬇ Colocar na posição</button><button id="lvAll">⚡ Todos pelo nome</button><button id="lvUn">↶ Desfazer</button><button id="lvRe">↷ Refazer</button></div>'
+ +'<div class="row"><button id="lvEx">💾 Exportar</button><button id="lvIm">📥 Importar</button><input type="file" id="lvJ" accept=".json" hidden><button id="lvRs">🗑 Restaurar original</button></div><span id="lvM" style="font-size:12px;font-weight:bold"></span>';
+ tabs.after(p);UI=1;fillSel();
+ const sync=()=>{const on=document.body.classList.contains('inlv');b.classList.toggle('sel',on);if(on)tabs.querySelectorAll('button[data-t]').forEach(x=>x.classList.remove('sel'))};
+ b.onclick=()=>{document.body.classList.add('inlv');sync();if(!POS.set&&typeof P!=='undefined'&&P&&WID==='mundo'){POS={x:Math.max(0,Math.min(GNX-1,P.x/512|0)),y:Math.max(0,Math.min(GNY-1,P.y/512|0)),set:1}}tray();ov()};
+ tabs.querySelectorAll('button[data-t]').forEach(x=>x.addEventListener('click',()=>{document.body.classList.remove('inlv');setTimeout(sync,0)}));
+ $('lvW').onchange=e=>{WID=e.target.value;POS={x:0,y:0};auto();ov()};
+ $('lvF').onclick=()=>$('lvI').click();$('lvI').onchange=e=>{addFiles([...e.target.files]);e.target.value=''};
+ p.ondragover=e=>e.preventDefault();p.ondrop=e=>{e.preventDefault();addFiles([...e.dataTransfer.files])};
+ const lim=()=>{const w=WR[WID];POS.x=Math.max(0,Math.min((w.grid?w.cols:w.w)-1,POS.x));POS.y=Math.max(0,Math.min((w.grid?w.rows:w.h)-1,POS.y))};
+ p.querySelectorAll('[data-n]').forEach(x=>x.onclick=()=>{const d=x.dataset.n;const st=WR[WID].grid?1:8;POS.x+=(d==='R'?1:d==='L'?-1:0)*st;POS.y+=(d==='D'?1:d==='U'?-1:0)*st;lim();ov()});
+ const c=$('lvC'),cp=e=>{const w=WR[WID],r=c.getBoundingClientRect(),s=(w.grid||1)*w.px;const[ox,oy]=w.org?w.org():[0,0];POS.x=ox+Math.floor((e.clientX-r.left)*c.width/r.width/s);POS.y=oy+Math.floor((e.clientY-r.top)*c.height/r.height/s);POS.set=1;lim();ov()};
+ c.onpointerdown=e=>{down=1;try{c.setPointerCapture(e.pointerId)}catch(_){}cp(e)};c.onpointermove=e=>{if(down)cp(e)};c.onpointerup=()=>down=0;
+ $('lvCt').onclick=()=>{const w=WR[WID];go(w);const g=w.grid||1;POS.x=Math.floor((cam.x+VW/2)/8/g);POS.y=Math.floor((cam.y+VH/2)/8/g);if(!w.grid){const lv=TRAY[SEL];if(lv){POS.x-=lv.w>>1;POS.y-=lv.h>>1}}POS.set=1;lim();ov();msg('🎯 Posição no centro da tela do editor.')};
+ $('lvPut').onclick=()=>{const lv=TRAY[SEL];if(!lv)return msg('Carregue e selecione um level na lista.');try{doPut(lv,POS.x,POS.y);{const w=WR[WID],g=w.grid||1,tx=POS.x*g+(w.grid?32:lv.w/2),ty=POS.y*g+(w.grid?32:lv.h/2);cam.x=Math.max(0,Math.round(tx*8-VW/2));cam.y=Math.max(0,Math.round(ty*8-VH/2))}ov();msg('✅ '+lv.name+' colocado em '+POS.x+','+POS.y+'.')}catch(e){msg('Erro: '+e.message)}};
+ $('lvAll').onclick=()=>{const w=WR[WID];if(!w.find)return msg('Este mundo não tem slots por nome: use ⬇ Colocar.');let n=0,m=0;
+  try{TRAY.forEach(lv=>{const l=w.find(lv.name);if(l<0)return m++;doPut(lv,l%w.cols,(l/w.cols)|0);n++});ov();msg('✅ '+n+' colocado(s) pelo nome'+(m?' · '+m+' sem slot com esse nome (use o mapa)':''))}catch(e){msg('Erro: '+e.message)}};
+ $('lvUn').onclick=()=>{const e=UN.pop();if(!e)return msg('Nada para desfazer.');go(e.w);e.u();RE.push(e);ov();msg('↶ Desfeito.')};
+ $('lvRe').onclick=()=>{const e=RE.pop();if(!e)return msg('Nada para refazer.');e.r();UN.push(e);ov();msg('↷ Refeito.')};
+ $('lvEx').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(SV)],{type:'application/json'}));a.download='graal-levels.json';a.click();msg('Exportado (mundos com salvamento próprio; o interior é salvo/exportado pela aba 🚪 Portas).')};
+ $('lvIm').onclick=()=>$('lvJ').click();
+ $('lvJ').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{try{const o=JSON.parse(t);for(const k in o)SV[k]=Object.assign(SV[k]||{},o[k]);svSave();msg('Importado! Recarregando…');setTimeout(()=>location.reload(),500)}catch(x){msg('Arquivo inválido.')}});e.target.value=''};
+ $('lvRs').onclick=()=>{const w=WR[WID];if(!w.own)return msg('O interior tem salvamento próprio: use 🗑 Limpar tudo / 🏡 Casa modelo na aba Interior (ou ↶ aqui).');
+  if(confirm('Remover todos os levels carregados em '+w.name+' e voltar ao original?')){delete SV[WID];svSave();location.reload()}};
+ return 1}
+const iv=setInterval(()=>{try{if(build())clearInterval(iv)}catch(e){console.error(e);clearInterval(iv)}},300);
+/* reaplica os levels salvos no mundo depois que o jogo carregou */
+const iv2=setInterval(()=>{try{if(!WR.mundo.ready())return;clearInterval(iv2);
+ setTimeout(()=>{try{const ks=Object.keys(SV.mundo||{}),ls=[];ks.forEach(k=>{try{wData(+k,unpack(SV.mundo[k]));ls.push(+k)}catch(e){}});if(ls.length)wFinish(ls)}catch(e){console.error(e)}},1200)}catch(e){}},250);
+})();
+
 </script>
 </body></html>
