@@ -288,7 +288,7 @@ function startAtk(){const now=performance.now()/1000,gap=now-(P.lastAtk||0);P.la
  P.atkLen=Math.max(ATK_MIN,Math.min(ATK_T,gap));P.atk=P.atkLen;P.anim=0;P.hitPend=1}
 /* portais entre o mundo original e o novo mapa: [E] para atravessar */
 /* minimapa: mostra só a camada onde o jogador está (mapa novo = principal, mundo original = 2ª camada) */
-function mmReg(){if(D.W!==GTW)return{x:0,y:0,w:WP,h:HPX,l:'i'};return P.y>=23*512?{x:3*512,y:23*512,w:20*512,h:20*512,l:'n',n:'Novo mapa'}:{x:0,y:0,w:GTW*8,h:23*512,l:'o',n:'Mundo original'}}
+function mmReg(){if(D.W!==GTW)return{x:0,y:0,w:WP,h:HPX,l:'i'};return{x:3*512,y:23*512,w:20*512,h:20*512,l:'n',n:'Novo mapa'}}
 function portalUse(){const p=D.W===GTW&&PT.find(p=>dist(P,p)<28);if(!p)return false;P.x=p.dx;P.y=p.dy;P.walk=0;P.dash=0;fx.push({x:P.x,y:P.y-24,txt:'✨ '+p.to,t:1.6,c:'#c9a8ff'});return true}
 function PTdraw(){if(D.W!==GTW)return[];const _z=window.GZ>0&&window.GZ<1?window.GZ:1,_rx=Math.max(420,VW/_z/2+80),_ry=Math.max(340,VH/_z/2+80);return PT.filter(p=>Math.abs(p.x-P.x)<_rx&&Math.abs(p.y-P.y)<_ry).map(p=>({y:p.y,f:()=>{const x=Math.round(p.x-cam.x),y=Math.round(p.y-cam.y),t=T*3;
   g.save();const gr=g.createLinearGradient(0,y-28,0,y);gr.addColorStop(0,'rgba(170,130,255,0)');gr.addColorStop(1,'rgba(170,130,255,.6)');g.fillStyle=gr;g.fillRect(x-8,y-28,16,28);
@@ -350,7 +350,7 @@ function update(dt){
  drops=drops.filter(d=>{d.t+=dt;if(d.pop&&d.t<.45&&!solidAt(d.x+d.vx*dt,d.y))d.x+=d.vx*dt;if(!P.dead&&dist(d,P)<14){if(window.DRP)DRP.take(d);P.gl+=d.v;fx.push({x:P.x,y:P.y-18,txt:'+'+d.v+' gralats',t:1,c:d.v>=5?'#6ab8ff':'#5aff7a'});return false}return true});
  fx.forEach(f=>{f.t-=dt;f.y-=12*dt});fx=fx.filter(f=>f.t>0);
  const zC=(window.GZ>0)?window.GZ:1,vwC=Math.max(1,Math.round(VW/zC)),vhC=Math.max(1,Math.round(VH/zC));
- cam.x=Math.max(0,Math.min(Math.max(0,WP-vwC),P.x-vwC/2));cam.y=Math.max(0,Math.min(Math.max(0,HPX-vhC),P.y-vhC/2));
+ {const _b=D.W===GTW?[3*512,23*512,23*512,GTH*8]:[0,0,WP,HPX];cam.x=Math.max(_b[0],Math.min(Math.max(_b[0],_b[2]-vwC),P.x-vwC/2));cam.y=Math.max(_b[1],Math.min(Math.max(_b[1],_b[3]-vhC),P.y-vhC/2))}
 }
 const TINTS=new Map();
 function tinted(im,f){let m=TINTS.get(im);if(!m)TINTS.set(im,m={});if(m[f])return m[f];if(!(im.complete&&im.naturalWidth))return im;const c=document.createElement('canvas');c.width=im.naturalWidth;c.height=im.naturalHeight;const q=c.getContext('2d');q.filter=f;q.drawImage(im,0,0);return m[f]=c}
@@ -463,6 +463,7 @@ function gwSolidBase(){const S=new Uint8Array(GTW*GTH),t=GWD.tiles;
  for(let l=0;l<GNX*GNY;l++){const bx=(l%GNX)*64,by=((l/GNX)|0)*64,o=l*4096,m=GWD.meta[l];
   for(let i=0;i<4096;i++)S[(by+(i>>6))*GTW+bx+(i&63)]=TSOL[t[o+i]];
   for(const k of m.s.concat(m.c))for(let j=0;j<2;j++)for(let i=0;i<2;i++)if(by+k.y+j<GTH&&bx+k.x+i<GTW)S[(by+k.y+j)*GTW+bx+k.x+i]=1}
+ for(let y=0;y<GTH;y++)for(let x=0;x<GTW;x++)if(x<192||x>=1472||y<1472)S[y*GTW+x]=1; /* só o Novo mapa é jogável */
  return S}
 function gwApplySol(){BASES=gwSolidBase();edRebuild()}
 function gwPicker(){
@@ -487,7 +488,7 @@ function buildGraal(){
  for(let t=0;t<4096;t++){const a=(t%16)*8+(t>>9)*128,b=((t>>4)&31)*8;let r=0,g=0,bl=0;for(let y=0;y<8;y++)for(let x=0;x<8;x++){const k=((b+y)*1024+a+x)*4;r+=dd[k];g+=dd[k+1];bl+=dd[k+2]}GAVG[t*3]=r>>6;GAVG[t*3+1]=g>>6;GAVG[t*3+2]=bl>>6}
  gwLoadSol();
  const W2=GTW,H2=GTH;IM.below=new WCanvas();D.W=W2;D.H=H2;WP=W2*8;HPX=H2*8;SO=gwSolidBase();GR=new Uint8Array(W2*H2);HZ=new Uint8Array(W2*H2);for(let l=0;l<GNX*GNY;l++){const bx=(l%GNX)*64,by=((l/GNX)|0)*64,o=l*4096;for(let i=0;i<4096;i++){const ty=TTYPE[GWD.tiles[o+i]],k=(by+(i>>6))*GTW+bx+(i&63);if(TSLOW.has(ty))GR[k]=1;if(THURT.has(ty))HZ[k]=1}}CH=[];
- GWD.meta.forEach((m,l)=>m.c.forEach(c=>CH.push({x:((l%GNX)*64+c.x+1)*8,y:(((l/GNX)|0)*64+c.y+2)*8,open:0})));
+ GWD.meta.forEach((m,l)=>((l%GNX)>=3&&(l%GNX)<23&&((l/GNX)|0)>=23)&&m.c.forEach(c=>CH.push({x:((l%GNX)*64+c.x+1)*8,y:(((l/GNX)|0)*64+c.y+2)*8,open:0})));
  const free3=(x,y)=>{for(let j=0;j<3;j++)for(let i=0;i<3;i++){const X=x+i,Y=y+j;if(X<0||Y<0||X>=W2||Y>=H2||SO[Y*W2+X])return 0}return 1};
  const near=(x,y)=>{for(let r=0;r<90;r++)for(let j=-r;j<=r;j++)for(let i=-r;i<=r;i++)if((Math.abs(i)===r||Math.abs(j)===r)&&free3(x+i,y+j))return[(x+i+1.5)*8,(y+j+2)*8];return[x*8,y*8]};
  let l0=GWD.meta.findIndex(m=>m.n==='onnettown_outside_02.nw');if(l0<0)l0=11*GNX+13;
@@ -497,7 +498,7 @@ function buildGraal(){
   {const pa=near(sx+10,sy-6),pb=near(3*64+720,23*64+693),aa=near(Math.floor(pa[0]/8),Math.floor(pa[1]/8)+4),ab=near(Math.floor(pb[0]/8),Math.floor(pb[1]/8)+4);
    PT=[{x:pa[0],y:pa[1],dx:ab[0],dy:ab[1],n:'Portal: Novo mapa',to:'Novo mapa'},{x:pb[0],y:pb[1],dx:aa[0],dy:aa[1],n:'Portal: Mundo original',to:'Mundo original'}];
    /* o NOVO MAPA é o principal: o jogador nasce nele; o mundo original é a segunda camada (segundo ponto de início = chegada do portal lá) */
-   const tx=Math.floor(ab[0]/8),ty=Math.floor(ab[1]/8);D.player=ab;D.skelp=near(tx+14,ty);D.wps=[D.skelp.slice(),near(tx+14,ty+8)];D.seed2=aa}
+   const tx=Math.floor(ab[0]/8),ty=Math.floor(ab[1]/8);D.player=ab;D.skelp=near(tx+14,ty);D.wps=[D.skelp.slice(),near(tx+14,ty+8)];D.seed2=null;PT=[]}
  const spT=r=>{const c=gmk(r[2],r[3]);c.getContext('2d').drawImage(IM.ts,r[0],r[1],r[2],r[3],0,0,r[2],r[3]);return{c,s:new Array(r[2]*r[3]/64).fill(1),tw:r[2]/8,th:r[3]/8}};
  const sp=(sx,sy,w,h,sol)=>{const c=gmk(w,h);c.getContext('2d').drawImage(IM.tl,sx,sy,w,h,0,0,w,h);const tw=w/8,th=h/8,s=[];for(let j=0;j<th;j++)for(let i=0;i<tw;i++)s.push(sol(i,j)?1:0);return{c,s,tw,th}};
  EDT=[{n:'Árvore verde',o:sp(128,0,64,80,()=>1)},{n:'Árvore oliva',o:sp(0,0,64,80,()=>1)},{n:'Árvore vermelha',o:sp(64,0,64,80,()=>1)},{n:'Tenda',o:sp(0,80,32,32,(i,j)=>j>=1)},{n:'Poço',o:sp(32,80,32,32,(i,j)=>j>=1)},{n:'Toco',o:sp(64,80,16,16,()=>1)},{n:'Toco 2',o:sp(80,80,16,16,()=>1)},{n:'Barril',o:spT([464,144,16,16])},{n:'Caixa',o:spT([400,112,16,16])},{n:'Placa',o:spT([128,0,16,16])},{n:'Arbusto',o:spT([400,80,16,16])},{n:'Arbusto grande',o:spT([480,80,32,32])},{n:'Baú',chest:1,o:spT([448,120,16,16])}];
@@ -901,7 +902,7 @@ function edImport(f){if(!f)return;const rd=new FileReader();rd.onload=()=>{try{c
   if(typeof o.map==='string')localStorage.setItem('graal_map_gw1',o.map);if(typeof o.tilesets==='string')localStorage.setItem('graal_tilesets_v1',o.tilesets);
   edMsg('Importado! Recarregando…');setTimeout(()=>location.reload(),700)}catch(e){edMsg('Arquivo inválido.')}};rd.readAsText(f)}
 function edGo(){const x=+$e('edgx').value,y=+$e('edgy').value;if(!Number.isFinite(x)||!Number.isFinite(y))return;cam.x=x*8-VW/2;cam.y=y*8-VH/2;edClamp();edMsg('Câmera em '+x+', '+y)}
-function edClamp(){cam.x=Math.round(Math.max(0,Math.min(WP-VW,cam.x)));cam.y=Math.round(Math.max(0,Math.min(HPX-VH,cam.y)))}
+function edClamp(){const _b=D.W===GTW?[3*512,23*512,23*512,GTH*8]:[0,0,WP,HPX];cam.x=Math.round(Math.max(_b[0],Math.min(_b[2]-VW,cam.x)));cam.y=Math.round(Math.max(_b[1],Math.min(_b[3]-VH,cam.y)))}
 function edUI(){
  const box=$e('ed');box.innerHTML='';
  const el=(t,c,h,p)=>{const e=document.createElement(t);if(c)e.className=c;if(h)e.innerHTML=h;(p||box).appendChild(e);return e};
@@ -1694,7 +1695,7 @@ const EQX=window.EQX={dirty:1,swim:0,
  pack(){return{h:EQ.h,s:EQ.s,d:EQ.d}}};
 /* ---- água: tile tipo 8 vira área de nado (o jogador atravessa, monstros não) ---- */
 let WM=null;window.__WMRESET=()=>{WM=null};
-const wat=(x,y)=>{if(window.INT&&INT.view==='i')return false;const tx=Math.floor(x/8),ty=Math.floor(y/8);return tx>=0&&ty>=0&&tx<GTW&&ty<GTH&&WM[ty*GTW+tx]===1};
+const wat=(x,y)=>{if(window.INT&&INT.view==='i')return false;const tx=Math.floor(x/8),ty=Math.floor(y/8);return tx>=192&&ty>=1472&&tx<1472&&ty<GTH&&WM[ty*GTW+tx]===1};
 function build(){if(WM||!GWD||!GR)return;WM=new Uint8Array(GTW*GTH);
  for(let l=0;l<GNX*GNY;l++){const bx=(l%GNX)*64,by=((l/GNX)|0)*64,o=l*4096;
   for(let i=0;i<4096;i++)if(TTYPE[GWD.tiles[o+i]]===8){const k=(by+(i>>6))*GTW+bx+(i&63);WM[k]=1;GR[k]=1}}}
