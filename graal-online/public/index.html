@@ -1500,6 +1500,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='id'){myId=m.id;srvV=m.v||1;if(m.v!==3)MSG.push({id:null,nm:'⚠',x:'servidor desatualizado: troque o server.js no GitHub',t:performance.now()+25000});return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs)});return}
   if(m.t==='cfg'){if(!localStorage.getItem('graal_admin_token')&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
+  if(m.t==='out'){location.replace('/?logout=1');return}
   if(m.t==='role'||m.t==='cmd'||m.t==='kick'||m.t==='adm'){if(m.t==='kick')window.__KICKED=1;if(window.ADM)window.ADM(m);return}
   if(m.t==='q'){window.EQX.remote(m.id,m.e);return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);window.EQX.drop(m.id);return}
@@ -2860,7 +2861,7 @@ const bar=document.createElement('div');bar.id='accbar';
 bar.style.cssText='position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:60;display:none;align-items:center;gap:7px;padding:3px 11px 3px 4px;border-radius:15px;background:rgba(30,22,12,.85);border:2px solid #5a4020;color:#f3e6c4;font:600 12px Verdana,Arial,sans-serif;white-space:nowrap;user-select:none';
 document.body.appendChild(bar);
 function ui(u){bar.textContent='';bar.style.display='flex';
- if(u){const i=new Image();i.src=u.av;i.width=i.height=20;i.style.cssText='border-radius:50%;display:block';const n=document.createElement('span');n.textContent=u.name;const a=document.createElement('a');a.href='/auth/logout';a.textContent='sair';a.style.cssText='color:#ffb05a;text-decoration:none;margin-left:2px';bar.append(i,n,a);bar.style.paddingLeft='4px'}
+ if(u){const i=new Image();i.src=u.av;i.width=i.height=20;i.style.cssText='border-radius:50%;display:block';const n=document.createElement('span');n.textContent=u.name;const a=document.createElement('a');a.href='/auth/logout';a.onclick=function(ev){ev.preventDefault();try{sync(1)}catch(e){}setTimeout(function(){location.href='/auth/logout'},500)};a.textContent='sair';a.style.cssText='color:#ffb05a;text-decoration:none;margin-left:2px';bar.append(i,n,a);bar.style.paddingLeft='4px'}
  else{const a=document.createElement('a');a.href='/auth/discord';a.textContent='🔑 Entrar com Discord';a.style.cssText='color:#fff;text-decoration:none;padding-left:7px';bar.append(a)}}
 if(/[?&]logout=1/.test(location.search)){try{history.replaceState(null,'',location.pathname)}catch(e){}ui(null)}
 if(location.protocol!=='file:')fetch('/api/me',{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&j.on)ui(j.user)}).catch(()=>{});
