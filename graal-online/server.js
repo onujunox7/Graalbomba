@@ -18,6 +18,7 @@
  */
 const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN = process.env.ADMIN_TOKEN || '';
@@ -88,13 +89,35 @@ const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c =>
 const DC_ID = process.env.DISCORD_CLIENT_ID || '', DC_SECRET = process.env.DISCORD_CLIENT_SECRET || '', SES_SECRET = process.env.SESSION_SECRET || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const AUTH_ON = !!(DC_ID && DC_SECRET && SES_SECRET);
-const ACC_FILE = path.join(DATA_DIR, 'graal-accounts.json');
 const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_custom_v1'];
 const ACC_MAX = 600000, SES_DAYS = 30;
-let ACC = {}, accT = null; // id do Discord -> { id, name, av, at, last, data: { chave: texto } }
-try { const o = JSON.parse(fs.readFileSync(ACC_FILE, 'utf8')); if (o && typeof o === 'object') { ACC = o; console.log('Contas carregadas:', Object.keys(ACC).length) } } catch (e) { }
-function flushACC() { accT = null; try { const t = ACC_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(ACC)); fs.renameSync(t, ACC_FILE) } catch (e) { console.error('Falha ao gravar contas:', e.message) } }
-const saveACC = () => { if (!accT) accT = setTimeout(flushACC, 5000) };
+const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+if (!DATABASE_URL) throw new Error('DATABASE_URL não configurada no Render; contas Discord precisam do PostgreSQL.');
+const pgPool = new Pool({ connectionString: DATABASE_URL, ssl: /render\.com|neon\.tech|supabase\.co/i.test(DATABASE_URL) ? { rejectUnauthorized: false } : undefined, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
+let ACC = {}, accT = null, accDirty = new Set(); // cache em memória; persistência oficial no PostgreSQL
+async function initAccountsDB() {
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_accounts (
+    discord_id TEXT PRIMARY KEY, name TEXT NOT NULL, avatar TEXT, created_at BIGINT NOT NULL,
+    last_seen BIGINT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb
+  )`);
+  const r = await pgPool.query('SELECT discord_id, name, avatar, created_at, last_seen, data FROM graal_accounts');
+  for (const row of r.rows) ACC[row.discord_id] = { id: row.discord_id, name: row.name, av: row.avatar, at: Number(row.created_at), last: Number(row.last_seen), data: row.data || {} };
+  console.log('PostgreSQL: contas Discord carregadas:', r.rowCount);
+}
+async function flushACC() {
+  accT = null;
+  const ids = [...accDirty]; accDirty.clear();
+  for (const id of ids) {
+    const a = ACC[id]; if (!a) continue;
+    try { await pgPool.query(`INSERT INTO graal_accounts (discord_id,name,avatar,created_at,last_seen,data)
+      VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (discord_id) DO UPDATE SET
+      name=EXCLUDED.name, avatar=EXCLUDED.avatar, last_seen=EXCLUDED.last_seen, data=EXCLUDED.data`,
+      [a.id, a.name, a.av, a.at, a.last, JSON.stringify(a.data || {})]); }
+    catch (e) { console.error('Falha ao salvar conta no PostgreSQL:', e.message); accDirty.add(id); }
+  }
+  if (accDirty.size && !accT) accT = setTimeout(() => flushACC().catch(e => console.error(e)), 3000);
+}
+const saveACC = id => { if (id) accDirty.add(String(id)); if (!accT) accT = setTimeout(() => flushACC().catch(e => console.error(e)), 1000) };
 const sign = s => crypto.createHmac('sha256', SES_SECRET).update(s).digest('base64url');
 const mkSession = id => { const p = Buffer.from(JSON.stringify({ id, exp: Date.now() + SES_DAYS * 864e5 })).toString('base64url'); return p + '.' + sign(p) };
 const readCookie = (req, name) => { const c = (req.headers.cookie || '').split(/;\s*/).find(x => x.startsWith(name + '=')); try { return c ? decodeURIComponent(c.slice(name.length + 1)) : '' } catch (e) { return '' } };
@@ -128,7 +151,7 @@ async function discordCallback(req, res) {
     const a = ACC[u.id] || (ACC[u.id] = { id: String(u.id), at: Date.now(), data: {} });
     a.name = name; a.av = u.avatar && /^[A-Za-z0-9_]+$/.test(u.avatar) ? u.avatar : null; a.last = Date.now();
     if (!a.data.graal_nick) a.data.graal_nick = nickOf(name); // conta nova: o nick inicial é o nome do Discord
-    saveACC();
+    saveACC(a.id);
     res.writeHead(302, { Location: '/', 'Set-Cookie': [ck(req, 'gsid', mkSession(a.id), SES_DAYS * 86400), ck(req, 'gst', '', 0)] }); res.end();
   } catch (e) { fail(e.message) }
 }
@@ -152,8 +175,8 @@ function flush() {
   } catch (e) { console.error('Falha ao gravar config:', e.message) }
 }
 const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
-process.on('SIGTERM', () => { if (saveT) flush(); if (accT) flushACC(); process.exit(0) });
-process.on('SIGINT', () => { if (saveT) flush(); if (accT) flushACC(); process.exit(0) });
+process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await pgPool.end(); process.exit(0) });
+process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await pgPool.end(); process.exit(0) });
 
 /* ---------------- HTTP ---------------- */
 const isLoop = r => { const a = r.socket.remoteAddress || ''; return (a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1') && !r.headers['x-forwarded-for'] };
@@ -353,7 +376,7 @@ wss.on('connection', (ws, req) => {
       for (const k of ACC_KEYS) { const v = m.d[k]; if (typeof v === 'string') { n += v.length + k.length; out[k] = v } }
       if (n > ACC_MAX) return;
       if (out.graal_nick !== undefined) out.graal_nick = out.graal_nick.slice(0, 12);
-      a.data = Object.assign(a.data || {}, out); a.last = now; saveACC(); return;
+      a.data = Object.assign(a.data || {}, out); a.last = now; saveACC(a.id); return;
     }
     if (m.t === 'bc') { // arbusto cortado: valida, guarda e avisa os outros (quem cortou já mostrou na própria tela)
       const x = m.x | 0, y = m.y | 0, now = Date.now();
@@ -393,7 +416,9 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 100);
 
-srv.listen(PORT, () => {
-  console.log('Graal Online em http://localhost:' + PORT);
-  if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
-});
+initAccountsDB().then(() => {
+  srv.listen(PORT, () => {
+    console.log('Graal Online em http://localhost:' + PORT);
+    if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
+  });
+}).catch(e => { console.error('Falha ao iniciar PostgreSQL:', e); process.exit(1); });
