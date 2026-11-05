@@ -1527,7 +1527,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
   if(m.t!=='st')return;const seen=new Set();
   for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}
-   r.r=p.r|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw}
+   r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw}
   for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
 conn();
@@ -1554,8 +1554,14 @@ function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr={Up:0,Left:1,Down
  EQX.end(g,x,y,sws);g.globalAlpha=1}
 const CF='bold 8px '+window.__FF;
 function ot(t,x,y){g.lineJoin='round';g.lineWidth=2.5;g.strokeStyle='#000';g.strokeText(t,x,y);g.fillStyle='#fff';g.fillText(t,x,y)}
+function typ(x,by,now){const w=22,h=11,l=Math.round(x-w/2),t=Math.round(by-h-3),r=4;
+ g.save();g.beginPath();g.moveTo(l+r,t);g.arcTo(l+w,t,l+w,t+h,r);g.arcTo(l+w,t+h,l,t+h,r);g.arcTo(l,t+h,l,t,r);g.arcTo(l,t,l+w,t,r);g.closePath();
+ g.moveTo(x-2.5,t+h-.5);g.lineTo(x,t+h+3);g.lineTo(x+2.5,t+h-.5);
+ g.fillStyle='rgba(255,255,255,.95)';g.fill();g.lineWidth=1;g.strokeStyle='rgba(0,0,0,.65)';g.stroke();
+ for(let i=0;i<3;i++){const a=.35+.65*Math.max(0,Math.sin(now/220-i*.9));g.fillStyle='rgba(40,40,40,'+a.toFixed(2)+')';g.beginPath();g.arc(Math.round(x)-5+i*5,t+h/2,1.5,0,6.3);g.fill()}
+ g.restore()}
 function bub(id,x,ny,now,dy){if(id==null)return;let m=null;for(let i=MSG.length-1;i>=0;i--)if(MSG[i].id===id){m=MSG[i];break}
- if(!m||now-m.t>5000)return;const t=m.x.length>40?m.x.slice(0,39)+'…':m.x;g.font='bold 8px '+window.__FF;g.textAlign='center';const hw=g.measureText(t).width/2+3,vw=VW/(window.GZ>0?window.GZ:1);ot(t,Math.max(hw,Math.min(vw-hw,x)),ny-(dy==null?8:dy))}
+ if(!m||now-m.t>5000)return;const t=m.x.length>40?m.x.slice(0,39)+'…':m.x;g.font='bold 8px '+window.__FF;g.textAlign='center';const hw=g.measureText(t).width/2+3,vw=VW/(window.GZ>0?window.GZ:1);ot(t,Math.max(hw,Math.min(vw-hw,x)),ny-(dy==null?8:dy));return 1}
 /* chat: caixa de texto */
 const box=document.createElement('form'),inp=document.createElement('input'),snd=document.createElement('button');
 inp.maxLength=100;inp.placeholder='Chat — Enter envia, Esc fecha';inp.enterKeyHint='send';snd.textContent='➤';snd.type='button';
@@ -1617,8 +1623,8 @@ const _dm=draw;draw=function(){const X=window.MPX;rpOn=0;
  [...RP.values()].sort((a,b)=>a.y-b.y).forEach(r=>{try{
   const x=Math.round(r.x-cam.x),y=Math.round(r.y-cam.y);if(x<-40||y<-60||x>vw+40||y>vh+40)return;
   const sc=r.s||.6;const ny=y-Math.round(8+36*sc);g.font='bold 8px '+window.__FF;g.textAlign='center';g.lineJoin='round';g.lineWidth=2.5;g.strokeStyle='rgba(0,0,0,.8)';const lb=(r.r?'★ ':'')+r.nm;g.strokeText(lb,x,ny);g.fillStyle=r.r?'#ffd23a':'#9ad8ff';g.fillText(lb,x,ny);
-  bub(r.id,x,ny,now)}catch(e){console.error('mp',e)}});
- try{{const H=window.__HD;if(H)bub(myId==null?'local':myId,Math.round(H.x)-1,Math.round(H.y),now,0);else bub(myId==null?'local':myId,Math.round(P.x-cam.x),Math.round(P.y-cam.y)-Math.round(39*X.GS)+7,now,4)}}catch(e){}
+  if(!bub(r.id,x,ny,now)&&r.typ)typ(x,ny-6,now)}catch(e){console.error('mp',e)}});
+ try{{const H=window.__HD,T=window.GCH&&GCH.typing&&GCH.typing(),mid=myId==null?'local':myId,mx=Math.round(P.x-cam.x);if(H){if(!bub(mid,mx,Math.round(H.y),now,0)&&T)typ(mx,Math.round(H.y)+2,now)}else{const my=Math.round(P.y-cam.y)-Math.round(39*X.GS)+7;if(!bub(mid,mx,my,now,4)&&T)typ(mx,my-2,now)}}}catch(e){}
  g.setTransform(RS,0,0,RS,0,0);window.__NET={on:!!on,n:RP.size+1,v:srvV};
  g.restore()};
 })();
@@ -2975,8 +2981,10 @@ function add(m){
  if(LOG.length>MAX){LOG.shift();if(L.firstChild)L.removeChild(L.firstChild)}
  if(isOpen){if(near)scrollEnd()}else if(!m.hist&&!(m.id!=null&&window.MPNET&&m.id===MPNET.myId())){unread++;badge()}
 }
-function open(){isOpen=1;pn.style.display='flex';document.body.classList.add('gch-open');unread=0;badge();scrollEnd();try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}setTimeout(()=>I.focus(),30)}
-function close(){isOpen=0;pn.style.display='none';document.body.classList.remove('gch-open');I.blur()}
+function tell(){try{if(window.MPNET&&MPNET.live())MPNET.send({t:'ty',v:isOpen?1:0})}catch(e){}}
+setInterval(tell,3000);
+function open(){isOpen=1;tell();pn.style.display='flex';document.body.classList.add('gch-open');unread=0;badge();scrollEnd();try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}setTimeout(()=>I.focus(),30)}
+function close(){isOpen=0;tell();pn.style.display='none';document.body.classList.remove('gch-open');I.blur()}
 b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();open()});
 pn.querySelector('#gch-x').addEventListener('click',e=>{e.preventDefault();close()});
 F.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();
@@ -2986,7 +2994,7 @@ F.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();
  I.focus()});
 ['keydown','keyup','keypress'].forEach(ev=>I.addEventListener(ev,e=>{e.stopPropagation();if(ev==='keydown'&&e.key==='Escape')close()}));
 ['pointerdown','touchstart'].forEach(ev=>pn.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
-window.GCH={add,open,close};
+window.GCH={add,open,close,typing:()=>isOpen};
 if(window.__GCHQ){const q=window.__GCHQ;window.__GCHQ=null;q.forEach(add)}
 })();
 </script>
