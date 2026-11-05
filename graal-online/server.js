@@ -111,7 +111,7 @@ const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c =>
 const DC_ID = process.env.DISCORD_CLIENT_ID || '', DC_SECRET = process.env.DISCORD_CLIENT_SECRET || '', SES_SECRET = process.env.SESSION_SECRET || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const AUTH_ON = !!(DC_ID && DC_SECRET && SES_SECRET);
-const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_custom_v1'];
+const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_custom_v1', 'graal_pos_v1'];
 const ACC_MAX = 600000, SES_DAYS = 30;
 /* VISITANTE SALVO: quem não entrou com o Discord ganha uma conta de visitante (id aleatório num cookie de 1 ano, só neste navegador).
  * O progresso fica no PostgreSQL igual ao da conta Discord. Visitantes sem uso há GUEST_KEEP_DAYS dias são apagados. */
@@ -120,7 +120,7 @@ const newGid = () => 'g' + crypto.randomBytes(16).toString('hex');
 const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 if (!DATABASE_URL) throw new Error('DATABASE_URL não configurada no Render; contas Discord precisam do PostgreSQL.');
 const pgPool = new Pool({ connectionString: DATABASE_URL, ssl: /render\.com|neon\.tech|supabase\.co/i.test(DATABASE_URL) ? { rejectUnauthorized: false } : undefined, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
-let ACC = {}, accT = null, accDirty = new Set(); // cache em memória; persistência oficial no PostgreSQL
+let ACC = {}, accT = null, accSlow = false, accDirty = new Set(); // cache em memória; persistência oficial no PostgreSQL
 async function initAccountsDB() {
   await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_accounts (
     discord_id TEXT PRIMARY KEY, name TEXT NOT NULL, avatar TEXT, created_at BIGINT NOT NULL,
@@ -132,7 +132,7 @@ async function initAccountsDB() {
   console.log('PostgreSQL: contas carregadas (Discord + visitantes):', r.rowCount);
 }
 async function flushACC() {
-  accT = null;
+  accT = null; accSlow = false;
   const ids = [...accDirty]; accDirty.clear();
   for (const id of ids) {
     const a = ACC[id]; if (!a) continue;
@@ -146,7 +146,10 @@ async function flushACC() {
   }
   if (accDirty.size && !accT) accT = setTimeout(() => flushACC().catch(e => console.error(e)), 3000);
 }
-const saveACC = id => { if (id) accDirty.add(String(id)); if (!accT) accT = setTimeout(() => flushACC().catch(e => console.error(e)), 1000) };
+/* slow: mudança só de posição (acontece o tempo todo) -> grava no banco no máximo a cada ~12 s; qualquer outra mudança grava em 1 s */
+const saveACC = (id, slow) => { if (id) accDirty.add(String(id));
+  if (accT && accSlow && !slow) { clearTimeout(accT); accT = null }
+  if (!accT) { accSlow = !!slow; accT = setTimeout(() => flushACC().catch(e => console.error(e)), slow ? 12000 : 1000) } };
 const sign = s => crypto.createHmac('sha256', SES_SECRET).update(s).digest('base64url');
 const mkSession = id => { const p = Buffer.from(JSON.stringify({ id, exp: Date.now() + SES_DAYS * 864e5 })).toString('base64url'); return p + '.' + sign(p) };
 const readCookie = (req, name) => { const c = (req.headers.cookie || '').split(/;\s*/).find(x => x.startsWith(name + '=')); try { return c ? decodeURIComponent(c.slice(name.length + 1)) : '' } catch (e) { return '' } };
@@ -292,7 +295,10 @@ function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
   for (const k of ACC_KEYS) { const v = d[k]; if (typeof v === 'string') { n += v.length + k.length; out[k] = v } }
   if (n > ACC_MAX) { console.error('Save da conta ' + a.id + ' ignorado: grande demais (' + n + ' > ' + ACC_MAX + ')'); return }
   if (out.graal_nick !== undefined) out.graal_nick = out.graal_nick.slice(0, 12);
-  p.svT = Date.now(); a.data = Object.assign(a.data || {}, out); a.last = p.svT; saveACC(a.id);
+  if (!Object.keys(out).length) return;
+  if (out.graal_pos_v1 !== undefined && out.graal_pos_v1.length > 400) delete out.graal_pos_v1; // posição é um JSON minúsculo
+  const slow = Object.keys(out).every(k => k === 'graal_pos_v1');
+  p.svT = Date.now(); a.data = Object.assign(a.data || {}, out); a.last = p.svT; saveACC(a.id, slow);
 }
 /* arbustos cortados (compartilhado entre todos): chave "x,y" (tile) -> quando volta a crescer (ms). Mundo: 1664 x 2752 tiles. */
 const BUSH_MS = 15000, BUSH_MAX = 4000, BCUT = new Map();
