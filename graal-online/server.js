@@ -292,6 +292,7 @@ function electHost() {
 setInterval(electHost, 1000);
 /* itens no chão (gralats): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
 const DROPS = new Map();
+const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 
 wss.on('connection', (ws, req) => {
@@ -302,6 +303,7 @@ wss.on('connection', (ws, req) => {
   sendTo(ws, { t: 'id', id, v: 3 });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
+  if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
   if (DROPS.size) sendTo(ws, { t: 'dall', a: [...DROPS.values()] });
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
@@ -475,9 +477,10 @@ wss.on('connection', (ws, req) => {
       p.e = { h: m.e.h, s: m.e.s, d: m.e.d };
       others(id, { t: 'q', id, e: p.e });
     } else if (m.t === 'c') {
-      const x = String(m.x || '').trim().slice(0, 100), now = Date.now();
+      const x = String(m.x || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100), now = Date.now();
       if (!x || p.muted || now - p.lastChat < 500) return; p.lastChat = now;
-      const out = JSON.stringify({ t: 'c', id, nm: p.nm, x });
+      const at = now, r = p.role | 0; CHAT.push({ nm: p.nm, x, r, at }); if (CHAT.length > 60) CHAT.shift();
+      const out = JSON.stringify({ t: 'c', id, nm: p.nm, x, r, at });
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
   });
