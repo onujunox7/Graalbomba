@@ -258,6 +258,7 @@ let NPC={x:0,y:0},shop=0,showMap=1,MM=null,CH=[],GR=null;
 const ITEMS=[{n:'Poção de vida (+30 HP)',c:()=>10,ok:()=>P.pot<9,f:()=>P.pot++},{n:'Afiar espada (+4 dano)',c:()=>30+20*P.up,ok:()=>P.up<5,f:()=>{P.up++;P.dmg+=4}},{n:'Curar tudo agora',c:()=>15,ok:()=>P.hp<P.hpM,f:()=>P.hp=P.hpM}];
 function buy(i){const it=ITEMS[i],t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c});if(!it.ok())return t('Indisponível','#ffb05a');if(P.gl<it.c())return t('Gralats insuficientes','#ff5a5a');P.gl-=it.c();it.f();saveGame();t('Comprado!','#5aff7a')}
 let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
+function dpush(o){drops.push(window.DRP?DRP.add(o):o)} /* item no chão: o módulo de rede avisa os outros jogadores */
 /* ---- monstros: ajuste aqui ---- */
 const MON_RESPAWN=30; /* segundos até o monstro renascer depois de morto */
 const MON_SPREAD={seed:20260604,density:.8,cell:320,safe:320,houseSafe:200,townPad:96}; /* seed: muda = muda TODAS as posições fixas; density: chance de cada célula 320x320 ter monstro; safe: raio livre no início; houseSafe: distância mínima de portas de casas; townPad: folga ao redor das cidades */
@@ -320,7 +321,7 @@ function updatePlayer(dt){
  P.rh+=dt;if(P.rh>=15){P.rh=0;if(P.hp<P.hpM)P.hp=Math.min(P.hpM,P.hp+5)}
  P.rm+=dt;if(P.rm>=10){P.rm=0;if(P.mp<P.mpM)P.mp=Math.min(P.mpM,P.mp+5)}
 }
-function killSk(s){s.dead=1;s.hp=0;s.rt=MON_RESPAWN;s.combat=0;P.exp+=s.xp||(s.el?35:10);P.kills++;questEvent('kill');if(s.el)questEvent('elite');if(s.k)questEvent('mon');levelCheck();saveGame();const g0=ri(0,10)*(s.el?3:1);if(g0>0)drops.push({x:s.x,y:s.y+8,v:g0,t:0});if(Math.random()<(s.el?.6:.2)&&P.pot<9){P.pot++;fx.push({x:s.x,y:s.y-26,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}
+function killSk(s){s.dead=1;s.hp=0;s.rt=MON_RESPAWN;s.combat=0;P.exp+=s.xp||(s.el?35:10);P.kills++;questEvent('kill');if(s.el)questEvent('elite');if(s.k)questEvent('mon');levelCheck();saveGame();const g0=ri(0,10)*(s.el?3:1);if(g0>0)dpush({x:s.x,y:s.y+8,v:g0,t:0});if(Math.random()<(s.el?.6:.2)&&P.pot<9){P.pot++;fx.push({x:s.x,y:s.y-26,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}
 function updateSk(s,dt){
  if(s.dead){s.rt-=dt;if(s.rt<=0){if(Math.hypot(P.x-s.sx,P.y-s.sy)<90){s.rt=0;return} /* jogador em cima do ponto: espera ele sair */
   s.dead=0;s.hp=s.hpM;s.x=s.sx;s.y=s.sy;s.combat=0;s.wp=0}return}
@@ -342,7 +343,7 @@ function updateSk(s,dt){
 }
 function update(dt){
  T+=dt;autoSave(dt);updatePlayer(dt);SK.forEach(s=>updateSk(s,dt));
- drops=drops.filter(d=>{d.t+=dt;if(d.pop&&d.t<.45&&!solidAt(d.x+d.vx*dt,d.y))d.x+=d.vx*dt;if(!P.dead&&dist(d,P)<14){P.gl+=d.v;fx.push({x:P.x,y:P.y-18,txt:'+'+d.v+' gralats',t:1,c:d.v>=5?'#6ab8ff':'#5aff7a'});return false}return true});
+ drops=drops.filter(d=>{d.t+=dt;if(d.pop&&d.t<.45&&!solidAt(d.x+d.vx*dt,d.y))d.x+=d.vx*dt;if(!P.dead&&dist(d,P)<14){if(window.DRP)DRP.take(d);P.gl+=d.v;fx.push({x:P.x,y:P.y-18,txt:'+'+d.v+' gralats',t:1,c:d.v>=5?'#6ab8ff':'#5aff7a'});return false}return true});
  fx.forEach(f=>{f.t-=dt;f.y-=12*dt});fx=fx.filter(f=>f.t>0);
  const zC=(window.GZ>0)?window.GZ:1,vwC=Math.max(1,Math.round(VW/zC)),vhC=Math.max(1,Math.round(VH/zC));
  cam.x=Math.max(0,Math.min(Math.max(0,WP-vwC),P.x-vwC/2));cam.y=Math.max(0,Math.min(Math.max(0,HPX-vhC),P.y-vhC/2));
@@ -1149,7 +1150,7 @@ function breakBush(x,y,quiet){
 /* gralat cai com GRALAT_CHANCE (azul = 5 com BLUE_CHANCE, senão verde = 1) + chance de coração/bomba/flecha por cima */
 const GRALAT_CHANCE=.5,BLUE_CHANCE=.35;
 function bushLoot(x,y){
- if(Math.random()<GRALAT_CHANCE)drops.push({x,y:y-3,v:Math.random()<BLUE_CHANCE?5:1,t:0,pop:1,vx:0});
+ if(Math.random()<GRALAT_CHANCE)dpush({x,y:y-3,v:Math.random()<BLUE_CHANCE?5:1,t:0,pop:1,vx:0});
  const q=Math.random();
  if(q<.12)PK.push({x:x-6,y,k:'h',t:20});else if(q<.22)PK.push({x:x+6,y,k:'b',t:20});else if(q<.34)PK.push({x:x,y:y+6,k:'a',t:20});
 }
@@ -1517,6 +1518,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='svok'||m.t==='sverr'){if(window.ACCX)window.ACCX.st(m);return}
   if(m.t==='acc'){if(window.ACCX)window.ACCX.net(m);else window.__ACCM=m;return} /* conta chegou antes do script da conta existir: guarda e o script processa quando carregar */
   if(m.t==='bc'||m.t==='ball'){if(window.BSX)window.BSX.net(m);return}
+  if(m.t==='host'||m.t==='ms'||m.t==='mh'||m.t==='mp'||m.t==='dr'||m.t==='dp'||m.t==='dall'){if(window.MSY)window.MSY.net(m);else(window.__MSQ=window.__MSQ||[]).push(m);return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
   if(m.t!=='st')return;const seen=new Set();
   for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}
@@ -2859,6 +2861,72 @@ setInterval(()=>{try{paint()}catch(e){}},300);
 })();
 </script>
 
+<script>
+/* ===== MONSTROS SINCRONIZADOS =====
+   O servidor escolhe UM anfitrião (o jogador mais antigo online). Só o anfitrião roda a IA dos monstros (andar, perseguir, atacar,
+   renascer) e manda o estado 10x por segundo; os outros só copiam. Golpes de quem não é anfitrião são enviados a ele.
+   Sozinho no servidor, ou sem receber nada do anfitrião, cada um simula localmente como antes. */
+(()=>{
+let HOST=true;const FC=['Down','Up','Left','Right'],RPm=window.RPX,now=()=>performance.now(),live=()=>window.MPNET&&MPNET.live();
+let REMK=0;const _upd=updateSk,_kill=killSk;
+killSk=function(s){if(REMK){s.dead=1;s.hp=0;s.rt=MON_RESPAWN;s.combat=0;return}_kill(s)}; /* morte causada por outro jogador: sem XP/loot para o anfitrião */
+const idx=s=>{if(s.ix===undefined||SK[s.ix]!==s)s.ix=SK.indexOf(s);return s.ix};
+function nearest(s){let b=null,bd=P&&!P.dead?Math.hypot(s.x-P.x,s.y-P.y):1e9;
+ for(const o of RPm.values()){if(o.al!==undefined&&o.al!=1)continue;const d=Math.hypot(s.x-o.x,s.y-o.y);if(d<bd){bd=d;b=o}}return b}
+updateSk=function(s,dt){
+ if(!live()||!RPm.size)return _upd(s,dt); /* sozinho/offline: igual ao original */
+ const t=now();
+ if(!HOST){
+  if(s.sh===undefined)s.sh=s.hp;
+  if(s.hp<s.sh){const d=s.sh-s.hp;s.sh=s.hp;s.lm=t;MPNET.send({t:'mh',i:idx(s),d:Math.round(d)})} /* dano que eu causei: o anfitrião aplica */
+  if(t-(s.ls||0)<1500){ /* seguindo o anfitrião */
+   if(s.dead)return;
+   s.hurt=Math.max(0,(s.hurt||0)-dt);
+   if(s.tx!==undefined){const k=Math.min(1,dt*14);s.x+=(s.tx-s.x)*k;s.y+=(s.ty-s.y)*k}
+   if(s.walk)s.anim+=dt;return}
+  return _upd(s,dt)} /* anfitrião sumiu/sem dados: simula local */
+ const o=nearest(s);if(!o)return _upd(s,dt); /* o alvo mais perto sou eu */
+ const real=P,px=Object.create(real);px.x=o.x;px.y=o.y;px.dead=0;px.inv=0;px.hp=1e9;px.hurt=0;px.mp=1e9;
+ P=px;try{_upd(s,dt)}finally{P=real}
+ if(px.hp<1e9)MPNET.send({t:'mp',pid:o.id,dk:s.dmgK||1}); /* o monstro bateu no jogador remoto: ele calcula o dano com os próprios atributos */
+};
+setInterval(()=>{if(!HOST||!live()||!RPm.size||!P||document.hidden)return;
+ const pts=[P,...RPm.values()],e=[];
+ for(let i=0;i<SK.length;i++){const s=SK[i];let nr=0;for(const q of pts)if(Math.abs(s.x-q.x)<700&&Math.abs(s.y-q.y)<600){nr=1;break}if(!nr)continue;
+  e.push([i,Math.round(s.x),Math.round(s.y),Math.round(s.hp),(s.dead?1:0)|(s.walk?2:0)|(s.combat?4:0)|(s.hurt>0?8:0),FC.indexOf(s.face)])}
+ if(e.length)MPNET.send({t:'ms',n:SK.length,e})},100);
+function net(m){
+ if(m.t==='host'){HOST=m.v===1;return}
+ if(m.t==='ms'){
+  if(HOST||m.n!==SK.length||!Array.isArray(m.e))return;const t=now();
+  for(const a of m.e){const s=SK[a[0]];if(!s||a.length<6)continue;
+   if(t-(s.lm||0)<400)continue; /* acabei de bater: deixa o meu golpe valer um instante */
+   if(a[4]&1){if(!s.dead){s.dead=1;s.combat=0}s.hp=0;if(!(s.rt>0))s.rt=MON_RESPAWN;s.x=a[1];s.y=a[2]}
+   else{if(s.dead){s.dead=0;s.x=a[1];s.y=a[2]}s.hp=a[3];s.tx=a[1];s.ty=a[2];if(Math.abs(s.x-a[1])+Math.abs(s.y-a[2])>80){s.x=a[1];s.y=a[2]}}
+   s.sh=s.hp;s.ls=t;s.walk=a[4]>>1&1;s.combat=a[4]>>2&1;if(a[4]&8)s.hurt=Math.max(s.hurt||0,.12);const f=FC[a[5]];if(f)s.face=f}
+  return}
+ if(m.t==='mh'){ /* outro jogador bateu num monstro */
+  if(!HOST)return;const s=SK[m.i|0],d=+m.d;if(!s||s.dead||!(d>0))return;
+  s.hp-=Math.min(d,9999);s.hurt=.25;s.combat=1;dmgText(s,Math.round(d),'#ffb05a');
+  if(s.hp<=0){REMK=1;try{killSk(s)}finally{REMK=0}}return}
+ if(m.t==='mp'){ /* um monstro bateu em mim */
+  if(P&&!P.dead&&!(P.inv>0))hurtPlayer(Math.ceil(hpBase(P)/6*Math.min(20,+m.dk||1)))}
+}
+/* ITENS NO CHÃO COMPARTILHADOS: quem solta avisa (dr), quem pega avisa (dp); o servidor lembra o que está no chão para quem entra depois (dall) */
+const DRP=window.DRP={n:0,
+ ok(){return window.MPNET&&MPNET.live()&&MPNET.myId()!=null&&!(window.INT&&INT.loc==='i')},
+ add(o){if(this.ok()){o.id=MPNET.myId()+'-'+(++this.n);MPNET.send({t:'dr',id:o.id,x:Math.round(o.x),y:Math.round(o.y),v:o.v|0,pop:o.pop?1:0})}return o},
+ take(d){if(d.id&&window.MPNET&&MPNET.live())MPNET.send({t:'dp',id:d.id})},
+ net(m){if(!drops||(window.INT&&INT.loc==='i')){if(m.t==='dall')this.pend=m;return}
+  if(m.t==='dr'){if(drops.some(d=>d.id===m.id))return;drops.push({x:+m.x||0,y:+m.y||0,v:m.v|0,t:m.pop?0:1,pop:m.pop?1:0,vx:0,id:m.id});return}
+  if(m.t==='dp'){drops=drops.filter(d=>d.id!==m.id);return}
+  if(m.t==='dall'&&Array.isArray(m.a))for(const a of m.a){if(drops.some(d=>d.id===a[0]))continue;drops.push({x:+a[1]||0,y:+a[2]||0,v:a[3]|0,t:1,pop:0,vx:0,id:a[0]})}}};
+setInterval(()=>{if(DRP.pend&&drops&&!(window.INT&&INT.loc==='i')){const m=DRP.pend;DRP.pend=null;DRP.net(m)}},500); /* lista de itens que chegou antes do jogo começar */
+const _net=net;
+window.MSY={net:m=>{if(m.t==='dr'||m.t==='dp'||m.t==='dall')return DRP.net(m);_net(m)}};
+if(window.__MSQ){const q=window.__MSQ;window.__MSQ=null;q.forEach(window.MSY.net)}
+})();
+</script>
 <script>
 /* ===== CONTA COM DISCORD: botão de login + progresso salvo no servidor ===== */
 (()=>{
