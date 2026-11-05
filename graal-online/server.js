@@ -91,6 +91,10 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const AUTH_ON = !!(DC_ID && DC_SECRET && SES_SECRET);
 const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_custom_v1'];
 const ACC_MAX = 600000, SES_DAYS = 30;
+/* VISITANTE SALVO: quem não entrou com o Discord ganha uma conta de visitante (id aleatório num cookie de 1 ano, só neste navegador).
+ * O progresso fica no PostgreSQL igual ao da conta Discord. Visitantes sem uso há GUEST_KEEP_DAYS dias são apagados. */
+const GID_RE = /^g[a-f0-9]{32}$/, GUEST_DAYS = 365, GUEST_KEEP_DAYS = 90;
+const newGid = () => 'g' + crypto.randomBytes(16).toString('hex');
 const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 if (!DATABASE_URL) throw new Error('DATABASE_URL não configurada no Render; contas Discord precisam do PostgreSQL.');
 const pgPool = new Pool({ connectionString: DATABASE_URL, ssl: /render\.com|neon\.tech|supabase\.co/i.test(DATABASE_URL) ? { rejectUnauthorized: false } : undefined, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
@@ -100,9 +104,10 @@ async function initAccountsDB() {
     discord_id TEXT PRIMARY KEY, name TEXT NOT NULL, avatar TEXT, created_at BIGINT NOT NULL,
     last_seen BIGINT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb
   )`);
+  await pgPool.query(`DELETE FROM graal_accounts WHERE discord_id LIKE 'g%' AND last_seen < $1`, [Date.now() - GUEST_KEEP_DAYS * 864e5]);
   const r = await pgPool.query('SELECT discord_id, name, avatar, created_at, last_seen, data FROM graal_accounts');
-  for (const row of r.rows) ACC[row.discord_id] = { id: row.discord_id, name: row.name, av: row.avatar, at: Number(row.created_at), last: Number(row.last_seen), data: row.data || {} };
-  console.log('PostgreSQL: contas Discord carregadas:', r.rowCount);
+  for (const row of r.rows) ACC[row.discord_id] = { guest: GID_RE.test(row.discord_id), id: row.discord_id, name: row.name, av: row.avatar, at: Number(row.created_at), last: Number(row.last_seen), data: row.data || {} };
+  console.log('PostgreSQL: contas carregadas (Discord + visitantes):', r.rowCount);
 }
 async function flushACC() {
   accT = null;
@@ -132,9 +137,11 @@ function sessionOf(req) { // id da conta se o cookie de sessão for válido e as
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try { const o = JSON.parse(Buffer.from(p, 'base64url').toString()); return o && o.exp > Date.now() && ACC[o.id] ? o.id : null } catch (e) { return null }
 }
-const avatarOf = a => a.av ? 'https://cdn.discordapp.com/avatars/' + a.id + '/' + a.av + '.png?size=64' : 'https://cdn.discordapp.com/embed/avatars/' + Number((BigInt(a.id) >> 22n) % 6n) + '.png';
+const guestOf = req => { const v = readCookie(req, 'ggid'); return GID_RE.test(v) ? v : null };
+const ensureGuest = id => ACC[id] || (ACC[id] = { id, guest: true, name: 'Visitante', av: null, at: Date.now(), last: Date.now(), data: {} });
+const avatarOf = a => a.guest ? 'https://cdn.discordapp.com/embed/avatars/0.png' : a.av ? 'https://cdn.discordapp.com/avatars/' + a.id + '/' + a.av + '.png?size=64' : 'https://cdn.discordapp.com/embed/avatars/' + Number((BigInt(a.id) >> 22n) % 6n) + '.png';
 const nickOf = n => String(n).replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12) || 'Jogador';
-const accMsg = a => ({ t: 'acc', id: a.id, name: a.name, av: avatarOf(a), data: a.data || {} });
+const accMsg = a => ({ t: 'acc', guest: !!a.guest, id: a.id, name: a.name, av: avatarOf(a), data: a.data || {} });
 async function discordCallback(req, res) {
   const fail = why => { console.error('Login Discord falhou:', why); res.writeHead(302, { Location: '/?login=erro' }); res.end() };
   try {
@@ -203,8 +210,10 @@ const srv = http.createServer((req, res) => {
   if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { if (pl.svTm) clearTimeout(pl.svTm); if (pl.svD) { applySv(pl, pl.svD); pl.svD = null } ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
   if (url === '/api/acc' && req.method === 'GET') { // progresso da conta entregue ANTES do jogo começar (o navegador aplica antes de carregar o jogo)
     const id = sessionOf(req), a = id && ACC[id];
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify(a ? { on: true, id: a.id, data: a.data || {} } : { on: AUTH_ON }));
+    if (a) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ on: true, id: a.id, data: a.data || {} })) }
+    const g = guestOf(req) || newGid(), ga = ACC[g]; // sem Discord: conta de visitante (o cookie é renovado a cada visita)
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Set-Cookie': ck(req, 'ggid', g, GUEST_DAYS * 86400) });
+    return res.end(JSON.stringify({ on: true, id: g, guest: true, data: (ga && ga.data) || {} }));
   }
   if (url === '/api/me' && req.method === 'GET') {
     const id = sessionOf(req), a = id && ACC[id];
@@ -307,6 +316,14 @@ wss.on('connection', (ws, req) => {
         ACTIVE_ACC.set(sid, p);
         setRole(AD.admins[p.uh] ? 1 : 0);
         sendTo(ws, accMsg(ACC[sid]));
+      }
+    } else {
+      const gid = guestOf(req); // visitante: conta salva no servidor; admin/ban continuam presos ao uid do navegador (definido no 'hi')
+      if (gid) {
+        const a = ensureGuest(gid); a.last = Date.now(); p.gid = gid; p.acc = gid;
+        for (const o of P.values()) if (o !== p && o.acc === gid) { o.acc = null; sendTo(o.ws, { t: 'kick', r: 'Sua conta entrou em outro lugar.' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100) }
+        ACTIVE_ACC.set(gid, p);
+        sendTo(ws, accMsg(a));
       }
     }
   }
@@ -425,7 +442,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
   });
-  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); P.delete(id); others(id, { t: 'l', id }) });
+  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }) });
   ws.on('error', () => { });
 });
 
