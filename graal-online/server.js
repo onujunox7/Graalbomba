@@ -9,6 +9,7 @@
  */
 const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN = process.env.ADMIN_TOKEN || '';
@@ -25,15 +26,20 @@ const KEYS = {
   tsol: s => /^[01]{4096}$/.test(s)
 };
 
-/* ---------------- config persistente ---------------- */
+/* ---------------- config persistente (PostgreSQL) ---------------- */
+// DATABASE_URL deve ser configurada nas variáveis de ambiente do serviço Render.
+// Se não existir, o servidor mantém o modo antigo baseado em arquivos JSON (desenvolvimento local).
+const pool = process.env.DATABASE_URL ? new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // O PostgreSQL do Render aceita SSL. Em ambientes locais, não forçamos SSL.
+  ssl: { rejectUnauthorized: false },
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000
+}) : null;
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 let cfg = {};
-(function load() {
-  for (const f of [CFG_FILE, BAK_FILE, path.join(__dirname, 'public', 'graal-config.json')]) { // o último aproveita um "Exportar tudo" antigo
-    try { const o = JSON.parse(fs.readFileSync(f, 'utf8')); if (o && typeof o === 'object') { cfg = o; console.log('Config carregada de', f); return } } catch (e) { }
-  }
-})();
-
 let cache = null, saveT = null, lastBak = 0;
 const invalidate = () => { cache = null };
 function getCache() {
@@ -43,18 +49,71 @@ function getCache() {
   }
   return cache;
 }
-function flush() {
-  saveT = null;
-  try {
-    if (fs.existsSync(CFG_FILE) && Date.now() - lastBak > 10 * 60 * 1000) { fs.copyFileSync(CFG_FILE, BAK_FILE); lastBak = Date.now() }
-    const tmp = CFG_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(cfg));
-    fs.renameSync(tmp, CFG_FILE); // troca atômica: nunca fica arquivo pela metade
-  } catch (e) { console.error('Falha ao gravar config:', e.message) }
+function loadLegacyConfig() {
+  for (const f of [CFG_FILE, BAK_FILE, path.join(__dirname, 'public', 'graal-config.json')]) {
+    try {
+      const o = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (o && typeof o === 'object' && !Array.isArray(o)) {
+        console.log('Config legada encontrada em', f);
+        return o;
+      }
+    } catch (e) { }
+  }
+  return {};
 }
-const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
-process.on('SIGTERM', () => { if (saveT) flush(); process.exit(0) });
-process.on('SIGINT', () => { if (saveT) flush(); process.exit(0) });
+async function initConfigStore() {
+  if (!pool) {
+    cfg = loadLegacyConfig();
+    console.log('DATABASE_URL não definida: usando armazenamento JSON local.');
+    return;
+  }
+  await pool.query(`CREATE TABLE IF NOT EXISTS graal_config (
+    config_key TEXT PRIMARY KEY,
+    config_value TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  const result = await pool.query('SELECT config_key, config_value FROM graal_config');
+  if (result.rowCount === 0) {
+    // Migra automaticamente uma configuração JSON antiga, se houver.
+    const legacy = loadLegacyConfig();
+    for (const [key, value] of Object.entries(legacy)) {
+      if (Object.prototype.hasOwnProperty.call(KEYS, key) && (value === null || (typeof value === 'string' && KEYS[key](value)))) {
+        await pool.query(
+          'INSERT INTO graal_config (config_key, config_value) VALUES ($1, $2) ON CONFLICT (config_key) DO NOTHING',
+          [key, value]
+        );
+      }
+    }
+    if (Object.keys(legacy).length) console.log('Configuração antiga migrada para PostgreSQL.');
+  }
+  const loaded = await pool.query('SELECT config_key, config_value FROM graal_config');
+  cfg = {};
+  for (const row of loaded.rows) cfg[row.config_key] = row.config_value;
+  invalidate();
+  console.log(`PostgreSQL conectado: ${loaded.rowCount} configuração(ões) carregada(s).`);
+}
+async function persistConfig(key, value) {
+  if (pool) {
+    await pool.query(
+      `INSERT INTO graal_config (config_key, config_value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()`,
+      [key, value]
+    );
+    return;
+  }
+  // Fallback local para desenvolvimento; no Render, DATABASE_URL deve estar configurada.
+  cfg[key] = value;
+  if (fs.existsSync(CFG_FILE) && Date.now() - lastBak > 10 * 60 * 1000) {
+    try { fs.copyFileSync(CFG_FILE, BAK_FILE); lastBak = Date.now() } catch (e) { console.error('Falha no backup JSON:', e.message) }
+  }
+  const tmp = CFG_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(cfg));
+  fs.renameSync(tmp, CFG_FILE);
+}
+const scheduleSave = () => { if (!pool && !saveT) saveT = setTimeout(() => { saveT = null; }, 300) };
+process.on('SIGTERM', async () => { if (saveT) clearTimeout(saveT); if (pool) await pool.end().catch(() => {}); process.exit(0) });
+process.on('SIGINT', async () => { if (saveT) clearTimeout(saveT); if (pool) await pool.end().catch(() => {}); process.exit(0) });
 
 /* ---------------- HTTP ---------------- */
 const isLoop = r => { const a = r.socket.remoteAddress || ''; return (a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1') && !r.headers['x-forwarded-for'] };
@@ -85,16 +144,22 @@ const srv = http.createServer((req, res) => {
     if (!isAdmin(req)) { req.resume(); return send(res, 403, { ok: false, erro: 'token inválido' }) }
     let size = 0; const chunks = [];
     req.on('data', d => { size += d.length; if (size > MAX_BODY) { send(res, 413, { ok: false, erro: 'grande demais' }); req.destroy() } else chunks.push(d) });
-    req.on('end', () => {
+    req.on('end', async () => {
       if (size > MAX_BODY) return;
       let v; try { v = JSON.parse(Buffer.concat(chunks).toString('utf8')).v } catch (e) { return send(res, 400, { ok: false, erro: 'JSON inválido' }) }
-      if (v === null) cfg[key] = null; // null = o editor apagou/restaurou o padrão
-      else if (typeof v === 'string' && KEYS[key](v)) cfg[key] = v;
-      else return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
-      invalidate(); scheduleSave();
-      const msg = JSON.stringify({ t: 'cfg', k: key });
-      wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) }); // avisa os jogadores online
-      send(res, 200, { ok: true, etag: getCache().etag });
+      if (v !== null && !(typeof v === 'string' && KEYS[key](v))) return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
+      try {
+        // Só confirma ao editor depois que o PostgreSQL (ou o arquivo local) gravar com sucesso.
+        await persistConfig(key, v);
+        cfg[key] = v;
+        invalidate(); scheduleSave();
+        const msg = JSON.stringify({ t: 'cfg', k: key });
+        wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) });
+        send(res, 200, { ok: true, etag: getCache().etag });
+      } catch (e) {
+        console.error('Falha ao salvar configuração no banco:', e);
+        send(res, 503, { ok: false, erro: 'não foi possível salvar no banco de dados' });
+      }
     });
     return;
   }
@@ -156,7 +221,12 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 100);
 
-srv.listen(PORT, () => {
-  console.log('Graal Online em http://localhost:' + PORT);
-  if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
+initConfigStore().then(() => {
+  srv.listen(PORT, () => {
+    console.log('Graal Online em http://localhost:' + PORT);
+    if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
+  });
+}).catch(err => {
+  console.error('Não foi possível inicializar o armazenamento de configurações:', err);
+  process.exit(1);
 });
