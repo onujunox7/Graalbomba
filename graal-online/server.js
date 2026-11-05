@@ -292,17 +292,25 @@ const srv = http.createServer((req, res) => {
     const send = () => {
       const h = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ETag: IDX.etag, Vary: 'Accept-Encoding' };
       if (req.headers['if-none-match'] === IDX.etag) { res.writeHead(304, h); return res.end() }
-      if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) { h['Content-Encoding'] = 'gzip'; res.writeHead(200, h); return res.end(req.method === 'HEAD' ? undefined : IDX.gz) }
+      const ae = req.headers['accept-encoding'] || '';
+      if (IDX.br && /\bbr\b/.test(ae)) { h['Content-Encoding'] = 'br'; res.writeHead(200, h); return res.end(req.method === 'HEAD' ? undefined : IDX.br) }
+      if (IDX.gz && /\bgzip\b/.test(ae)) { h['Content-Encoding'] = 'gzip'; res.writeHead(200, h); return res.end(req.method === 'HEAD' ? undefined : IDX.gz) }
       res.writeHead(200, h); res.end(req.method === 'HEAD' ? undefined : IDX.raw);
     };
     if (IDX && IDX.m === st.mtimeMs) return send();
     fs.readFile(INDEX, (e, d) => {
       if (e) { res.writeHead(500); return res.end('erro') }
-      IDX = { m: st.mtimeMs, raw: d, gz: zlib.gzipSync(d, { level: 9 }), etag: '"' + crypto.createHash('sha1').update(d).digest('hex').slice(0, 16) + '"' };
+      // compressão assíncrona (thread pool): não trava o loop do servidor/WebSocket; enquanto não termina, serve o arquivo sem compressão (só na 1ª vez)
+      const cur = IDX = { m: st.mtimeMs, raw: d, gz: null, br: null, etag: '"' + crypto.createHash('sha1').update(d).digest('hex').slice(0, 16) + '"' };
+      zlib.gzip(d, { level: 9 }, (er, b) => { if (!er) cur.gz = b });
+      zlib.brotliCompress(d, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: d.length } }, (er, b) => { if (!er) cur.br = b });
       send();
     });
   });
 });
+
+// aquece o cache do index.html (e a compressão) ao iniciar
+try { fs.stat(INDEX, (e0, st) => { if (e0) return; fs.readFile(INDEX, (e, d) => { if (e || IDX) return; const cur = IDX = { m: st.mtimeMs, raw: d, gz: null, br: null, etag: '"' + crypto.createHash('sha1').update(d).digest('hex').slice(0, 16) + '"' }; zlib.gzip(d, { level: 9 }, (er, b) => { if (!er) cur.gz = b }); zlib.brotliCompress(d, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: d.length } }, (er, b) => { if (!er) cur.br = b }) }) }) } catch (e) { }
 
 /* ---------------- jogo (WebSocket, protocolo v3) ---------------- */
 const wss = new WebSocketServer({ server: srv, maxPayload: 700 * 1024 });
