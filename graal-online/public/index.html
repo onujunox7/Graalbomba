@@ -1,5 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script>
+<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
+(function(){try{if(location.protocol==='file:')return;var x=new XMLHttpRequest();x.open('GET','/api/acc',false);x.send();if(x.status!==200)return;var j=JSON.parse(x.responseText);if(!j||!j.on||!j.id)return;
+var K=["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_custom_v1"];
+var id=String(j.id),ow=localStorage.getItem('graal_acc_owner');if(ow&&ow!==id)K.forEach(function(k){localStorage.removeItem(k)});
+localStorage.setItem('graal_acc_owner',id);var d=j.data||{};K.forEach(function(k){if(typeof d[k]==='string')localStorage.setItem(k,d[k])});window.__ACC_PRE=id}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#14161c"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
 <script>/* config do servidor (graal-config.json): portas, mapa, tilesets, colisão, interior e levels valem para TODOS os jogadores.
@@ -2854,14 +2858,14 @@ setInterval(()=>{try{paint()}catch(e){}},300);
 (()=>{
 const KEYS=['graal_nick','graal_classic_save_v1','graal_classic_zelda_v1','graal_skin_v2','graal_equip_v1','graal_playtime','graal_custom_v1'];
 const ls=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
-let ready=0,applied=0,lastSent='';
+let ready=0,applied=0,lastSent='',frozen=0;{const _si=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(frozen&&KEYS.indexOf(k)>=0)return;return _si.apply(this,arguments)}}
 function snap(){const o={};KEYS.forEach(k=>{const v=ls(k);if(typeof v==='string')o[k]=v});if(JSON.stringify(o).length>590000)delete o.graal_custom_v1;return o}
 function sync(force){if(!ready||!window.MPNET||!MPNET.live())return;const o=snap(),j=JSON.stringify(o);if(!force&&j===lastSent)return;lastSent=j;MPNET.send({t:'sv',d:o});setSt('☁ enviando…','#ffd27a')}
 /* barra no topo: entrar / avatar + nome + sair */
 const bar=document.createElement('div');bar.id='accbar';
 bar.style.cssText='position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:60;display:none;align-items:center;gap:7px;padding:3px 11px 3px 4px;border-radius:15px;background:rgba(30,22,12,.85);border:2px solid #5a4020;color:#f3e6c4;font:600 12px Verdana,Arial,sans-serif;white-space:nowrap;user-select:none';
 document.body.appendChild(bar);
-const stEl=document.createElement('span');stEl.style.cssText='font-weight:400;font-size:11px;margin-left:4px;color:#cfe8ff';function setSt(t,c){stEl.textContent=t;stEl.style.color=c||'#cfe8ff'}setSt('v5');
+const stEl=document.createElement('span');stEl.style.cssText='font-weight:400;font-size:11px;margin-left:4px;color:#cfe8ff';function setSt(t,c){stEl.textContent=t;stEl.style.color=c||'#cfe8ff'}setSt('v6');
 function ui(u){bar.textContent='';bar.style.display='flex';
  if(u){const i=new Image();i.src=u.av;i.width=i.height=20;i.style.cssText='border-radius:50%;display:block';const n=document.createElement('span');n.textContent=u.name;const a=document.createElement('a');a.href='/auth/logout';a.onclick=function(ev){ev.preventDefault();try{dispatchEvent(new Event('beforeunload'))}catch(e){}try{sync(1)}catch(e){}setTimeout(function(){location.href='/auth/logout'},500)};a.textContent='sair';a.style.cssText='color:#ffb05a;text-decoration:none;margin-left:2px';bar.append(i,n,a,stEl);bar.style.paddingLeft='4px'}
  else{const a=document.createElement('a');a.href='/auth/discord';a.textContent='🔑 Entrar com Discord';a.style.cssText='color:#fff;text-decoration:none;padding-left:7px';bar.append(a,stEl)}}
@@ -2871,14 +2875,14 @@ try{if(/[?&]login=erro/.test(location.search)){history.replaceState(null,'',loca
 /* servidor mandou a conta: na 1ª vez da página, o que está salvo na conta vence o que está no navegador */
 window.ACCX={net(m){
  ui({name:m.name,av:m.av});
- if(!applied){applied=1;const d=m.data||{};let diff=0;
+ if(!applied){applied=1;if(window.__ACC_PRE===String(m.id)){ready=1;setSt('☁ conectado','#9aff9a');sync();return}const d=m.data||{};let diff=0;
   /* outra conta neste navegador: não herda o progresso da anterior */
   let ow=null;try{ow=localStorage.getItem('graal_acc_owner')}catch(e){}
   if(ow&&ow!==m.id){KEYS.forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});diff=1}
   try{localStorage.setItem('graal_acc_owner',String(m.id))}catch(e){}
   for(const k of KEYS)if(typeof d[k]==='string'&&d[k]!==ls(k)){try{localStorage.setItem(k,d[k]);diff=1}catch(e){}}
   const g='graal_acc_rl';
-  if(diff){let n=0;try{n=+sessionStorage.getItem(g)||0;sessionStorage.setItem(g,String(n+1))}catch(e){}if(n<1){location.reload();return}}
+  if(diff){let n=0;try{n=+sessionStorage.getItem(g)||0;sessionStorage.setItem(g,String(n+1))}catch(e){}if(n<1){frozen=1;location.reload();return}}
   else try{sessionStorage.removeItem(g)}catch(e){}}
  ready=1;setSt('☁ conectado','#9aff9a');sync()},
  st(m){if(m.t==='svok')setSt('☁ salvo '+new Date(m.at).toLocaleTimeString(),'#9aff9a');else setSt('⚠ erro no banco: '+m.m,'#ff9a9a')}};
