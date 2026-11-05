@@ -168,15 +168,16 @@ let NPC={x:0,y:0},shop=0,showMap=1,MM=null,CH=[],GR=null;
 const ITEMS=[{n:'Poção de vida (+30 HP)',c:()=>10,ok:()=>P.pot<9,f:()=>P.pot++},{n:'Afiar espada (+4 dano)',c:()=>30+20*P.up,ok:()=>P.up<5,f:()=>{P.up++;P.dmg+=4}},{n:'Curar tudo agora',c:()=>15,ok:()=>P.hp<P.hpM,f:()=>P.hp=P.hpM}];
 function buy(i){const it=ITEMS[i],t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c});if(!it.ok())return t('Indisponível','#ffb05a');if(P.gl<it.c())return t('Gralats insuficientes','#ff5a5a');P.gl-=it.c();it.f();saveGame();t('Comprado!','#5aff7a')}
 let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
+/* ---- monstros: ajuste aqui ---- */
+const MON_RESPAWN=30; /* segundos até o monstro renascer depois de morto */
+const MON_SPREAD={seed:20260604,density:.8,cell:320,safe:320,houseSafe:200,townPad:96}; /* seed: muda = muda TODAS as posições fixas; density: chance de cada célula 320x320 ter monstro; safe: raio livre no início; houseSafe: distância mínima de portas de casas; townPad: folga ao redor das cidades */
 function newPlayer(x,y){P={x,y,face:'Down',lvl:1,str:4,res:3,int:2,wil:2,dmg:12+(P?P.up*4:0),def:2,exp:0,gl:P?P.gl:0,pot:P?P.pot:1,up:P?P.up:0,kills:P?P.kills:0,atk:0,atkLen:0,anim:0,walk:0,dead:0,rt:0,hurt:0,rh:0,rm:0};
  P.hpM=mHP(P);P.mpM=mMP(P);P.stM=mST(P);P.hp=P.hpM;P.mp=P.mpM;P.st=P.stM}
 function mkSk(x,y,wps,el){return{x,y,sx:x,sy:y,face:'Down',lvl:el?3:1,str:el?4:2,res:2,int:1,wil:1,dmg:el?7:4,def:el?5:3,hp:el?80:34,hpM:el?80:34,el,wps,wp:0,wait:5,combat:0,atkT:.5,dead:0,rt:0,walk:0,anim:0,hurt:0}}
 function reset(){
  P=null;newPlayer(D.player[0],D.player[1]);fx=[];drops=[];
  SK=[mkSk(D.skelp[0],D.skelp[1],D.wps)];
- let n=0,tries=0;while(n<5&&tries++<800){const a=Math.random()*6.28,r=150+Math.random()*150,x=D.player[0]+Math.cos(a)*r,y=D.player[1]+Math.sin(a)*r;
-  if(!blocked(x,y)&&!blocked(x+45,y+5)&&!blocked(x-45,y-5)){SK.push(mkSk(x,y,[[x-45,y-5],[x+45,y+5]],n===4));n++}}
- spawnMons();CH.forEach(c=>c.open=0);shop=0;NPC={x:D.player[0]+40,y:D.player[1]};
+ spreadMonsters();CH.forEach(c=>c.open=0);shop=0;NPC={x:D.player[0]+40,y:D.player[1]};
  for(const[ox,oy]of[[40,0],[-40,0],[0,40],[0,-40],[60,20],[-60,20],[30,50]])if(!blocked(D.player[0]+ox,D.player[1]+oy)){NPC.x=D.player[0]+ox;NPC.y=D.player[1]+oy;break}
  fx.push({x:P.x,y:P.y-20,txt:'Bem-vindo, Onu!',t:3,c:'#fff'});Q={i:0,n:0};
 }
@@ -214,9 +215,11 @@ function updatePlayer(dt){
  P.rh+=dt;if(P.rh>=15){P.rh=0;if(P.hp<P.hpM)P.hp=Math.min(P.hpM,P.hp+5)}
  P.rm+=dt;if(P.rm>=10){P.rm=0;if(P.mp<P.mpM)P.mp=Math.min(P.mpM,P.mp+5)}
 }
-function killSk(s){s.dead=1;s.hp=0;s.rt=10;s.combat=0;P.exp+=s.xp||(s.el?35:10);P.kills++;questEvent('kill');if(s.el)questEvent('elite');if(s.k)questEvent('mon');levelCheck();saveGame();const g0=ri(0,10)*(s.el?3:1);if(g0>0)drops.push({x:s.x,y:s.y+8,v:g0,t:0});if(Math.random()<(s.el?.6:.2)&&P.pot<9){P.pot++;fx.push({x:s.x,y:s.y-26,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}
+function killSk(s){s.dead=1;s.hp=0;s.rt=MON_RESPAWN;s.combat=0;P.exp+=s.xp||(s.el?35:10);P.kills++;questEvent('kill');if(s.el)questEvent('elite');if(s.k)questEvent('mon');levelCheck();saveGame();const g0=ri(0,10)*(s.el?3:1);if(g0>0)drops.push({x:s.x,y:s.y+8,v:g0,t:0});if(Math.random()<(s.el?.6:.2)&&P.pot<9){P.pot++;fx.push({x:s.x,y:s.y-26,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}
 function updateSk(s,dt){
- if(s.dead){s.rt-=dt;if(s.rt<=0){s.dead=0;s.hp=s.hpM;s.x=s.sx;s.y=s.sy;s.combat=0;s.wp=0}return}
+ if(s.dead){s.rt-=dt;if(s.rt<=0){if(Math.hypot(P.x-s.sx,P.y-s.sy)<90){s.rt=0;return} /* jogador em cima do ponto: espera ele sair */
+  s.dead=0;s.hp=s.hpM;s.x=s.sx;s.y=s.sy;s.combat=0;s.wp=0}return}
+ if(!s.combat&&Math.abs(s.x-P.x)+Math.abs(s.y-P.y)>900){s.walk=0;return} /* longe da tela: não gasta CPU */
  s.hurt=Math.max(0,s.hurt-dt);s.walk=0;
  const d=dist(s,P);
  if(s.k){updateMon(s,dt,d);return}
@@ -263,7 +266,7 @@ function draw(){
  g.fillStyle='#000';g.fillRect(0,0,vw,vh);
  if(IM.below.chunked)IM.below.draw(g,Math.round(cam.x),Math.round(cam.y),vw,vh);else g.drawImage(IM.below,Math.round(cam.x),Math.round(cam.y),vw,vh,0,0,vw,vh);
  drops.forEach(d=>{const b=Math.sin(d.t*5)*1.5;g.drawImage(IM.gr,3,2,25,27,Math.round(d.x-cam.x-8),Math.round(d.y-cam.y-8+b),16,17)});
- const E=[...CH.map(c=>({y:c.y,f:()=>{const x=Math.round(c.x-8-cam.x),y=Math.round(c.y-16-cam.y);if(c.open)g.globalAlpha=.55;g.drawImage(IM.ts,448,120,16,16,x,y,16,16);g.globalAlpha=1;if(!c.open&&dist(P,c)<28&&!shop){g.font='7px sans-serif';g.textAlign='center';g.fillStyle='#fff';g.fillText('[E] Abrir',x+8,y-3)}}})),{y:NPC.y,f:()=>{const x=Math.round(NPC.x-cam.x),y=Math.round(NPC.y-cam.y);g.fillStyle='rgba(0,0,0,.3)';g.beginPath();g.ellipse(x,y+1,7,3,0,0,6.3);g.fill();g.filter='hue-rotate(160deg)';spr(IM.link,animFrame(D.link,'Idle_Down',T),NPC.x,NPC.y,1);g.filter='none';g.font='7px sans-serif';g.textAlign='center';g.fillStyle='#ffd23a';g.fillText('Mercador',x,y-18);if(dist(P,NPC)<34&&!shop){g.fillStyle='#fff';g.fillText('[E] Loja',x,y-27)}}},...SK.filter(s=>!s.dead).map(s=>({y:s.y,f:()=>{if(s.k)return drawMon(s);const n=s.walk?'Walk_'+s.face:'Idle_'+s.face;const fr=animFrame(D.skel,n,s.anim);if(s.el)g.filter='hue-rotate(150deg) saturate(2)';spr(IM.skel,fr,s.x,s.y,s.hurt>0&&Math.floor(s.hurt*20)%2?.4:1);g.filter='none';
+ const E=[...CH.map(c=>({y:c.y,f:()=>{const x=Math.round(c.x-8-cam.x),y=Math.round(c.y-16-cam.y);if(c.open)g.globalAlpha=.55;g.drawImage(IM.ts,448,120,16,16,x,y,16,16);g.globalAlpha=1;if(!c.open&&dist(P,c)<28&&!shop){g.font='7px sans-serif';g.textAlign='center';g.fillStyle='#fff';g.fillText('[E] Abrir',x+8,y-3)}}})),{y:NPC.y,f:()=>{const x=Math.round(NPC.x-cam.x),y=Math.round(NPC.y-cam.y);g.fillStyle='rgba(0,0,0,.3)';g.beginPath();g.ellipse(x,y+1,7,3,0,0,6.3);g.fill();g.filter='hue-rotate(160deg)';spr(IM.link,animFrame(D.link,'Idle_Down',T),NPC.x,NPC.y,1);g.filter='none';g.font='7px sans-serif';g.textAlign='center';g.fillStyle='#ffd23a';g.fillText('Mercador',x,y-18);if(dist(P,NPC)<34&&!shop){g.fillStyle='#fff';g.fillText('[E] Loja',x,y-27)}}},...SK.filter(s=>!s.dead&&s.x>cam.x-48&&s.x<cam.x+VW+48&&s.y>cam.y-48&&s.y<cam.y+VH+72).map(s=>({y:s.y,f:()=>{if(s.k)return drawMon(s);const n=s.walk?'Walk_'+s.face:'Idle_'+s.face;const fr=animFrame(D.skel,n,s.anim);if(s.el)g.filter='hue-rotate(150deg) saturate(2)';spr(IM.skel,fr,s.x,s.y,s.hurt>0&&Math.floor(s.hurt*20)%2?.4:1);g.filter='none';
    bar(Math.round(s.x-cam.x-10),Math.round(s.y-cam.y-20),20,3,s.hp,s.hpM,s.el?'#d9a03a':'#d93a3a');if(s.el){g.font='6px sans-serif';g.textAlign='center';g.fillStyle='#ffd06a';g.fillText('Elite Nv3',Math.round(s.x-cam.x),Math.round(s.y-cam.y)-23)}}})),
   {y:P.y,f:()=>{g.fillStyle='rgba(0,0,0,.3)';g.beginPath();g.ellipse(Math.round(P.x-cam.x),Math.round(P.y-cam.y)+1,7,3,0,0,6.3);g.fill();if(P.dead){g.globalAlpha=.5}const n=P.atk>0?'Attack_'+P.face:P.walk?'Run_'+P.face:'Idle_'+P.face;const t=P.atk>0?(P.atkLen-P.atk)*ATK_BASE/P.atkLen:P.anim;
    spr(IM.link,animFrame(D.link,n,t),P.x,P.y,P.dead?.4:(P.hurt>0&&Math.floor(P.hurt*20)%2?.4:1));g.globalAlpha=1;
@@ -487,6 +490,54 @@ function spawnMons(){
   if(!blocked(x,y)&&!blocked(x+12,y)&&!blocked(x-12,y)&&!blocked(x,y+8)){SK.push(mkMon(k,x,y));n++}
  }
 }
+/* Monstros em posições FIXAS (iguais para todos os jogadores e a cada vez que o jogo abre): cada célula do mapa tem o seu
+   próprio sorteio com semente fixa. Só em chão alcançável a partir do início, fora de cidades, longe de portas de casas,
+   fora de lama/lava. Mais longe do início = mais forte. Mudar o mapa só mexe nas células afetadas. */
+function spreadMonsters(){
+ const S=MON_SPREAD,W=D.W,H=D.H,sol=SO?(k=>SO[k]):(k=>(bits[k>>3]>>(k&7))&1);
+ /* 1) áreas alcançáveis (flood fill por tiles de 8px) */
+ const reach=new Uint8Array(W*H),q=new Int32Array(W*H);let qh=0,qt=0;
+ let s0=-1;{const px=Math.floor(D.player[0]/8),py=Math.floor(D.player[1]/8); /* início; se cair em sólido, procura o chão livre mais próximo */
+  for(let r=0;r<=40&&s0<0;r++)for(let j=-r;j<=r&&s0<0;j++)for(let i=-r;i<=r;i++){const x=px+i,y=py+j;if((Math.abs(i)===r||Math.abs(j)===r)&&x>=0&&y>=0&&x<W&&y<H&&!sol(y*W+x)){s0=y*W+x;break}}}
+ if(s0>=0){reach[s0]=1;q[qt++]=s0}
+ while(qh<qt){const k=q[qh++],x=k%W,y=(k-x)/W;
+  if(x>0&&!reach[k-1]&&!sol(k-1)){reach[k-1]=1;q[qt++]=k-1}
+  if(x<W-1&&!reach[k+1]&&!sol(k+1)){reach[k+1]=1;q[qt++]=k+1}
+  if(y>0&&!reach[k-W]&&!sol(k-W)){reach[k-W]=1;q[qt++]=k-W}
+  if(y<H-1&&!reach[k+W]&&!sol(k+W)){reach[k+W]=1;q[qt++]=k+W}}
+ /* 2) casas: portas de interior do mapa original (links), portas ligadas no editor e cidades inteiras */
+ const doors=[],towns=[];
+ if(typeof GWD!=='undefined'&&GWD&&GWD.meta)GWD.meta.forEach((m,l)=>{
+  const bx=(l%GNX)*64*8,by=Math.floor(l/GNX)*64*8;
+  if(/town|city/i.test(m.n||'')&&/outside/i.test(m.n||''))towns.push([bx-S.townPad,by-S.townPad,512+2*S.townPad,512+2*S.townPad]);
+  (m.l||[]).forEach(k=>{if(!/overworld|outside/i.test(k.to||''))doors.push([bx+(k.x+(k.w||2)/2)*8,by+(k.y+(k.h||1)/2)*8])})});
+ try{const o=JSON.parse(localStorage.getItem('graal_doors_v1')||'[]');if(Array.isArray(o))o.forEach(l=>{if(l&&l.A)doors.push([l.A[0]+l.A[2]/2,l.A[1]+l.A[3]/2])})}catch(e){}
+ const R2=S.houseSafe*S.houseSafe;
+ const nearHouse=(x,y)=>towns.some(r=>x>r[0]&&x<r[0]+r[2]&&y>r[1]&&y<r[1]+r[3])||doors.some(d=>(d[0]-x)*(d[0]-x)+(d[1]-y)*(d[1]-y)<R2);
+ const okSpot=(x,y,w)=>{
+  const tx=Math.floor(x/8),ty=Math.floor(y/8);if(tx<0||ty<0||tx>=W||ty>=H||!reach[ty*W+tx])return false;
+  if(Math.hypot(x-D.player[0],y-D.player[1])<S.safe||nearHouse(x,y))return false;
+  if(GR&&GR[ty*W+tx]||HZ&&HZ[ty*W+tx])return false;
+  if(blocked(x,y)||blocked(x+12,y)||blocked(x-12,y)||blocked(x,y+8))return false;
+  if(w&&(blocked(x+w,y+5)||blocked(x-w,y-5)))return false;
+  return true};
+ /* 3) uma célula = no máximo um monstro; a margem de 56px garante >=112px entre monstros de células vizinhas */
+ const cols=Math.ceil(W*8/S.cell),rows=Math.ceil(H*8/S.cell),M=56;
+ const pick=(rnd,x,y)=>{
+  const t=Math.min(1,Math.hypot(x-D.player[0],y-D.player[1])/8000);
+  if(rnd()<.3)return{sk:1,el:rnd()<.1+.5*t};
+  const ks=Object.keys(MT),ws=ks.map(k=>MT[k].qty*(k==='red'?.4+2*t:k==='blue'?1.2-.6*t:1));
+  let r=rnd()*ws.reduce((a,b)=>a+b,0),i=0;while(i<ks.length-1&&(r-=ws[i])>0)i++;return{k:ks[i]}};
+ let placed=0;
+ for(let c=0;c<cols*rows;c++){
+  const rnd=mulberry((Math.imul(c+1,2654435761)^S.seed)>>>0);
+  if(rnd()>=S.density)continue;
+  const cx=(c%cols)*S.cell,cy=Math.floor(c/cols)*S.cell,m=pick(rnd,cx+S.cell/2,cy+S.cell/2);
+  for(let t=0;t<12;t++){
+   const x=Math.round(cx+M+rnd()*(S.cell-2*M)),y=Math.round(cy+M+rnd()*(S.cell-2*M));
+   if(!okSpot(x,y,m.sk?45:0))continue;
+   SK.push(m.sk?mkSk(x,y,[[x-45,y-5],[x+45,y+5]],m.el):mkMon(m.k,x,y));placed++;break}}
+ return placed}
 function hurtPlayer(r){
  P.hp-=r;P.hurt=.3;dmgText(P,r,'#ff5a5a');
  if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}
