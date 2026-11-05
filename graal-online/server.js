@@ -198,7 +198,7 @@ const srv = http.createServer((req, res) => {
     res.writeHead(302, { Location: 'https://discord.com/oauth2/authorize?' + q, 'Set-Cookie': ck(req, 'gst', st, 600) }); return res.end();
   }
   if (url === '/auth/discord/callback' && req.method === 'GET') return discordCallback(req, res);
-  if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
+  if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { if (pl.svTm) clearTimeout(pl.svTm); if (pl.svD) { applySv(pl, pl.svD); pl.svD = null } ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
   if (url === '/api/me' && req.method === 'GET') {
     const id = sessionOf(req), a = id && ACC[id];
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -247,6 +247,15 @@ let nid = 1; const P = new Map();
 // Uma única conexão ativa por conta Discord: impede que uma aba/dispositivo antigo
 // sobrescreva o progresso mais recente depois de uma nova entrada.
 const ACTIVE_ACC = new Map();
+function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
+  const a = p.acc && ACC[p.acc];
+  if (!a || ACTIVE_ACC.get(p.acc) !== p || !d || typeof d !== 'object') return;
+  const out = {}; let n = 0;
+  for (const k of ACC_KEYS) { const v = d[k]; if (typeof v === 'string') { n += v.length + k.length; out[k] = v } }
+  if (n > ACC_MAX) { console.error('Save da conta ' + a.id + ' ignorado: grande demais (' + n + ' > ' + ACC_MAX + ')'); return }
+  if (out.graal_nick !== undefined) out.graal_nick = out.graal_nick.slice(0, 12);
+  p.svT = Date.now(); a.data = Object.assign(a.data || {}, out); a.last = p.svT; saveACC(a.id);
+}
 /* arbustos cortados (compartilhado entre todos): chave "x,y" (tile) -> quando volta a crescer (ms). Mundo: 1664 x 2752 tiles. */
 const BUSH_MS = 15000, BUSH_MAX = 4000, BCUT = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, t] of BCUT) if (t <= n) BCUT.delete(k) }, 5000);
@@ -373,14 +382,11 @@ wss.on('connection', (ws, req) => {
       }
       return;
     }
-    if (m.t === 'sv') { // salva o progresso na conta (só quem está logado; no máx. 1 a cada 2 s)
-      const a = p.acc && ACC[p.acc], now = Date.now();
-      if (!a || ACTIVE_ACC.get(p.acc) !== p || !m.d || typeof m.d !== 'object' || now - p.svT < 2000) return; p.svT = now;
-      const out = {}; let n = 0;
-      for (const k of ACC_KEYS) { const v = m.d[k]; if (typeof v === 'string') { n += v.length + k.length; out[k] = v } }
-      if (n > ACC_MAX) return;
-      if (out.graal_nick !== undefined) out.graal_nick = out.graal_nick.slice(0, 12);
-      a.data = Object.assign(a.data || {}, out); a.last = now; saveACC(a.id); return;
+    if (m.t === 'sv') { // salva o progresso na conta; se vier rápido demais guarda o último e grava logo depois (não descarta)
+      if (!p.acc || ACTIVE_ACC.get(p.acc) !== p || !m.d || typeof m.d !== 'object') return;
+      const now = Date.now();
+      if (now - p.svT < 2000) { p.svD = m.d; if (!p.svTm) p.svTm = setTimeout(() => { p.svTm = null; const d = p.svD; p.svD = null; applySv(p, d) }, 2050 - (now - p.svT)); return }
+      p.svD = null; applySv(p, m.d); return;
     }
     if (m.t === 'bc') { // arbusto cortado: valida, guarda e avisa os outros (quem cortou já mostrou na própria tela)
       const x = m.x | 0, y = m.y | 0, now = Date.now();
@@ -409,7 +415,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
   });
-  ws.on('close', () => { if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); P.delete(id); others(id, { t: 'l', id }) });
+  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); P.delete(id); others(id, { t: 'l', id }) });
   ws.on('error', () => { });
 });
 
