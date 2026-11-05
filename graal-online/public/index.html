@@ -2876,7 +2876,7 @@ if(location.protocol!=='file:')fetch('/api/me',{cache:'no-store'}).then(r=>r.jso
 try{if(/[?&]login=erro/.test(location.search)){history.replaceState(null,'',location.pathname);setTimeout(()=>{try{MPNET.note('Não consegui entrar com o Discord. Tente de novo.')}catch(e){}},1500)}}catch(e){}
 /* servidor mandou a conta: na 1ª vez da página, o que está salvo na conta vence o que está no navegador */
 window.ACCX={net(m){
- ui({name:m.name,av:m.av});
+ if(!m.guest)ui({name:m.name,av:m.av});
  if(!applied){applied=1;if(window.__ACC_PRE===String(m.id)){ready=1;setSt('☁ conectado','#9aff9a');sync();return}const d=m.data||{};let diff=0;
   /* outra conta neste navegador: não herda o progresso da anterior */
   let ow=null;try{ow=localStorage.getItem('graal_acc_owner')}catch(e){}
