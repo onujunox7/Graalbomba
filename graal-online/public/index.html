@@ -73,10 +73,14 @@ body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webki
 #ed,#ts,#ed *,#ts *{-webkit-user-select:auto;user-select:auto}
 #c{box-shadow:0 6px 24px #0008}
 #pad{gap:18px;align-items:center;justify-content:center;touch-action:none}
-#stick{position:relative;width:132px;height:132px;border-radius:50%;background:radial-gradient(circle,#d8c99a55 0,#d8c99a33 60%,#3a2a1466 100%);border:2px solid #3a2a14aa;touch-action:none;flex:none}
-#stick:before{content:"";position:absolute;inset:0;border-radius:50%;background:
- linear-gradient(#3a2a1455,#3a2a1455) center/2px 70% no-repeat,linear-gradient(#3a2a1455,#3a2a1455) center/70% 2px no-repeat}
-#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f2e6b8,#c9b878);border:2px solid #3a2a14;box-shadow:0 2px 6px #0007;transition:transform .06s;pointer-events:none}
+#stick{position:relative;width:132px;height:132px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);touch-action:none;flex:none;-webkit-user-select:none;user-select:none}
+#stick .dp{width:100%;height:100%;min-width:0;min-height:0;box-sizing:border-box;padding:0;margin:0;border:2px solid #3a2a14;background:#d8c99a;color:#2b2b2b;font-size:20px;line-height:1;touch-action:none;display:grid;place-items:center;pointer-events:none}
+#stick .dp[data-d=up]{grid-area:1/2;border-radius:10px 10px 4px 4px}
+#stick .dp[data-d=left]{grid-area:2/1;border-radius:10px 4px 4px 10px}
+#stick .dp[data-d=right]{grid-area:2/3;border-radius:4px 10px 10px 4px}
+#stick .dp[data-d=down]{grid-area:3/2;border-radius:4px 4px 10px 10px}
+#stick .dpc{grid-area:2/2;background:#c9b878;border:2px solid #3a2a14;pointer-events:none}
+#stick .dp.on{filter:brightness(1.25);transform:scale(.94)}
 #act{display:grid;grid-template-columns:repeat(3,58px);grid-auto-rows:58px;gap:8px}
 #act button{width:58px;height:58px;border-radius:50%;font-size:22px;padding:0;box-shadow:0 2px 6px #0006;touch-action:none;color:#2b2b2b}
 #act button.big{grid-column:1/2;grid-row:1/3;width:58px;height:124px;border-radius:30px;font-size:30px;background:#e6b9a0}
@@ -180,7 +184,7 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
 <div id="cw"><canvas id="c" width="384" height="288"></canvas></div>
 <p>Setas/WASD: andar · Espaço/J: atacar · Shift/K: esquivar · Q: poção · E: loja/baú · M: minimapa · R: reiniciar · T: editor de mapa · G: ampliar tela · Z: zoom (100% → 75% → 50%)</p>
 <button id="edbtn" style="display:none" onclick="edToggle()">🛠 Editor de mapa</button>
-<div id="pad"><div id="stick"><i id="knob"></i></div>
+<div id="pad"><div id="stick" role="group" aria-label="Direcional"><button type="button" class="dp" data-d="up" aria-label="Cima">▲</button><button type="button" class="dp" data-d="left" aria-label="Esquerda">◀</button><i class="dpc"></i><button type="button" class="dp" data-d="right" aria-label="Direita">▶</button><button type="button" class="dp" data-d="down" aria-label="Baixo">▼</button></div>
 <div id="act"><button class="big" data-k=" " aria-label="Atacar">⚔</button><button data-k="shift" aria-label="Esquivar">💨</button><button data-k="q" aria-label="Poção">🧪</button><button data-k="e" aria-label="Interagir">E</button><button data-k="f" aria-label="Arco">🏹</button><button data-k="b" aria-label="Bomba">💣</button></div></div>
 <div id="sys"><button data-k="m" aria-label="Minimapa">🗺</button><button id="zmb" aria-label="Zoom (Z)" title="Zoom da câmera (Z)">🔍</button><button id="fsb" aria-label="Ampliar tela (G)" title="Ampliar tela (G)">⛶<span class="t">Ampliar tela</span></button></div>
 </div><div id="side"><div id="ed"></div><div id="ts"></div></div></div>
@@ -1434,24 +1438,31 @@ const vib=ms=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}};
 document.querySelectorAll('#act [data-k],#sys [data-k]').forEach(b=>b.addEventListener('pointerdown',()=>vib(b.dataset.k===' '?18:10)));
 document.querySelectorAll('#sys [data-k]').forEach(b=>{const k=b.dataset.k;b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=1});['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=0))});
 document.addEventListener('contextmenu',e=>{if(e.target.closest('#pad,#sys,#c'))e.preventDefault()});
-// joystick virtual (8 direções, pointer capture, arrasta livremente)
-const st=document.getElementById('stick'),kn=document.getElementById('knob');
+// direcional na tela: botões ▲ ◀ ▶ ▼ (cantos = diagonais; dá pra arrastar o dedo entre eles; vários dedos combinam)
+const st=document.getElementById('stick');
 const DIRS={arrowleft:0,arrowright:0,arrowup:0,arrowdown:0};
 /* 8 setores de 45° (0=direita, sentido horário). Mesma zona morta e mesma largura angular em TODAS as direções,
    com histerese de ~6° para não piscar entre setores. Velocidade já é igual nas 8 (vetor normalizado no update). */
 const SECT=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
 function dir8(x,y,cur,dz){if(Math.hypot(x,y)<dz)return -1;const a=Math.atan2(y,x)*180/Math.PI;
  if(cur>=0&&Math.abs((a-cur*45+540)%360-180)<=29)return cur;return Math.round(((a+360)%360)/45)%8}
-let stSect=-1;
-function setDir(x,y){stSect=dir8(x,y,stSect,.3);const v=stSect<0?[0,0]:SECT[stSect];const d={arrowleft:v[0]<0,arrowright:v[0]>0,arrowup:v[1]<0,arrowdown:v[1]>0};
- for(const k in d){if(d[k]){keys[k]=1}else if(DIRS[k]){keys[k]=0}DIRS[k]=d[k]?1:0}}
-let sid=null;
-function stickMove(e){const r=st.getBoundingClientRect(),R=r.width/2;let x=(e.clientX-(r.left+R))/R,y=(e.clientY-(r.top+R))/R;const l=Math.hypot(x,y);if(l>1){x/=l;y/=l}
- kn.style.transform='translate('+(x*R*.55)+'px,'+(y*R*.55)+'px)';setDir(l<.2?0:x,l<.2?0:y)}
-function stickEnd(e){if(sid!==null&&e.pointerId!==sid)return;sid=null;kn.style.transform='';setDir(0,0)}
-st.addEventListener('pointerdown',e=>{e.preventDefault();sid=e.pointerId;try{st.setPointerCapture(sid)}catch(_){}stickMove(e)});
-st.addEventListener('pointermove',e=>{if(e.pointerId===sid)stickMove(e)});
-['pointerup','pointercancel','lostpointercapture'].forEach(ev=>st.addEventListener(ev,stickEnd));
+const dpB={};st.querySelectorAll('.dp').forEach(b=>dpB[b.dataset.d]=b);
+const dpP=new Map();let dpAny=0;
+function dpApply(){const on={arrowleft:0,arrowright:0,arrowup:0,arrowdown:0};
+ for(const v of dpP.values()){if(v.l)on.arrowleft=1;if(v.r)on.arrowright=1;if(v.u)on.arrowup=1;if(v.d)on.arrowdown=1}
+ for(const k in on){if(on[k])keys[k]=1;else if(DIRS[k])keys[k]=0;DIRS[k]=on[k]}
+ dpB.up.classList.toggle('on',!!on.arrowup);dpB.down.classList.toggle('on',!!on.arrowdown);dpB.left.classList.toggle('on',!!on.arrowleft);dpB.right.classList.toggle('on',!!on.arrowright);
+ const any=on.arrowup|on.arrowdown|on.arrowleft|on.arrowright;if(any&&!dpAny)vib(10);dpAny=any}
+function dpHit(e){const r=st.getBoundingClientRect(),m=Math.min(r.width,r.height)*.25;
+ if(e.clientX<r.left-m||e.clientX>r.right+m||e.clientY<r.top-m||e.clientY>r.bottom+m)return null;
+ const c=Math.max(0,Math.min(2,Math.floor((e.clientX-r.left)/r.width*3))),w=Math.max(0,Math.min(2,Math.floor((e.clientY-r.top)/r.height*3)));
+ return{l:c===0,r:c===2,u:w===0,d:w===2}}
+function dpSet(e){const h=dpHit(e);if(h)dpP.set(e.pointerId,h);else dpP.delete(e.pointerId);dpApply()}
+function dpEnd(e){if(!dpP.has(e.pointerId))return;dpP.delete(e.pointerId);dpApply()}
+st.addEventListener('pointerdown',e=>{e.preventDefault();try{st.setPointerCapture(e.pointerId)}catch(_){}dpSet(e)});
+st.addEventListener('pointermove',e=>{if(dpP.has(e.pointerId))dpSet(e)});
+['pointerup','pointercancel','lostpointercapture'].forEach(ev=>st.addEventListener(ev,dpEnd));
+addEventListener('blur',()=>{dpP.clear();dpApply()});
 // ampliar tela (tela cheia real; no iPhone usa modo ampliado por CSS)
 const fsb=document.getElementById('fsb'),de=document.documentElement;
 const reqFS=de.requestFullscreen||de.webkitRequestFullscreen,exitFS=document.exitFullscreen||document.webkitExitFullscreen;
@@ -1558,10 +1569,10 @@ setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||
  const sk=skinNow(),key=sk.b+'|'+sk.h+'|'+(sk.bs||'').length+'|'+(sk.hs||'').length;
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
- const an=P.atk>0?'Attack_'+P.face:P.walk?'Run_'+P.face:'Idle_'+P.face;
+ const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
  ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0}))}catch(e){}},100);
 /* desenho do personagem remoto com a mesma engine de skin */
-function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr={Up:0,Left:1,Down:2,Right:3}[mm[1]],kn=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':'idle';
+function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm[1])?+mm[1]:{Up:0,Left:1,Down:2,Right:3}[mm[1]],kn=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':'idle';
  const A=X.GANI[kn],fi=kn==='walk'?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};
  const ok=i=>i&&i.complete&&i.naturalWidth;
  const[BI,bo]=ok(sk.bi)?[sk.bi,0]:X.gSrc('b',Math.min(r.b|0,X.nb()-1)),[HI,ho]=ok(sk.hi)?[sk.hi,0]:X.gSrc('h',Math.min(r.h|0,X.nh()-1));
@@ -2416,12 +2427,13 @@ body.edon #hud,body.edon #hudctl{display:none!important}
  padding:0 max(18px,env(safe-area-inset-right,0px)) 0 max(18px,env(safe-area-inset-left,0px));z-index:auto}
 body.noctl #hudctl #pad{display:none!important}
 #hudctl #pad>*{opacity:.88}
-#hudctl #stick{width:clamp(104px,20vmin,142px);height:clamp(104px,20vmin,142px);border-radius:50%;flex:none;
- background:radial-gradient(circle,rgba(216,201,154,.28) 0,rgba(58,42,20,.5) 62%,rgba(26,17,8,.72) 100%);
- border:2px solid rgba(232,198,106,.7);box-shadow:0 5px 16px #000a,inset 0 0 18px #000a;
- -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
-#hudctl #knob{width:42%;height:42%;margin:0;transform-origin:center;left:29%;top:29%;
- background:radial-gradient(circle at 35% 30%,#fff0b8,#c9a850 70%,#8a6a20);border:2px solid #3a2a14;box-shadow:0 3px 8px #000a}
+#hudctl #stick{width:calc(var(--b)*2.8);height:calc(var(--b)*2.8);flex:none;background:none;border:0;border-radius:0;box-shadow:none}
+#hudctl #stick .dp{border:1.5px solid rgba(232,198,106,.7);color:#ffe9a8;font-size:calc(var(--b)*.42);
+ background:linear-gradient(180deg,rgba(70,50,25,.9),rgba(26,17,8,.92));
+ box-shadow:0 3px 10px #0009,inset 0 1px 0 rgba(255,236,170,.32);
+ -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:transform .06s,filter .1s,background .1s}
+#hudctl #stick .dp.on{background:linear-gradient(180deg,#8a6420,#4a3208);transform:scale(.92);filter:brightness(1.3)}
+#hudctl #stick .dpc{background:rgba(26,17,8,.7);border:1.5px solid rgba(232,198,106,.35)}
 #hudctl #act{display:grid!important;grid-template-columns:repeat(3,var(--b));grid-auto-rows:var(--b);gap:calc(var(--b)*.14)}
 #hudctl #act button{width:var(--b);height:var(--b);border-radius:50%;font-size:calc(var(--b)*.4);font-weight:700}
 #hudctl #act button.big{grid-column:1/2;grid-row:1/3;width:var(--b);height:calc(var(--b)*2 + var(--b)*.14);border-radius:calc(var(--b)*.5);
@@ -2439,12 +2451,10 @@ body.noctl #hudctl #pad{display:none!important}
 @media (max-aspect-ratio:1/1){
  #hudctl{--b:clamp(44px,12vw,58px);--tb:clamp(30px,8.2vw,38px)}
  #hudctl #sys{bottom:calc(var(--b)*3.3 + 34px + env(safe-area-inset-bottom,0px));max-width:94vw}
- #hudctl #stick{width:clamp(104px,30vw,140px);height:clamp(104px,30vw,140px)}
 }
 /* telas baixas (celular deitado) */
 @media (max-height:520px){
  #hudctl{--b:clamp(42px,11vmin,54px);--tb:clamp(30px,8vmin,36px)}
- #hudctl #stick{width:clamp(96px,28vmin,120px);height:clamp(96px,28vmin,120px)}
 }
 
 /* chat sobe para não ficar atrás da barra de botões */
