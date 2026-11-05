@@ -1088,7 +1088,7 @@ function tsInit(){
 }
 function start(){try{fit();buildWorld();reset();loadGame()}catch(e){g.setTransform(RS,0,0,RS,0,0);g.fillStyle='#14161c';g.fillRect(0,0,VW,VH);g.fillStyle='#ff5a5a';g.font='10px sans-serif';g.textAlign='center';g.fillText('Erro: '+e.message,VW/2,VH/2);return}last=performance.now();requestAnimationFrame(loop)}
 let LG=0,LC=12,LGAP=15;
-function loop(n){if(n-LG<LGAP-2){requestAnimationFrame(loop);return}LG=n;const t0=performance.now();const dt=Math.max(0,Math.min(.1,(n-last)/1000));last=n;if(keys['r']){keys['r']=0;clearSave();P=null;reset()}if(keys['m']){keys['m']=0;showMap=!showMap}if(keys['t']){keys['t']=0;edToggle()}if(ED)edUpdate(dt);else update(dt);draw();drawUI();if(ED)drawEd();LC=LC*.9+(performance.now()-t0)*.1;if(LC>20)LGAP=33;else if(LC<11)LGAP=15;requestAnimationFrame(loop)}
+function loop(n){if(n-LG<LGAP-2){requestAnimationFrame(loop);return}LG=n;const t0=performance.now();const dt=Math.max(0,Math.min(.1,(n-last)/1000));last=n;if(keys['r']){keys['r']=0;clearSave();P=null;reset()}if(keys['m']){keys['m']=0;showMap=!showMap}if(keys['t']){keys['t']=0;edToggle()}if(ED)edUpdate(dt);else update(dt);draw();drawUI();if(ED)drawEd();LC=LC*.9+(performance.now()-t0)*.1;requestAnimationFrame(loop)} /* FPS travado em 60: LGAP fica fixo em 15 ms (antes caía para 30 fps quando o quadro demorava) */
 
 /* ===================== ADD-ON ESTILO ZELDA: arbustos, bombas, arco, drops ===================== */
 (()=>{
@@ -1291,7 +1291,7 @@ function gUpload(files,kind){
 /* monta o personagem em 1:1 (pixels inteiros, igual ao Graal) e só depois escala o conjunto inteiro:
    assim head e body ficam SEMPRE na mesma distância, sem arredondar cada peça separada */
 const GM=32,GSZ=112,GOFF=document.createElement('canvas');GOFF.width=GOFF.height=GSZ;
-const GOC=GOFF.getContext('2d');GOC.imageSmoothingEnabled=false;
+const GOC=GOFF.getContext('2d',{willReadFrequently:true});GOC.imageSmoothingEnabled=false;
 function gCompose(parts,BI,bo,HI,ho,eq,obj,onlyHead){
  GOC.clearRect(0,0,GSZ,GSZ);
  for(const[k,sx,sy,w,h,px,py]of parts){
@@ -1317,6 +1317,7 @@ function gPaint(c,name,fi,dir,ox,oy,s,bi,hi,obj){
  const A=GANI[name],fr=A[fi%A.length],[BI,bo]=gSrc('b',bi),[HI,ho]=gSrc('h',hi);
  gCompose(fr.d[dir],BI,bo,HI,ho,EQX.of(0),obj);gBlit(c,ox,oy,s);
 }
+const HDC=new Map(); /* cache do topo da cabeça (evita ler pixels da GPU todo quadro) */
 function gPlayer(al){
  const d={Up:0,Left:1,Down:2,Right:3}[P.face],dir=d===undefined?2:d;let n='idle',fi=0;
  if(P.hurt>0&&!P.dead)n='hurt';
@@ -1326,10 +1327,12 @@ function gPlayer(al){
  else if(P.dash>0){n='jump';fi=0}else if(P.walk&&PUSHT>.12){n='push';fi=Math.floor(P.anim/.1)}else if(P.walk){n='walk';fi=Math.floor(P.anim/.05)}
  if(P.dead){const sx=Math.round(P.x-cam.x),sy=Math.round(P.y-cam.y);g.save();g.globalAlpha=1;g.translate(sx,sy-8*GS);g.rotate(P.face==='Left'?-Math.PI/2:Math.PI/2);gPaint(g,'hurt',0,2,-24*GS,-31*GS,GS,GSK.b,GSK.h,0);g.restore();g.globalAlpha=1;return}
  g.globalAlpha=al;{const ox=Math.round(P.x-cam.x)-24*GS,oy=Math.round(P.y-cam.y)-39*GS;gPaint(g,n,fi,dir,ox,oy,GS,GSK.b,GSK.h,CARRY);window.__LP={n,fi,dir,ox,oy,al};
- try{const d=GOC.getImageData(0,0,GSZ,GSZ).data;let y0=-1;
-  for(let y=0;y<GSZ&&y0<0;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){y0=y;break}
-  if(y0>=0){let mn=GSZ,mx=-1;for(let y=y0;y<y0+6&&y<GSZ;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){if(x<mn)mn=x;if(x>mx)mx=x}
-   window.__HD={x:Math.round(ox-GM*GS)+(mn+mx+1)/2*GS,y:Math.round(oy-GM*GS)+y0*GS}}}catch(e){window.__HD=null}}g.globalAlpha=1;
+ try{const hk=n+'|'+fi+'|'+dir+'|'+GSK.b+'|'+GSK.h+'|'+(CARRY?1:0),tn=performance.now();let hc=HDC.get(hk);
+  if(!hc||tn-hc.t>2000){const d=GOC.getImageData(0,0,GSZ,GSZ).data;let y0=-1,mn=GSZ,mx=-1;
+   for(let y=0;y<GSZ&&y0<0;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){y0=y;break}
+   if(y0>=0)for(let y=y0;y<y0+6&&y<GSZ;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){if(x<mn)mn=x;if(x>mx)mx=x}
+   hc={t:tn,y0,mn,mx};if(HDC.size>64)HDC.clear();HDC.set(hk,hc)}
+  window.__HD=hc.y0>=0?{x:Math.round(ox-GM*GS)+(hc.mn+hc.mx+1)/2*GS,y:Math.round(oy-GM*GS)+hc.y0*GS}:undefined}catch(e){window.__HD=null}}g.globalAlpha=1;
 }
 const _spr=spr;spr=function(img,fr,x,y,a){if(GOK&&P&&img===IM.link&&x===P.x&&y===P.y){gPlayer(a);return}_spr(img,fr,x,y,a)};
 window.MPX={GM,hy(){try{const d=GOC.getImageData(0,0,GSZ,GSZ).data;for(let y=0;y<GSZ;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40)return y}catch(e){}return -1},compose:gCompose,blit:gBlit,get ok(){return GOK},get GS(){return GS},get GSK(){return GSK},GI,GANI,gSrc,paint:gPaint,nb:()=>GI.bodies.width/128|0,nh:()=>GI.heads.width/32|0,cb:()=>GCB,ch:()=>GCH};
@@ -1564,7 +1567,7 @@ function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr={Up:0,Left:1,Down
  const[BI,bo]=ok(sk.bi)?[sk.bi,0]:X.gSrc('b',Math.min(r.b|0,X.nb()-1)),[HI,ho]=ok(sk.hi)?[sk.hi,0]:X.gSrc('h',Math.min(r.h|0,X.nh()-1));
  const ox=x-24*sc,oy=y-39*sc;g.globalAlpha=r.al;const sws=EQX.beg(g,x,y,r.sw);
  X.compose(fr.d[dr===undefined?2:dr],BI,bo,HI,ho,EQX.of(r.id,r.sw),0);
- {const hk=kn+'|'+dr+'|'+sc,tn=performance.now();if(r.hk!==hk||!(tn-(r.hT||0)<400)){const y0=X.hy();r.hk=hk;r.hT=tn;if(y0>=0)r.hoff=(y0-X.GM-39)*sc}}
+ {const hk=kn+'|'+dr+'|'+sc,tn=performance.now();if(r.hk!==hk||!(tn-(r.hT||0)<2000)){const y0=X.hy();r.hk=hk;r.hT=tn;if(y0>=0)r.hoff=(y0-X.GM-39)*sc}}
  X.blit(g,ox,oy,sc);
  EQX.end(g,x,y,sws);g.globalAlpha=1}
 const CF='bold 8px '+window.__FF;
