@@ -2405,7 +2405,7 @@ body.edon #hud,body.edon #hudctl{display:none!important}
 #hudctl{position:fixed;inset:0;z-index:9990;pointer-events:none}
 #hudctl button,#hudctl #stick{pointer-events:auto}
 #hudctl #sys,#hudctl #pad{pointer-events:none}
-#hudctl{--b:clamp(46px,8.4vmin,64px);--tb:clamp(32px,5.4vmin,40px)}
+#hudctl{--b:min(calc(clamp(46px,8.4vmin,64px)*var(--hs,1)),16vmin);--tb:min(calc(clamp(32px,5.4vmin,40px)*var(--hs,1)),12vmin)}
 
 #hudctl #sys{position:absolute!important;display:flex!important;flex-wrap:wrap;justify-content:center;gap:calc(var(--tb)*.2);
  bottom:max(14px,env(safe-area-inset-bottom,0px));top:auto!important;left:50%;right:auto!important;transform:translateX(-50%);
@@ -2449,16 +2449,16 @@ body.noctl #hudctl #pad{display:none!important}
 
 /* retrato: botões embaixo, perto do polegar */
 @media (max-aspect-ratio:1/1){
- #hudctl{--b:clamp(44px,12vw,58px);--tb:clamp(30px,8.2vw,38px)}
+ #hudctl{--b:min(calc(clamp(44px,12vw,58px)*var(--hs,1)),16vmin);--tb:min(calc(clamp(30px,8.2vw,38px)*var(--hs,1)),12vmin)}
  #hudctl #sys{bottom:calc(var(--b)*3.3 + 34px + env(safe-area-inset-bottom,0px));max-width:94vw}
 }
 /* telas baixas (celular deitado) */
 @media (max-height:520px){
- #hudctl{--b:clamp(42px,11vmin,54px);--tb:clamp(30px,8vmin,36px)}
+ #hudctl{--b:min(calc(clamp(42px,11vmin,54px)*var(--hs,1)),16vmin);--tb:min(calc(clamp(30px,8vmin,36px)*var(--hs,1)),12vmin)}
 }
 
 /* chat sobe para não ficar atrás da barra de botões */
-body:not(.noctl) #hud .chat{bottom:calc(max(calc(var(--k)*10px),env(safe-area-inset-bottom,0px)) + 50px)}
+body:not(.noctl) #hud .chat{bottom:calc(max(calc(var(--k)*10px),env(safe-area-inset-bottom,0px)) + calc(50px*var(--hs,1)))}
 @media (max-aspect-ratio:1/1){body:not(.noctl) #hud .chat{bottom:max(calc(var(--k)*10px),env(safe-area-inset-bottom,0px))}}
 /* os botões da tela já mostram as teclas: some o texto de atalhos e os botões antigos (menos no editor, para poder sair dele) */
 body:not(.noctl) #main>p{display:none}
@@ -2525,14 +2525,39 @@ const memo={};
 const T=(k,v)=>{v=String(v);if(memo[k]!==v){memo[k]=v;el[k].textContent=v;return true}return false};
 const V=(k,n,v)=>{v=String(v);if(memo[k+n]!==v){memo[k+n]=v;el[k].style.setProperty(n,v)}};
 
+/* ---------- tamanho do HUD: botões A− / A+ (ou teclas - e +). Escala os painéis (--k) e os botões na tela (--b/--tb via --hs).
+   O nível escolhido fica salvo; acima de 100% a escala aplicada é a maior que cabe SEM um painel/botão cobrir o outro (nunca abaixo de 100%). ---------- */
+const HSL=[.6,.7,.8,.9,1,1.1,1.25,1.4];let hsi=4;
+{const i=HSL.indexOf(+LG('graal_hud_scale'));if(i>=0)hsi=i}
+window.__HS=HSL[hsi];document.documentElement.style.setProperty('--hs',HSL[hsi]);
+const hsRect=q=>{const e=document.querySelector(q);if(!e)return null;const r=e.getBoundingClientRect();return r.width>1&&r.height>1?r:null};
+function hsClash(){const q=['#hud .stats','#hud .mini','#hud .quest','#sys','#stick','#act'].map(hsRect).filter(Boolean);
+ for(let i=0;i<q.length;i++)for(let j=i+1;j<q.length;j++){const a=q[i],b=q[j],dx=Math.min(a.right,b.right)-Math.max(a.left,b.left),dy=Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top);if(Math.min(dx,dy)>12)return true}return false} /* até 12px de encosto é só visual (os painéis não pegam toque) */
+function hsApply(v){if(window.__HS===v)return;window.__HS=v;document.documentElement.style.setProperty('--hs',v);try{sync()}catch(e){}}
+function hsFit(){const want=HSL[hsi];if(want<=1){hsApply(want);return want}
+ for(const v of HSL.filter(v=>v>=1&&v<=want).reverse()){hsApply(v);if(!hsClash())break}
+ return window.__HS}
+let hsT=0,hsE=null;
+function hsToast(t){if(!hsE){hsE=document.createElement('div');hsE.style.cssText="position:fixed;left:50%;top:14%;transform:translateX(-50%);z-index:10001;pointer-events:none;padding:6px 16px;border-radius:99px;font:600 15px Fredoka,Verdana,Arial,sans-serif;color:#ffe9a8;background:rgba(26,17,8,.9);border:1.5px solid rgba(232,198,106,.7);box-shadow:0 3px 10px #0009;transition:opacity .2s;opacity:0;white-space:nowrap";document.body.appendChild(hsE)}
+ hsE.textContent=t;hsE.style.opacity=1;clearTimeout(hsT);hsT=setTimeout(()=>{hsE.style.opacity=0},1300)}
+function hudScale(d){const n=Math.max(0,Math.min(HSL.length-1,hsi+d));let t;
+ if(n!==hsi){hsi=n;LS('graal_hud_scale',HSL[n])}
+ const e=hsFit();t='HUD '+Math.round(e*100)+'%';
+ if(e<HSL[hsi])t+=' (máximo que cabe nesta tela)';else if(n===hsi&&(d<0?hsi===0:hsi===HSL.length-1))t+=d<0?' (mínimo)':' (máximo)';
+ hsToast(t)}
+addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||e.repeat)return;const tg=e.target&&e.target.tagName;if(tg==='INPUT'||tg==='SELECT'||tg==='TEXTAREA'||document.body.classList.contains('edon'))return;
+ if(e.key==='-'||e.key==='_')hudScale(-1);else if(e.key==='+'||e.key==='=')hudScale(1)});
+addEventListener('resize',()=>setTimeout(hsFit,150));addEventListener('orientationchange',()=>setTimeout(hsFit,400));
+setInterval(hsFit,1200);setTimeout(hsFit,400);setTimeout(hsFit,1500);
+
 /* ---------- alinhamento com o canvas ---------- */
 let lastBox='';
 function sync(){
  const r=cvr.getBoundingClientRect();if(!r.width)return;
- const l=r.left+cvr.clientLeft,t=r.top+cvr.clientTop,w=cvr.clientWidth,h=cvr.clientHeight,key=[l,t,w,h].join('|');
+ const l=r.left+cvr.clientLeft,t=r.top+cvr.clientTop,w=cvr.clientWidth,h=cvr.clientHeight,hs=window.__HS||1,key=[l,t,w,h,hs].join('|');
  if(key===lastBox)return;lastBox=key;
  const s=hud.style;s.left=l+'px';s.top=t+'px';s.width=w+'px';s.height=h+'px';
- s.setProperty('--k',Math.max(.62,Math.min(1.5,w/760)).toFixed(3));
+ s.setProperty('--k',Math.max(.4,Math.min(2.2,Math.max(.62,Math.min(1.5,w/760))*hs)).toFixed(3));
 }
 
 /* ---------- ícone de gralat (sprite do jogo) ---------- */
@@ -2625,6 +2650,8 @@ const press=k=>{keys[k]=1;setTimeout(()=>{keys[k]=0},140)};
 const mk=(txt,label,hint,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=txt;b.setAttribute('aria-label',label);b.title=label+(hint?' ('+hint+')':'');
  if(hint)b.dataset.hint=hint;b.addEventListener('click',fn);sys.appendChild(b);return b};
 if(sys){
+ {const a=mk('A−','Diminuir HUD','-',()=>hudScale(-1)),c=mk('A+','Aumentar HUD','+',()=>hudScale(1)),z=$('zmb');
+  if(z&&z.nextSibling){sys.insertBefore(a,z.nextSibling);sys.insertBefore(c,a.nextSibling)}}
  mk('🧍','Personagem e equipamento','C',()=>press('c'));
  mk('🛠','Editor de mapa','T',()=>press('t'));
  mk('↻','Reiniciar jogo','R',()=>{if(confirm('Reiniciar o jogo? Seu progresso salvo será apagado.'))press('r')});
