@@ -2862,6 +2862,7 @@ document.body.appendChild(bar);
 function ui(u){bar.textContent='';bar.style.display='flex';
  if(u){const i=new Image();i.src=u.av;i.width=i.height=20;i.style.cssText='border-radius:50%;display:block';const n=document.createElement('span');n.textContent=u.name;const a=document.createElement('a');a.href='/auth/logout';a.textContent='sair';a.style.cssText='color:#ffb05a;text-decoration:none;margin-left:2px';bar.append(i,n,a);bar.style.paddingLeft='4px'}
  else{const a=document.createElement('a');a.href='/auth/discord';a.textContent='🔑 Entrar com Discord';a.style.cssText='color:#fff;text-decoration:none;padding-left:7px';bar.append(a)}}
+if(/[?&]logout=1/.test(location.search)){try{history.replaceState(null,'',location.pathname)}catch(e){}ui(null)}
 if(location.protocol!=='file:')fetch('/api/me',{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&j.on)ui(j.user)}).catch(()=>{});
 try{if(/[?&]login=erro/.test(location.search)){history.replaceState(null,'',location.pathname);setTimeout(()=>{try{MPNET.note('Não consegui entrar com o Discord. Tente de novo.')}catch(e){}},1500)}}catch(e){}
 /* servidor mandou a conta: na 1ª vez da página, o que está salvo na conta vence o que está no navegador */
