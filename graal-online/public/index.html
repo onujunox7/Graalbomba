@@ -1514,7 +1514,8 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='role'||m.t==='cmd'||m.t==='kick'||m.t==='adm'){if(m.t==='kick')window.__KICKED=1;if(window.ADM)window.ADM(m);return}
   if(m.t==='q'){window.EQX.remote(m.id,m.e);return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);window.EQX.drop(m.id);return}
-  if(m.t==='c'){if(m.id===myId)pend=0;MSG.push({id:m.id,nm:String(m.nm||'?'),x:String(m.x||''),t:performance.now()});if(MSG.length>30)MSG.shift();return}
+  if(m.t==='chh'){(Array.isArray(m.a)?m.a:[]).forEach(a=>{const o=Object.assign({hist:1},a);if(window.GCH)GCH.add(o);else(window.__GCHQ=window.__GCHQ||[]).push(o)});return}
+  if(m.t==='c'){if(window.GCH)GCH.add(m);else(window.__GCHQ=window.__GCHQ||[]).push(m);if(m.id===myId)pend=0;MSG.push({id:m.id,nm:String(m.nm||'?'),x:String(m.x||''),t:performance.now()});if(MSG.length>30)MSG.shift();return}
   if(m.t==='svok'||m.t==='sverr'){if(window.ACCX)window.ACCX.st(m);return}
   if(m.t==='acc'){if(window.ACCX)window.ACCX.net(m);else window.__ACCM=m;return} /* conta chegou antes do script da conta existir: guarda e o script processa quando carregar */
   if(m.t==='bc'||m.t==='ball'){if(window.BSX)window.BSX.net(m);return}
@@ -1553,12 +1554,12 @@ function bub(id,x,ny,now,dy){if(id==null)return;let m=null;for(let i=MSG.length-
  if(!m||now-m.t>5000)return;const t=m.x.length>40?m.x.slice(0,39)+'…':m.x;g.font='bold 8px '+window.__FF;g.textAlign='center';const hw=g.measureText(t).width/2+3,vw=VW/(window.GZ>0?window.GZ:1);ot(t,Math.max(hw,Math.min(vw-hw,x)),ny-(dy==null?8:dy))}
 /* chat: caixa de texto */
 const box=document.createElement('form'),inp=document.createElement('input'),snd=document.createElement('button');
-inp.maxLength=80;inp.placeholder='Chat — Enter envia, Esc fecha';inp.enterKeyHint='send';snd.textContent='➤';snd.type='button';
+inp.maxLength=100;inp.placeholder='Chat — Enter envia, Esc fecha';inp.enterKeyHint='send';snd.textContent='➤';snd.type='button';
 box.style.cssText='position:fixed;left:50%;bottom:12px;transform:translateX(-50%);width:min(440px,92vw);z-index:9999;display:none;gap:6px';
 inp.style.cssText='flex:1;min-width:0;padding:6px 10px;font:600 15px Fredoka,Verdana,Arial,sans-serif;border:0;border-bottom:2px solid rgba(255,255,255,.8);background:transparent;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,1px 1px 2px #000;outline:none';box.id='mpchat';const st=document.createElement('style');st.textContent='#mpchat input::placeholder{color:rgba(255,255,255,.7)}';document.head.appendChild(st);
 snd.style.cssText='padding:6px 10px;font:16px sans-serif;border:0;background:transparent;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;cursor:pointer';
 box.appendChild(inp);box.appendChild(snd);document.body.appendChild(box);
-const openC=()=>{try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}box.style.display='flex';inp.focus()};
+const openC=()=>{if(window.GCH){GCH.open();return}try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}box.style.display='flex';inp.focus()};
 const closeC=()=>{box.style.display='none';inp.value='';inp.blur()};
 const sendC=()=>{const v=inp.value.trim();try{
  if(v&&ws&&ws.readyState===1){ws.send(JSON.stringify({t:'c',x:v}));pend=performance.now();
@@ -2925,6 +2926,58 @@ setInterval(()=>{if(DRP.pend&&drops&&!(window.INT&&INT.loc==='i')){const m=DRP.p
 const _net=net;
 window.MSY={net:m=>{if(m.t==='dr'||m.t==='dp'||m.t==='dall')return DRP.net(m);_net(m)}};
 if(window.__MSQ){const q=window.__MSQ;window.__MSQ=null;q.forEach(window.MSY.net)}
+})();
+</script>
+<script>
+/* ===== CHAT GLOBAL: botão 💬, histórico rolável, não lidas. Tudo que se escreve vai para todos os jogadores online. ===== */
+(()=>{
+const LOG=[],MAX=100,seen=new Set();let isOpen=0,unread=0;
+const css=document.createElement('style');css.textContent=
+'#gch-b{position:fixed;left:8px;top:calc(env(safe-area-inset-top,0px) + 92px);z-index:9998;width:40px;height:40px;border-radius:50%;border:2px solid #5a4020;background:rgba(30,22,12,.85);color:#fff;font-size:19px;line-height:1;cursor:pointer;display:none;padding:0}'+
+'body.hud-on #gch-b{display:block}body.hud-on.gch-open #gch-b{display:none}'+
+'#gch-b i{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#e03a3a;color:#fff;font:700 10px/16px Verdana,sans-serif;font-style:normal;text-align:center;display:none;padding:0 3px;box-sizing:border-box}'+
+'#gch-p{position:fixed;left:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);width:min(360px,92vw);height:min(46vh,320px);z-index:9998;display:none;flex-direction:column;border:2px solid #5a4020;border-radius:8px;background:rgba(20,14,6,.93);color:#f3e6c4;font:13px Verdana,Arial,sans-serif;overflow:hidden}'+
+'#gch-p header{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:rgba(90,64,32,.6);font-weight:700;font-size:12px}'+
+'#gch-p header button{background:none;border:0;color:#f3e6c4;font-size:16px;cursor:pointer;padding:0 2px}'+
+'#gch-l{flex:1;overflow-y:auto;padding:6px 8px;word-break:break-word;-webkit-overflow-scrolling:touch}'+
+'#gch-l div{margin:0 0 3px;line-height:1.3}#gch-l small{color:#8a7a5a;margin-right:4px;font-size:10px}#gch-l b{color:#9ad8ff}#gch-l b.adm{color:#ffd23a}#gch-l .me b{color:#9aff9a}'+
+'#gch-f{display:flex;gap:4px;padding:5px;border-top:1px solid #5a4020}'+
+'#gch-f input{flex:1;min-width:0;padding:6px 8px;font:14px Verdana,Arial,sans-serif;border:1px solid #5a4020;border-radius:5px;background:rgba(0,0,0,.4);color:#fff;outline:none}'+
+'#gch-f button{padding:0 12px;border:0;border-radius:5px;background:#5a4020;color:#fff;font-size:15px;cursor:pointer}';
+document.head.appendChild(css);
+const b=document.createElement('button');b.id='gch-b';b.type='button';b.title='Chat global';b.textContent='💬';
+const bd=document.createElement('i');b.appendChild(bd);
+const pn=document.createElement('div');pn.id='gch-p';
+pn.innerHTML='<header><span>💬 Chat global</span><button type="button" id="gch-x" aria-label="Fechar">✕</button></header><div id="gch-l"></div><form id="gch-f" autocomplete="off"><input maxlength="100" placeholder="Escreva para todos..." enterkeyhint="send"><button type="submit">➤</button></form>';
+document.body.append(b,pn);
+const L=pn.querySelector('#gch-l'),F=pn.querySelector('#gch-f'),I=F.querySelector('input');
+const fmt=t=>{const d=new Date(t);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+function badge(){bd.style.display=unread?'block':'none';bd.textContent=unread>99?'99+':unread}
+function scrollEnd(){L.scrollTop=L.scrollHeight}
+function add(m){
+ const at=+m.at||Date.now(),nm=String(m.nm||'?').slice(0,12),x=String(m.x||'').slice(0,100),key=at+'|'+nm+'|'+x;
+ if(seen.has(key))return;seen.add(key);
+ LOG.push({at,nm,x});
+ const near=L.scrollHeight-L.scrollTop-L.clientHeight<40,d=document.createElement('div'),sm=document.createElement('small'),nb=document.createElement('b');
+ sm.textContent=fmt(at);nb.textContent=(m.r>0?'★ ':'')+nm+':';if(m.r>0)nb.className='adm';
+ if(window.MPNET&&m.id!=null&&m.id===MPNET.myId())d.className='me';
+ d.append(sm,nb,document.createTextNode(' '+x));L.appendChild(d);
+ if(LOG.length>MAX){LOG.shift();if(L.firstChild)L.removeChild(L.firstChild)}
+ if(isOpen){if(near)scrollEnd()}else if(!m.hist&&!(m.id!=null&&window.MPNET&&m.id===MPNET.myId())){unread++;badge()}
+}
+function open(){isOpen=1;pn.style.display='flex';document.body.classList.add('gch-open');unread=0;badge();scrollEnd();try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}setTimeout(()=>I.focus(),30)}
+function close(){isOpen=0;pn.style.display='none';document.body.classList.remove('gch-open');I.blur()}
+b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();open()});
+pn.querySelector('#gch-x').addEventListener('click',e=>{e.preventDefault();close()});
+F.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();
+ const v=I.value.trim();if(!v)return;
+ if(window.MPNET&&MPNET.live()){MPNET.send({t:'c',x:v});I.value=''}
+ else{try{MPNET.note('sem conexão com o servidor')}catch(_){}}
+ I.focus()});
+['keydown','keyup','keypress'].forEach(ev=>I.addEventListener(ev,e=>{e.stopPropagation();if(ev==='keydown'&&e.key==='Escape')close()}));
+['pointerdown','touchstart'].forEach(ev=>pn.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
+window.GCH={add,open,close};
+if(window.__GCHQ){const q=window.__GCHQ;window.__GCHQ=null;q.forEach(add)}
 })();
 </script>
 <script>
