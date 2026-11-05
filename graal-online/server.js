@@ -6,10 +6,15 @@
  *    ADMIN_TOKEN  senha de quem pode salvar mudanças do editor no servidor (OBRIGATÓRIA em produção)
  *    DATA_DIR     pasta onde a config é gravada (padrão ./data). Em hospedagem, aponte p/ um disco persistente.
  *    PORT         porta (padrão 3000)
+ *
+ *  Cargos (painel 🛡 no jogo):
+ *    DONO   quem abre o jogo com ?admin=ADMIN_TOKEN (o mesmo token do editor). Pode tudo, inclusive dar/tirar o cargo de admin e banir.
+ *    ADMIN  jogador a quem o dono deu o cargo (fica salvo em DATA_DIR/graal-admins.json, preso à identidade do navegador dele).
+ *           Pode: avisar todos, expulsar, silenciar, teleportar, curar, dar gralats/níveis, renascer monstros.
+ *    Toda permissão é checada AQUI no servidor; o cliente só mostra o painel.
  */
 const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN = process.env.ADMIN_TOKEN || '';
@@ -26,20 +31,27 @@ const KEYS = {
   tsol: s => /^[01]{4096}$/.test(s)
 };
 
-/* ---------------- config persistente (PostgreSQL) ---------------- */
-// DATABASE_URL deve ser configurada nas variáveis de ambiente do serviço Render.
-// Se não existir, o servidor mantém o modo antigo baseado em arquivos JSON (desenvolvimento local).
-const pool = process.env.DATABASE_URL ? new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // O PostgreSQL do Render aceita SSL. Em ambientes locais, não forçamos SSL.
-  ssl: { rejectUnauthorized: false },
-  max: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000
-}) : null;
-
+/* ---------------- config persistente ---------------- */
 fs.mkdirSync(DATA_DIR, { recursive: true });
 let cfg = {};
+(function load() {
+  for (const f of [CFG_FILE, BAK_FILE, path.join(__dirname, 'public', 'graal-config.json')]) { // o último aproveita um "Exportar tudo" antigo
+    try { const o = JSON.parse(fs.readFileSync(f, 'utf8')); if (o && typeof o === 'object') { cfg = o; console.log('Config carregada de', f); return } } catch (e) { }
+  }
+})();
+
+/* ---------------- cargos: admins e banidos (persistentes) ---------------- */
+const ADM_FILE = path.join(DATA_DIR, 'graal-admins.json');
+let AD = { admins: {}, bans: {} };
+try { const o = JSON.parse(fs.readFileSync(ADM_FILE, 'utf8')); if (o && typeof o === 'object') AD = { admins: o.admins || {}, bans: o.bans || {} } } catch (e) { }
+function saveAD() { try { const t = ADM_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(AD)); fs.renameSync(t, ADM_FILE) } catch (e) { console.error('Falha ao gravar admins:', e.message) } }
+const sha = s => crypto.createHash('sha256').update(String(s)).digest('hex').slice(0, 32);
+function ownerTokenOk(token, req) {
+  if (!ADMIN) return isLoop(req); // sem ADMIN_TOKEN: só o localhost é dono
+  const a = Buffer.from(String(token || '')), b = Buffer.from(ADMIN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 let cache = null, saveT = null, lastBak = 0;
 const invalidate = () => { cache = null };
 function getCache() {
@@ -49,71 +61,18 @@ function getCache() {
   }
   return cache;
 }
-function loadLegacyConfig() {
-  for (const f of [CFG_FILE, BAK_FILE, path.join(__dirname, 'public', 'graal-config.json')]) {
-    try {
-      const o = JSON.parse(fs.readFileSync(f, 'utf8'));
-      if (o && typeof o === 'object' && !Array.isArray(o)) {
-        console.log('Config legada encontrada em', f);
-        return o;
-      }
-    } catch (e) { }
-  }
-  return {};
+function flush() {
+  saveT = null;
+  try {
+    if (fs.existsSync(CFG_FILE) && Date.now() - lastBak > 10 * 60 * 1000) { fs.copyFileSync(CFG_FILE, BAK_FILE); lastBak = Date.now() }
+    const tmp = CFG_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(cfg));
+    fs.renameSync(tmp, CFG_FILE); // troca atômica: nunca fica arquivo pela metade
+  } catch (e) { console.error('Falha ao gravar config:', e.message) }
 }
-async function initConfigStore() {
-  if (!pool) {
-    cfg = loadLegacyConfig();
-    console.log('DATABASE_URL não definida: usando armazenamento JSON local.');
-    return;
-  }
-  await pool.query(`CREATE TABLE IF NOT EXISTS graal_config (
-    config_key TEXT PRIMARY KEY,
-    config_value TEXT,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  const result = await pool.query('SELECT config_key, config_value FROM graal_config');
-  if (result.rowCount === 0) {
-    // Migra automaticamente uma configuração JSON antiga, se houver.
-    const legacy = loadLegacyConfig();
-    for (const [key, value] of Object.entries(legacy)) {
-      if (Object.prototype.hasOwnProperty.call(KEYS, key) && (value === null || (typeof value === 'string' && KEYS[key](value)))) {
-        await pool.query(
-          'INSERT INTO graal_config (config_key, config_value) VALUES ($1, $2) ON CONFLICT (config_key) DO NOTHING',
-          [key, value]
-        );
-      }
-    }
-    if (Object.keys(legacy).length) console.log('Configuração antiga migrada para PostgreSQL.');
-  }
-  const loaded = await pool.query('SELECT config_key, config_value FROM graal_config');
-  cfg = {};
-  for (const row of loaded.rows) cfg[row.config_key] = row.config_value;
-  invalidate();
-  console.log(`PostgreSQL conectado: ${loaded.rowCount} configuração(ões) carregada(s).`);
-}
-async function persistConfig(key, value) {
-  if (pool) {
-    await pool.query(
-      `INSERT INTO graal_config (config_key, config_value, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()`,
-      [key, value]
-    );
-    return;
-  }
-  // Fallback local para desenvolvimento; no Render, DATABASE_URL deve estar configurada.
-  cfg[key] = value;
-  if (fs.existsSync(CFG_FILE) && Date.now() - lastBak > 10 * 60 * 1000) {
-    try { fs.copyFileSync(CFG_FILE, BAK_FILE); lastBak = Date.now() } catch (e) { console.error('Falha no backup JSON:', e.message) }
-  }
-  const tmp = CFG_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cfg));
-  fs.renameSync(tmp, CFG_FILE);
-}
-const scheduleSave = () => { if (!pool && !saveT) saveT = setTimeout(() => { saveT = null; }, 300) };
-process.on('SIGTERM', async () => { if (saveT) clearTimeout(saveT); if (pool) await pool.end().catch(() => {}); process.exit(0) });
-process.on('SIGINT', async () => { if (saveT) clearTimeout(saveT); if (pool) await pool.end().catch(() => {}); process.exit(0) });
+const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
+process.on('SIGTERM', () => { if (saveT) flush(); process.exit(0) });
+process.on('SIGINT', () => { if (saveT) flush(); process.exit(0) });
 
 /* ---------------- HTTP ---------------- */
 const isLoop = r => { const a = r.socket.remoteAddress || ''; return (a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1') && !r.headers['x-forwarded-for'] };
@@ -144,22 +103,16 @@ const srv = http.createServer((req, res) => {
     if (!isAdmin(req)) { req.resume(); return send(res, 403, { ok: false, erro: 'token inválido' }) }
     let size = 0; const chunks = [];
     req.on('data', d => { size += d.length; if (size > MAX_BODY) { send(res, 413, { ok: false, erro: 'grande demais' }); req.destroy() } else chunks.push(d) });
-    req.on('end', async () => {
+    req.on('end', () => {
       if (size > MAX_BODY) return;
       let v; try { v = JSON.parse(Buffer.concat(chunks).toString('utf8')).v } catch (e) { return send(res, 400, { ok: false, erro: 'JSON inválido' }) }
-      if (v !== null && !(typeof v === 'string' && KEYS[key](v))) return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
-      try {
-        // Só confirma ao editor depois que o PostgreSQL (ou o arquivo local) gravar com sucesso.
-        await persistConfig(key, v);
-        cfg[key] = v;
-        invalidate(); scheduleSave();
-        const msg = JSON.stringify({ t: 'cfg', k: key });
-        wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) });
-        send(res, 200, { ok: true, etag: getCache().etag });
-      } catch (e) {
-        console.error('Falha ao salvar configuração no banco:', e);
-        send(res, 503, { ok: false, erro: 'não foi possível salvar no banco de dados' });
-      }
+      if (v === null) cfg[key] = null; // null = o editor apagou/restaurou o padrão
+      else if (typeof v === 'string' && KEYS[key](v)) cfg[key] = v;
+      else return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
+      invalidate(); scheduleSave();
+      const msg = JSON.stringify({ t: 'cfg', k: key });
+      wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) }); // avisa os jogadores online
+      send(res, 200, { ok: true, etag: getCache().etag });
     });
     return;
   }
@@ -178,9 +131,10 @@ const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, req) => {
   const id = nid++; ws.pid = id;
-  const p = { id, x: 0, y: 0, nm: '?', an: 'Idle_2', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, e: null, lastChat: 0 };
+  const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_2', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, e: null, lastChat: 0,
+    role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0 };
   P.set(id, p);
   sendTo(ws, { t: 'id', id, v: 3 });
   for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
@@ -188,9 +142,63 @@ wss.on('connection', ws => {
     if (o.e) sendTo(ws, { t: 'q', id: o.id, e: o.e });
   }
 
+  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }) };
+  const note = x => sendTo(ws, { t: 'adm', note: x });
+  const lists = () => sendTo(ws, { t: 'adm',
+    admins: Object.entries(AD.admins).map(([k, v]) => ({ k, nm: v.nm })),
+    bans: Object.entries(AD.bans).map(([k, v]) => ({ k, nm: v.nm })) });
+
   ws.on('message', d => {
     let m; try { m = JSON.parse(d) } catch (e) { return }
     if (!m || typeof m !== 'object') return;
+    if (m.t === 'hi') { // identidade do navegador (segredo aleatório; o servidor só guarda o hash)
+      if (p.uh || typeof m.uid !== 'string' || !/^[a-f0-9]{32}$/.test(m.uid)) return;
+      p.uh = sha(m.uid);
+      if (AD.bans[p.uh]) { sendTo(ws, { t: 'kick', r: 'Você está banido deste servidor.' }); setTimeout(() => ws.close(), 100); return }
+      if (p.role < 2) setRole(AD.admins[p.uh] ? 1 : 0);
+      return;
+    }
+    if (m.t === 'auth') { // dono: mesmo ADMIN_TOKEN do editor
+      if (p.authFails >= 5) return;
+      if (ownerTokenOk(m.token, req)) setRole(2);
+      else { p.authFails++; if (p.authFails >= 5) ws.close() }
+      return;
+    }
+    if (m.t === 'a') { // comandos do painel admin
+      if (p.role < 1) return;
+      const now = Date.now(); if (now - p.cmdT < 80) return; p.cmdT = now;
+      const owner = p.role === 2, c = String(m.c || ''), tg = P.get(+m.id);
+      const can = o => o && o !== p && (owner ? o.role < 2 : o.role < 1); // admin só mexe em jogador comum; dono em todos menos nele mesmo
+      const nameOf = o => String(o.nm || '?');
+      if (c === 'say') { const x = String(m.x || '').trim().slice(0, 100); if (!x) return; const out = JSON.stringify({ t: 'c', id: 0, nm: '📢 Aviso', x }); wss.clients.forEach(k => sendTo(k, out)); return }
+      if (c === 'list') { if (owner) lists(); return }
+      if (c === 'unban') { if (!owner || !AD.bans[m.k]) return; delete AD.bans[m.k]; saveAD(); lists(); note('Desbanido.'); return }
+      if (c === 'deop') {
+        const k = m.k || (tg && tg.uh);
+        if (!owner || !k || !AD.admins[k]) return; delete AD.admins[k]; saveAD();
+        for (const o of P.values()) if (o.uh === k && o.role === 1) { o.role = 0; sendTo(o.ws, { t: 'role', r: 0 }) }
+        lists(); note('Cargo de admin removido.'); return }
+      if (!tg) return note('Jogador não encontrado.');
+      if (c === 'tp') { if (tg === p) return; sendTo(ws, { t: 'cmd', c: 'tp', x: tg.x, y: tg.y }); return }
+      if (c === 'heal') { sendTo(tg.ws, { t: 'cmd', c: 'heal' }); note('Curou ' + nameOf(tg)); return }
+      if (c === 'gl') { sendTo(tg.ws, { t: 'cmd', c: 'gl', v: num(m.v, 1, 100000) | 0 }); note('Gralats enviados para ' + nameOf(tg)); return }
+      if (c === 'lvl') { sendTo(tg.ws, { t: 'cmd', c: 'lvl', v: num(m.v, 1, 50) | 0 }); note('Níveis enviados para ' + nameOf(tg)); return }
+      if (c === 'mobs') { sendTo(tg.ws, { t: 'cmd', c: 'mobs' }); note('Monstros de ' + nameOf(tg) + ' renasceram'); return }
+      if (c === 'op') {
+        if (!owner || tg.role === 2) return;
+        if (!tg.uh) return note('Esse jogador está com um cliente desatualizado (sem identidade). Peça para recarregar a página.');
+        AD.admins[tg.uh] = { nm: nameOf(tg), at: Date.now() }; saveAD(); tg.role = 1; sendTo(tg.ws, { t: 'role', r: 1 });
+        sendTo(tg.ws, { t: 'adm', note: 'Você virou ADMIN.' }); note(nameOf(tg) + ' agora é admin.'); return }
+      if (!can(tg)) return note('Você não pode fazer isso com esse jogador.');
+      if (c === 'bringto') { sendTo(tg.ws, { t: 'cmd', c: 'tp', x: p.x, y: p.y }); return }
+      if (c === 'mute') { tg.muted = tg.muted ? 0 : 1; note(nameOf(tg) + (tg.muted ? ' silenciado.' : ' pode falar de novo.')); return }
+      if (c === 'kick') { sendTo(tg.ws, { t: 'kick', r: 'Você foi expulso por um admin.' }); setTimeout(() => tg.ws.close(), 100); note(nameOf(tg) + ' expulso.'); return }
+      if (c === 'ban') {
+        if (!owner) return;
+        if (!tg.uh) return note('Sem identidade para banir (cliente desatualizado). Use Expulsar.');
+        AD.bans[tg.uh] = { nm: nameOf(tg), at: Date.now() }; saveAD(); sendTo(tg.ws, { t: 'kick', r: 'Você foi banido deste servidor.' }); setTimeout(() => tg.ws.close(), 100); note(nameOf(tg) + ' banido.'); return }
+      return;
+    }
     if (m.t === 'u') {
       if (d.length > 400) return;
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
@@ -205,7 +213,7 @@ wss.on('connection', ws => {
       others(id, { t: 'q', id, e: p.e });
     } else if (m.t === 'c') {
       const x = String(m.x || '').trim().slice(0, 100), now = Date.now();
-      if (!x || now - p.lastChat < 500) return; p.lastChat = now;
+      if (!x || p.muted || now - p.lastChat < 500) return; p.lastChat = now;
       const out = JSON.stringify({ t: 'c', id, nm: p.nm, x });
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
@@ -215,18 +223,13 @@ wss.on('connection', ws => {
 });
 
 setInterval(() => {
-  const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw }));
+  const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role }));
   if (!a.length) return;
   const msg = JSON.stringify({ t: 'st', p: a });
   wss.clients.forEach(c => sendTo(c, msg));
 }, 100);
 
-initConfigStore().then(() => {
-  srv.listen(PORT, () => {
-    console.log('Graal Online em http://localhost:' + PORT);
-    if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
-  });
-}).catch(err => {
-  console.error('Não foi possível inicializar o armazenamento de configurações:', err);
-  process.exit(1);
+srv.listen(PORT, () => {
+  console.log('Graal Online em http://localhost:' + PORT);
+  if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
 });
