@@ -280,6 +280,18 @@ const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
 setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; try { c.ping() } catch (e) { } } }, 10000);
+/* anfitrião dos monstros: o jogador online mais antigo (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
+let HOST = 0;
+function electHost() {
+  const now = Date.now(); let h = 0;
+  for (const q of P.values()) if (q.ok && now - q.uT < 4000 && (!h || q.id < h)) h = q.id;
+  if (h === HOST) return;
+  const old = P.get(HOST); if (old) sendTo(old.ws, { t: 'host', v: 0 });
+  HOST = h; const nw = P.get(h); if (nw) sendTo(nw.ws, { t: 'host', v: 1 });
+}
+setInterval(electHost, 1000);
+/* itens no chão (gralats): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
+const DROPS = new Map();
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 
 wss.on('connection', (ws, req) => {
@@ -288,7 +300,9 @@ wss.on('connection', (ws, req) => {
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
   sendTo(ws, { t: 'id', id, v: 3 });
+  if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
+  if (DROPS.size) sendTo(ws, { t: 'dall', a: [...DROPS.values()] });
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
     if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
@@ -423,11 +437,36 @@ wss.on('connection', (ws, req) => {
       if ((t && t > now) || BCUT.size >= BUSH_MAX) return;
       BCUT.set(k, now + BUSH_MS); others(id, { t: 'bc', x, y, l: BUSH_MS }); return;
     }
+    if (m.t === 'dr') { // item solto no chão
+      const now = Date.now(); if (now - (p.drW || 0) > 1000) { p.drW = now; p.drN = 0 } if (++p.drN > 40) return;
+      if (typeof m.id !== 'string' || !/^\d{1,9}-\d{1,9}$/.test(m.id) || DROPS.has(m.id)) return;
+      const x = Math.round(num(m.x, -1e6, 1e6)), y = Math.round(num(m.y, -1e6, 1e6)), v = num(m.v, 0, 999) | 0, pop = m.pop ? 1 : 0;
+      DROPS.set(m.id, [m.id, x, y, v]);
+      if (DROPS.size > 300) { const k = DROPS.keys().next().value; DROPS.delete(k); wss.clients.forEach(c => sendTo(c, { t: 'dp', id: k })) }
+      others(id, { t: 'dr', id: m.id, x, y, v, pop }); return;
+    }
+    if (m.t === 'dp') { // item pego
+      if (typeof m.id !== 'string' || !DROPS.delete(m.id)) return;
+      others(id, { t: 'dp', id: m.id }); return;
+    }
+    if (m.t === 'ms') { // estado dos monstros: só o anfitrião manda; vai para todos os outros
+      if (p.id !== HOST || d.length > 20000 || !Array.isArray(m.e) || m.e.length > 300) return;
+      others(id, { t: 'ms', n: m.n | 0, e: m.e }); return;
+    }
+    if (m.t === 'mh') { // golpe em monstro de quem não é anfitrião: vai só para o anfitrião
+      const now = Date.now(); if (now - (p.mhW || 0) > 1000) { p.mhW = now; p.mhN = 0 } if (++p.mhN > 60) return;
+      const h = HOST && HOST !== p.id && P.get(HOST); if (h) sendTo(h.ws, { t: 'mh', i: m.i | 0, d: num(m.d, 0, 2000) }); return;
+    }
+    if (m.t === 'mp') { // monstro bateu em jogador remoto: vai só para a vítima
+      if (p.id !== HOST) return;
+      const now = Date.now(); if (now - (p.mpW || 0) > 1000) { p.mpW = now; p.mpN = 0 } if (++p.mpN > 120) return;
+      const v = P.get(m.pid | 0); if (v && v !== p) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20) }); return;
+    }
     if (m.t === 'u') {
       if (d.length > 400) return;
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = /^(Idle|Run|Attack)_[0-3]$/.test(m.an) ? m.an : 'Idle_2'; p.al = m.al == 1 ? 1 : .4;
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.ok = 1;
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1;
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
@@ -442,7 +481,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
   });
-  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }) });
+  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
   ws.on('error', () => { });
 });
 
