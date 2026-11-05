@@ -222,6 +222,7 @@ function isAdmin(req) {
 }
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)) };
 
+let IDX = null; // index.html em memória (bruto + gzip)
 const srv = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
 
@@ -286,9 +287,20 @@ const srv = http.createServer((req, res) => {
     });
   }
 
-  fs.readFile(INDEX, (e, d) => {
-    if (e) { res.writeHead(500); return res.end('erro') }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }); res.end(d);
+  fs.stat(INDEX, (e0, st) => {
+    if (e0) { res.writeHead(500); return res.end('erro') }
+    const send = () => {
+      const h = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ETag: IDX.etag, Vary: 'Accept-Encoding' };
+      if (req.headers['if-none-match'] === IDX.etag) { res.writeHead(304, h); return res.end() }
+      if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) { h['Content-Encoding'] = 'gzip'; res.writeHead(200, h); return res.end(req.method === 'HEAD' ? undefined : IDX.gz) }
+      res.writeHead(200, h); res.end(req.method === 'HEAD' ? undefined : IDX.raw);
+    };
+    if (IDX && IDX.m === st.mtimeMs) return send();
+    fs.readFile(INDEX, (e, d) => {
+      if (e) { res.writeHead(500); return res.end('erro') }
+      IDX = { m: st.mtimeMs, raw: d, gz: zlib.gzipSync(d, { level: 9 }), etag: '"' + crypto.createHash('sha1').update(d).digest('hex').slice(0, 16) + '"' };
+      send();
+    });
   });
 });
 
