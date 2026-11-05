@@ -201,6 +201,11 @@ const srv = http.createServer((req, res) => {
   }
   if (url === '/auth/discord/callback' && req.method === 'GET') return discordCallback(req, res);
   if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { if (pl.svTm) clearTimeout(pl.svTm); if (pl.svD) { applySv(pl, pl.svD); pl.svD = null } ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
+  if (url === '/api/acc' && req.method === 'GET') { // progresso da conta entregue ANTES do jogo começar (o navegador aplica antes de carregar o jogo)
+    const id = sessionOf(req), a = id && ACC[id];
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify(a ? { on: true, id: a.id, data: a.data || {} } : { on: AUTH_ON }));
+  }
   if (url === '/api/me' && req.method === 'GET') {
     const id = sessionOf(req), a = id && ACC[id];
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
