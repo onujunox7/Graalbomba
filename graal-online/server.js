@@ -292,6 +292,7 @@ function electHost() {
 setInterval(electHost, 1000);
 /* itens no chão (gralats): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
 const DROPS = new Map();
+setInterval(() => { const n = Date.now(); for (const [k, a] of DROPS) if (a[5] && a[5] < n) DROPS.delete(k) }, 5000); // corações/bombas/flechas somem em 20s
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 
@@ -304,7 +305,7 @@ wss.on('connection', (ws, req) => {
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
-  if (DROPS.size) sendTo(ws, { t: 'dall', a: [...DROPS.values()] });
+  if (DROPS.size) { const now = Date.now(); sendTo(ws, { t: 'dall', a: [...DROPS.values()].map(a => [a[0], a[1], a[2], a[3], a[4] || 0, a[5] ? Math.max(0, a[5] - now) : 0]) }) }
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
     if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
@@ -443,9 +444,15 @@ wss.on('connection', (ws, req) => {
       const now = Date.now(); if (now - (p.drW || 0) > 1000) { p.drW = now; p.drN = 0 } if (++p.drN > 40) return;
       if (typeof m.id !== 'string' || !/^\d{1,9}-\d{1,9}$/.test(m.id) || DROPS.has(m.id)) return;
       const x = Math.round(num(m.x, -1e6, 1e6)), y = Math.round(num(m.y, -1e6, 1e6)), v = num(m.v, 0, 999) | 0, pop = m.pop ? 1 : 0;
-      DROPS.set(m.id, [m.id, x, y, v]);
+      const k = /^[hba]$/.test(m.k) ? m.k : 0; DROPS.set(m.id, [m.id, x, y, v, k, k ? now + 20000 : 0]);
       if (DROPS.size > 300) { const k = DROPS.keys().next().value; DROPS.delete(k); wss.clients.forEach(c => sendTo(c, { t: 'dp', id: k })) }
-      others(id, { t: 'dr', id: m.id, x, y, v, pop }); return;
+      others(id, { t: 'dr', id: m.id, x, y, v, pop, k }); return;
+    }
+    if (m.t === 'bo' || m.t === 'ar') { // bomba colocada / flecha atirada: só efeito visual para os outros
+      const now = Date.now(); if (now - (p.evW || 0) > 1000) { p.evW = now; p.evN = 0 } if (++p.evN > 30) return;
+      if (m.t === 'bo') others(id, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1) });
+      else others(id, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
+      return;
     }
     if (m.t === 'dp') { // item pego
       if (typeof m.id !== 'string' || !DROPS.delete(m.id)) return;
