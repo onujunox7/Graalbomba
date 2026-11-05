@@ -262,10 +262,12 @@ setInterval(() => { const n = Date.now(); for (const [k, t] of BCUT) if (t <= n)
 const PNG = s => typeof s === 'string' && s.length < 290000 && s.startsWith('data:image/png');
 const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
+/* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
+setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; try { c.ping() } catch (e) { } } }, 25000);
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 
 wss.on('connection', (ws, req) => {
-  const id = nid++; ws.pid = id;
+  const id = nid++; ws.pid = id; ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true });
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_2', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
