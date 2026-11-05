@@ -440,6 +440,7 @@ wss.on('connection', (ws, req) => {
       if ((t && t > now) || BCUT.size >= BUSH_MAX) return;
       BCUT.set(k, now + BUSH_MS); others(id, { t: 'bc', x, y, l: BUSH_MS }); return;
     }
+    if (m.t === 'ty') { p.ty = m.v ? 1 : 0; return } // chat aberto: mostra balão "..." na cabeça
     if (m.t === 'dr') { // item solto no chão
       const now = Date.now(); if (now - (p.drW || 0) > 1000) { p.drW = now; p.drN = 0 } if (++p.drN > 40) return;
       if (typeof m.id !== 'string' || !/^\d{1,9}-\d{1,9}$/.test(m.id) || DROPS.has(m.id)) return;
@@ -496,7 +497,7 @@ wss.on('connection', (ws, req) => {
 });
 
 setInterval(() => {
-  const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role }));
+  const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role, tp: p.ty | 0 }));
   if (!a.length) return;
   const msg = JSON.stringify({ t: 'st', p: a });
   wss.clients.forEach(c => sendTo(c, msg));
