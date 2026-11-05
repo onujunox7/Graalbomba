@@ -198,7 +198,7 @@ const srv = http.createServer((req, res) => {
     res.writeHead(302, { Location: 'https://discord.com/oauth2/authorize?' + q, 'Set-Cookie': ck(req, 'gst', st, 600) }); return res.end();
   }
   if (url === '/auth/discord/callback' && req.method === 'GET') return discordCallback(req, res);
-  if (url === '/auth/logout') { res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
+  if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
   if (url === '/api/me' && req.method === 'GET') {
     const id = sessionOf(req), a = id && ACC[id];
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
