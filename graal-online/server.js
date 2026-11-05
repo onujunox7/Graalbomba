@@ -8,7 +8,7 @@
  *    PORT         porta (padrão 3000)
  *    KICK_MINUTES quanto tempo quem foi expulso fica sem conseguir voltar (padrão 5)
  *
- *  Spawns de monstros: o menu 👾 (tecla N) de admins/dono grava a lista em DATA_DIR/graal-spawns.json; todos os jogadores recebem a mesma lista ao entrar.
+ *  Spawns de monstros: o menu 👾 (tecla N) de admins/dono grava a lista em PostgreSQL (tabela graal_kv); todos os jogadores recebem a mesma lista ao entrar.
  *
  *  Cargos (painel 🛡 no jogo):
  *    DONO   quem abre o jogo com ?admin=ADMIN_TOKEN (o mesmo token do editor). Pode tudo, inclusive dar/tirar o cargo de admin e banir.
@@ -67,17 +67,39 @@ function spClean(a) { // devolve o spawn limpo ({k,x,y,lv}) ou null se for invá
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 200000 || y > 200000) return null;
   return { k: a.k, x, y, lv: Math.max(1, Math.min(100, (+a.lv | 0) || 1)) };
 }
-try {
-  const o = JSON.parse(fs.readFileSync(SP_FILE, 'utf8'));
-  if (o && Array.isArray(o.add) && Array.isArray(o.rem)) {
-    const seen = new Set();
-    SP.add = o.add.map(a => { const c = spClean(a), id = a && +a.id; if (!c || !(id > 0) || seen.has(id)) return null; seen.add(id); c.id = id; return c }).filter(Boolean).slice(0, SP_MAX);
-    SP.rem = [...new Set(o.rem.filter(spKey))].slice(0, SP_MAXR);
-    SP.nid = SP.add.reduce((m, a) => Math.max(m, a.id + 1), Math.max(1, +o.nid || 1));
-    console.log('Spawns carregados:', SP.add.length, 'adicionados,', SP.rem.length, 'removidos');
-  }
-} catch (e) { }
-function saveSP() { try { const t = SP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(SP)); fs.renameSync(t, SP_FILE) } catch (e) { console.error('Falha ao gravar spawns:', e.message) } }
+function spLoad(o) { // normaliza o objeto salvo ({add,rem,nid}) e carrega em SP; devolve true se era válido
+  if (!(o && Array.isArray(o.add) && Array.isArray(o.rem))) return false;
+  const seen = new Set();
+  SP.add = o.add.map(a => { const c = spClean(a), id = a && +a.id; if (!c || !(id > 0) || seen.has(id)) return null; seen.add(id); c.id = id; return c }).filter(Boolean).slice(0, SP_MAX);
+  SP.rem = [...new Set(o.rem.filter(spKey))].slice(0, SP_MAXR);
+  SP.nid = SP.add.reduce((m, a) => Math.max(m, a.id + 1), Math.max(1, +o.nid || 1));
+  return true;
+}
+try { spLoad(JSON.parse(fs.readFileSync(SP_FILE, 'utf8'))) } catch (e) { } // cópia local (só vale como migração/reserva; o oficial é o PostgreSQL)
+/* PERSISTÊNCIA OFICIAL: PostgreSQL (tabela graal_kv, chave 'spawns'). O disco do Render some a cada reinício; o banco não. */
+let spDirty = false, spBusy = false;
+async function spFlush() {
+  if (spBusy) return; spBusy = true;
+  try {
+    while (spDirty) {
+      spDirty = false;
+      try { await pgPool.query(`INSERT INTO graal_kv (k, v, updated_at) VALUES ('spawns', $1::jsonb, $2)
+        ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = EXCLUDED.updated_at`, [JSON.stringify(SP), Date.now()]) }
+      catch (e) { console.error('Falha ao gravar spawns no PostgreSQL:', e.message); spDirty = true; await new Promise(r => setTimeout(r, 3000)) }
+    }
+  } finally { spBusy = false }
+}
+async function initSpawnsDB() {
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_kv (k TEXT PRIMARY KEY, v JSONB NOT NULL, updated_at BIGINT NOT NULL)`);
+  const r = await pgPool.query(`SELECT v FROM graal_kv WHERE k = 'spawns'`);
+  if (r.rowCount && spLoad(r.rows[0].v)) console.log('Spawns carregados do PostgreSQL:', SP.add.length, 'adicionados,', SP.rem.length, 'removidos');
+  else if (SP.add.length || SP.rem.length) { console.log('Spawns migrados do arquivo para o PostgreSQL'); spDirty = true; await spFlush() }
+  else console.log('Spawns: nenhum salvo ainda');
+}
+function saveSP() { // grava no banco (assíncrono, sem travar o jogo) e mantém uma cópia em arquivo
+  spDirty = true; spFlush().catch(e => console.error(e));
+  try { const t = SP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(SP)); fs.renameSync(t, SP_FILE) } catch (e) { }
+}
 const spAll = () => ({ t: 'spall', add: SP.add, rem: SP.rem });
 const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c => sendTo(c, s)) };
 
@@ -503,7 +525,7 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 100);
 
-initAccountsDB().then(() => {
+Promise.all([initAccountsDB(), initSpawnsDB()]).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
