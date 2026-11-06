@@ -65,3 +65,6 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 
 ### v26.4: ataque do amigo na velocidade certa
 - O cliente envia `ak` (contador de golpes) e `ad` (duração do golpe em ms). O remoto reinicia a animação de espada a cada golpe novo e a toca na mesma velocidade do golpe original (a duração varia com o ritmo dos cliques, de 110 a 200 ms). Antes ela rodava sempre em 300 ms e, clicando rápido, o estado "Attack" nunca mudava e a animação travava no último quadro. **Precisa trocar o `server.js`.**
+
+### v26.5: golpe do amigo não repete o início
+- O estado "Attack" entrava um pacote antes do contador de golpe `ak`, então a animação reiniciava duas vezes seguidas. Agora o ataque só começa quando os dois chegam juntos (um reinício só). Só o cliente mudou.

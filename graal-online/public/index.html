@@ -740,7 +740,7 @@ const CAMS={ok:0,w:0,z:1,k:16}; /* k: velocidade da câmera (maior = mais colada
 /* v26: amostra um buffer de snapshots [{t,x,y}] com atraso fixo → movimento contínuo mesmo com pacotes a 10/s */
 let INTERP_DELAY=80;const MON_DELAY=130,SNAP={l:0,i:100}; /* INTERP_DELAY se adapta ao intervalo real dos pacotes de jogadores */
 function snapPush(o,x,y,now,an,ak,ad){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y,an,ak,ad});if(b.length>8)b.shift()}
-function snapAn(a,c){const i=v=>!v||/^Idle/.test(v);return !i(c.an)?c.an:!i(a.an)?a.an:c.an} /* animação coerente com o movimento mostrado: não anda parado nem desliza em Idle */
+function snapAn(a,c){const i=v=>!v||/^Idle/.test(v),at=v=>/^Attack/.test(v||'');if(at(a.an)||at(c.an))return a.an; /* ataque só entra junto com o contador ak (um reinício só) */return !i(c.an)?c.an:!i(a.an)?a.an:c.an} /* animação coerente com o movimento mostrado: não anda parado nem desliza em Idle */
 function snapSample(o,now,dl){const b=o.nb;if(!b||!b.length)return false;const rt=now-(dl||INTERP_DELAY);
  if(b.length===1||rt<=b[0].t){o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;o.sk=b[0].ak;o.sd=b[0].ad;return true}
  for(let i=b.length-1;i>0;i--){const a=b[i-1],c=b[i];if(rt>=a.t){if(rt<=c.t){const u=(rt-a.t)/Math.max(1,c.t-a.t);o.x=a.x+(c.x-a.x)*u;o.y=a.y+(c.y-a.y)*u;o.sa=snapAn(a,c);o.sk=a.ak;o.sd=a.ad}else{const l=b[b.length-1],pv=b[b.length-2],dtp=Math.max(1,l.t-pv.t),ex=Math.min(120,rt-l.t)/dtp;o.x=l.x+(l.x-pv.x)*ex*.5;o.y=l.y+(l.y-pv.y)*ex*.5;o.sa=l.an;o.sk=l.ak;o.sd=l.ad}return true}}
