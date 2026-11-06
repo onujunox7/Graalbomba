@@ -212,6 +212,107 @@ const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
 process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await pgPool.end(); process.exit(0) });
 process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await pgPool.end(); process.exit(0) });
 
+/* ---------------- fotos de fundo do perfil (com moderação) ----------------
+ *  O jogador envia a foto (JPEG reduzido pelo navegador, ou GIF original) por POST /api/pfbg.
+ *  Ela fica PENDENTE: só o dono vê (no próprio navegador). Um admin/dono vê a foto no painel 🛡 e APROVA ou RECUSA.
+ *  Só fotos aprovadas são entregues a outros jogadores (GET /api/pfbg/<id do jogador>, buscado só quando alguém abre o perfil).
+ *  Admin/dono que envia foto já nasce aprovado. Persistência: PostgreSQL (tabela graal_pfbg). */
+const PF_MAX = 1.6 * 1024 * 1024, PF_MAX_GIF = 4 * 1024 * 1024, PF_CACHE_MAX = 48 * 1024 * 1024;
+const PF = new Map(); // uh -> { nm, mime, st: 'pend'|'ok'|'no', len, h, at }  (sem os bytes)
+const PFD = new Map(); let pfBytes = 0; // cache LRU dos bytes: "uh:h" -> Buffer
+const PF_RATE = new Map(); // uh -> [horários dos últimos envios]
+async function initPfDB() {
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_pfbg (uh TEXT PRIMARY KEY, nm TEXT, mime TEXT NOT NULL, st TEXT NOT NULL, len INT NOT NULL, h TEXT NOT NULL, at BIGINT NOT NULL, data BYTEA NOT NULL)`);
+  const r = await pgPool.query('SELECT uh, nm, mime, st, len, h, at FROM graal_pfbg');
+  for (const o of r.rows) PF.set(o.uh, { nm: o.nm || '?', mime: o.mime, st: o.st, len: o.len, h: o.h, at: +o.at });
+  console.log('Fotos de perfil:', PF.size, 'guardadas,', pfCount(), 'aguardando aprovação');
+}
+const pfCount = () => { let n = 0; for (const v of PF.values()) if (v.st === 'pend') n++; return n };
+function pfSniff(b) { // confere os bytes do arquivo (não confia no Content-Type)
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length >= 8 && b.toString('latin1', 1, 4) === 'PNG' && b[0] === 0x89) return 'image/png';
+  if (b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  if (b.length >= 6 && /^GIF8[79]a$/.test(b.toString('latin1', 0, 6))) return 'image/gif';
+  return null;
+}
+async function pfData(uh) {
+  const v = PF.get(uh); if (!v) return null;
+  const key = uh + ':' + v.h, c = PFD.get(key);
+  if (c) { PFD.delete(key); PFD.set(key, c); return c }
+  const r = await pgPool.query('SELECT data FROM graal_pfbg WHERE uh = $1', [uh]);
+  if (!r.rowCount) return null;
+  const b = r.rows[0].data; PFD.set(key, b); pfBytes += b.length;
+  while (pfBytes > PF_CACHE_MAX && PFD.size > 1) { const k = PFD.keys().next().value, o = PFD.get(k); PFD.delete(k); pfBytes -= o.length }
+  return b;
+}
+function pfDrop(uh) { for (const k of [...PFD.keys()]) if (k.startsWith(uh + ':')) { pfBytes -= PFD.get(k).length; PFD.delete(k) } }
+function pfList(all) {
+  const a = []; for (const [k, v] of PF) if (all || v.st === 'pend') a.push({ k, nm: v.nm, st: v.st, len: v.len, mime: v.mime, at: v.at });
+  a.sort((x, y) => (x.st === 'pend' ? 0 : 1) - (y.st === 'pend' ? 0 : 1) || y.at - x.at);
+  return a.slice(0, 60);
+}
+const pfAdmins = msg => { const s = JSON.stringify(msg); for (const o of P.values()) if (o.role >= 1) sendTo(o.ws, s) };
+const pfOwner = (uh, st) => { for (const o of P.values()) if (o.uh === uh) sendTo(o.ws, { t: 'pfs', st }) };
+async function pfSetSt(uh, st) { // aprovar / recusar
+  const v = PF.get(uh); if (!v || v.st === st) return false;
+  await pgPool.query('UPDATE graal_pfbg SET st = $2 WHERE uh = $1', [uh, st]);
+  v.st = st; pfOwner(uh, st); pfAdmins({ t: 'adm', pfn: pfCount() }); return true;
+}
+const pfUh = req => { const sid = sessionOf(req); if (sid) return sha('discord:' + sid); const u = String(req.headers['x-uid'] || ''); return /^[a-f0-9]{32}$/.test(u) ? sha(u) : null };
+const pfJson = (res, code, o) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)) };
+function pfSendImg(req, res, uh, v, data) {
+  const h = { 'Content-Type': v.mime, 'Cache-Control': 'no-cache', ETag: '"' + v.h + '"', 'X-Content-Type-Options': 'nosniff', 'Content-Length': data.length };
+  if (req.headers['if-none-match'] === h.ETag) { res.writeHead(304, { ETag: h.ETag, 'Cache-Control': 'no-cache' }); return res.end() }
+  res.writeHead(200, h); res.end(req.method === 'HEAD' ? undefined : data);
+}
+function pfHttp(req, res, url) { // devolve true se a rota era desta função
+  const m = url.match(/^\/api\/pfbg(?:\/(me\/img|me|\d{1,9}))?$/);
+  if (!m) return false;
+  const sub = m[1], uh = pfUh(req);
+  const fail = e => { console.error('pfbg:', e && e.message); if (!res.headersSent) pfJson(res, 500, { ok: false, erro: 'erro no servidor' }) };
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (!sub) return pfJson(res, 404, { ok: false }), true;
+    if (sub === 'me') { const v = uh && PF.get(uh); pfJson(res, 200, v ? { st: v.st, len: v.len, mime: v.mime } : { st: null }); return true }
+    let who = uh, onlyOk = false;
+    if (sub !== 'me/img') { const o = P.get(+sub); who = o && o.uh; onlyOk = true } // foto de outro jogador: só se aprovada
+    const v = who && PF.get(who);
+    if (!v || (onlyOk && v.st !== 'ok')) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return true }
+    pfData(who).then(d => { if (!d) { res.writeHead(404); return res.end() } pfSendImg(req, res, who, v, d) }).catch(fail);
+    return true;
+  }
+  if (sub) return pfJson(res, 405, { ok: false }), true;
+  if (!uh) { req.resume(); pfJson(res, 401, { ok: false, erro: 'sem identidade' }); return true }
+  if (req.method === 'DELETE') {
+    if (!PF.has(uh)) return pfJson(res, 200, { ok: true }), true;
+    pgPool.query('DELETE FROM graal_pfbg WHERE uh = $1', [uh]).then(() => { PF.delete(uh); pfDrop(uh); pfAdmins({ t: 'adm', pfn: pfCount() }); pfJson(res, 200, { ok: true }) }).catch(fail);
+    return true;
+  }
+  if (req.method !== 'POST') return pfJson(res, 405, { ok: false }), true;
+  if (AD.bans[uh]) { req.resume(); pfJson(res, 403, { ok: false, erro: 'banido' }); return true }
+  const now = Date.now(), hist = (PF_RATE.get(uh) || []).filter(t => now - t < 3600e3);
+  if (hist.length >= 12 || (hist.length && now - hist[hist.length - 1] < 4000)) { req.resume(); pfJson(res, 429, { ok: false, erro: 'muitos envios; espere um pouco' }); return true }
+  if (+req.headers['content-length'] > PF_MAX_GIF) { req.resume(); pfJson(res, 413, { ok: false, erro: 'arquivo grande demais' }); return true }
+  let size = 0, dead = false; const chunks = [];
+  req.on('data', d => { size += d.length; if (size > PF_MAX_GIF) { dead = true; pfJson(res, 413, { ok: false, erro: 'arquivo grande demais' }); req.destroy() } else chunks.push(d) });
+  req.on('end', () => {
+    if (dead) return;
+    const b = Buffer.concat(chunks), mime = pfSniff(b);
+    if (!mime) return pfJson(res, 400, { ok: false, erro: 'formato inválido (use JPG, PNG, WebP ou GIF)' });
+    if (b.length > (mime === 'image/gif' ? PF_MAX_GIF : PF_MAX)) return pfJson(res, 413, { ok: false, erro: 'arquivo grande demais' });
+    hist.push(now); PF_RATE.set(uh, hist);
+    const me = [...P.values()].find(o => o.uh === uh), staff = [...P.values()].some(o => o.uh === uh && o.role >= 1);
+    const nm = String((me && me.nm) || (PF.get(uh) && PF.get(uh).nm) || '?').slice(0, 24), st = staff ? 'ok' : 'pend', h = crypto.createHash('sha1').update(b).digest('hex').slice(0, 16);
+    pgPool.query(`INSERT INTO graal_pfbg (uh, nm, mime, st, len, h, at, data) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT (uh) DO UPDATE SET nm = EXCLUDED.nm, mime = EXCLUDED.mime, st = EXCLUDED.st, len = EXCLUDED.len, h = EXCLUDED.h, at = EXCLUDED.at, data = EXCLUDED.data`,
+      [uh, nm, mime, st, b.length, h, now, b]).then(() => {
+      pfDrop(uh); PF.set(uh, { nm, mime, st, len: b.length, h, at: now });
+      pfAdmins({ t: 'adm', pfn: pfCount() }); pfJson(res, 200, { ok: true, st });
+    }).catch(fail);
+  });
+  req.on('error', () => { });
+  return true;
+}
+
 /* ---------------- HTTP ---------------- */
 const isLoop = r => { const a = r.socket.remoteAddress || ''; return (a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1') && !r.headers['x-forwarded-for'] };
 function isAdmin(req) {
@@ -246,6 +347,8 @@ const srv = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({ on: AUTH_ON, user: a ? { id: a.id, name: a.name, av: avatarOf(a) } : null }));
   }
+
+  if (url.startsWith('/api/pfbg') && pfHttp(req, res, url)) return;
 
   if (url === '/graal-config.json' && req.method === 'GET') {
     const c = getCache();
@@ -334,6 +437,9 @@ function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
 const BUSH_MS = 15000, BUSH_MAX = 4000, BCUT = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, t] of BCUT) if (t <= n) BCUT.delete(k) }, 5000);
 const PNG = s => typeof s === 'string' && s.length < 290000 && s.startsWith('data:image/png');
+// cores indexadas do body (pele, casaco, mangas, sapatos, cinto): 5 itens "#rrggbb" ou null (= padrão)
+const HEXC = /^#[0-9a-f]{6}$/i;
+const COLS = c => Array.isArray(c) && c.length === 5 && c.some(x => typeof x === 'string' && HEXC.test(x)) ? c.map(x => typeof x === 'string' && HEXC.test(x) ? x.toLowerCase() : null) : null;
 const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
@@ -356,7 +462,7 @@ const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(
 
 wss.on('connection', (ws, req) => {
   const id = nid++; ws.pid = id; ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true });
-  const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
+  const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
   sendTo(ws, { t: 'id', id, v: 3 });
@@ -367,13 +473,14 @@ wss.on('connection', (ws, req) => {
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
     if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
+    if (o.c) sendTo(ws, { t: 'kc', id: o.id, c: o.c });
     if (o.e) sendTo(ws, { t: 'q', id: o.id, e: o.e });
     if (o.pi) sendTo(ws, Object.assign({ t: 'pi', id: o.id }, o.pi));
   }
 
   const hiT = setTimeout(() => { if (!p.uh && ws.readyState === 1) { sendTo(ws, { t: 'kick', r: 'Recarregue a página (F5) para entrar no jogo.' }); setTimeout(() => ws.close(), 100) } }, 8000);
   ws.on('close', () => clearTimeout(hiT));
-  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }) };
+  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }); if (r >= 1) sendTo(ws, { t: 'adm', pfn: pfCount() }) };
   const note = x => sendTo(ws, { t: 'adm', note: x });
   const lists = () => sendTo(ws, { t: 'adm',
     admins: Object.entries(AD.admins).map(([k, v]) => ({ k, nm: v.nm })),
@@ -432,6 +539,13 @@ wss.on('connection', (ws, req) => {
       const nameOf = o => String(o.nm || '?');
       if (c === 'say') { const x = String(m.x || '').trim().slice(0, 100); if (!x) return; const out = JSON.stringify({ t: 'c', id: 0, nm: '📢 Aviso', x }); wss.clients.forEach(k => sendTo(k, out)); return }
       if (c === 'list') { if (owner) lists(); return }
+      if (c === 'pfl') { sendTo(ws, { t: 'adm', pfl: pfList(!!m.all), pfn: pfCount() }); return } // fila de fotos de perfil
+      if (c === 'pfv') { // admin vê a foto ANTES de aprovar (vai pelo WebSocket, só para quem tem cargo)
+        const k = String(m.k || ''); if (!PF.has(k)) return;
+        pfData(k).then(d => { const v = PF.get(k); if (d && v) sendTo(ws, { t: 'pfimg', k, mime: v.mime, d: d.toString('base64') }) }).catch(() => { }); return }
+      if (c === 'pfok' || c === 'pfno') {
+        const k = String(m.k || ''), ok = c === 'pfok', v = PF.get(k); if (!v) return note('Foto não encontrada.');
+        pfSetSt(k, ok ? 'ok' : 'no').then(() => { note((ok ? 'Foto aprovada: ' : 'Foto recusada: ') + v.nm); sendTo(ws, { t: 'adm', pfl: pfList(!!m.all), pfn: pfCount() }) }).catch(() => note('Erro ao salvar.')); return }
       if (c === 'unban') { if (!owner || !AD.bans[m.k]) return; delete AD.bans[m.k]; saveAD(); lists(); note('Desbanido.'); return }
       if (c === 'deop') {
         const k = m.k || (tg && tg.uh);
@@ -558,6 +672,9 @@ wss.on('connection', (ws, req) => {
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
+    } else if (m.t === 'kc') {
+      p.c = COLS(m.c);
+      others(id, { t: 'kc', id, c: p.c });
     } else if (m.t === 'q') {
       if (!m.e || typeof m.e !== 'object' || d.length > 20000) return;
       p.e = { h: m.e.h, s: m.e.s, d: m.e.d };
@@ -591,7 +708,7 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initAccountsDB(), initSpawnsDB()]).then(() => {
+Promise.all([initAccountsDB(), initSpawnsDB(), initPfDB()]).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');

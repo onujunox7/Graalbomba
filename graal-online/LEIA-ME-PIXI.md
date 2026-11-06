@@ -81,3 +81,58 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 - **Bug:** o servidor mandava o estado de todos a cada 50 ms, repetindo o último dado conhecido quando não tinha pacote novo. O cliente tratava cada repetição como ponto novo (mesma posição, 1 ms depois), o que gerava paradas na interpolação e inflava a medida de jitter até o teto de 220 ms.
 - **Cliente:** pacotes repetidos/antigos (mesmo `ct`) são ignorados; o jitter e o intervalo são medidos por jogador, só com pacotes novos; atraso = intervalo + pior atraso recente + 10 ms (65 a 220 ms).
 - **Servidor:** cada `u` recebido é repassado na hora aos outros (`pu`), sem esperar o próximo ciclo de 50 ms. O `st` completo continua, mas a cada 500 ms, só para sincronizar e limpar quem saiu. **Precisa trocar o `server.js`.**
+
+### A+D juntos (v26.9)
+- Segurando A e D ao mesmo tempo (ou ← e →) e andando para cima/baixo (W/S), o personagem olha para a DIREITA (também ao atacar nessa hora). Só teclado; o joystick não muda.
+
+### W+S juntos + A (v26.9)
+- Segurando W e S ao mesmo tempo e apertando A (ou ↑ ↓ ←), o personagem anda para a ESQUERDA olhando para BAIXO (também ao atacar). Só teclado.
+
+### Velocidade igual em todas as direções (v26.9)
+- `DIAG` (perto de `SPD`): 1 = diagonal com a mesma distância/s das retas, mas cada eixo anda só 0,707 e a diagonal PARECE mais lenta; 1,4142 = velocidade cheia por eixo (Graal clássico), mas a diagonal anda 41% mais longe. Está em 1,2 (meio-termo). Ajuste esse número.
+- **Bug da parede:** em `move()`, quando um eixo batia na parede na diagonal, o outro eixo recebia o resto do passo (até 1,41× mais rápido ao deslizar). O bônus passava da velocidade normal. Agora (`SLD` = SPD·dt) o eixo livre completa só até a velocidade NORMAL de andar reto: deslizar na parede = mesma velocidade de andar livre (125 px/s), nem mais lento nem mais rápido. Para voltar à diagonal rápida, `DIAG=1.4142`.
+
+### A+D / W+S sozinhos (v26.9)
+- Só A+D (ou ← →): o personagem faz a animação de andar para a DIREITA, mas fica parado. Só W+S (ou ↑ ↓): animação de andar para BAIXO, parado. Não vira a animação de "empurrar". Se A+D vier junto com W ou S, ele anda (como já era). Só teclado.
+
+### Grama alta sem lentidão (v26.9)
+- O player andava a 70% da velocidade em cima da grama alta (mapa `GR`). Agora o fator `gm` no andar é sempre 1: velocidade normal em qualquer chão. (Para voltar, troque `const gm=1` por `GR&&GR[...]?.7:1`.)
+
+### Animação de empurrar mais lenta (v26.9)
+- Cada quadro de "empurrar" durava 0,1 s; agora `PUSH_FT` = 0,18 s (perto de `PUSHT`). Aumente para ficar ainda mais lenta.
+
+### Colisão do boneco maior (v26.9)
+- `HB_P` (caixa de colisão do player) foi de `[6,2.5,.5]` (12×5 px) para `[6.5,3.5,.5]` (13×7 px): +2 px de altura nos pés e +1 px de largura (braços). A faixa de corte de arbusto (`cutFront`) e a caixa de "saí de cima da bomba" (`bombOverP`) acompanham. Ajuste `HB_P` para mais ou menos.
+
+### Pés maiores de lado (v26.9)
+- Olhando para esquerda/direita E para baixo o player usa `HB_PS` = `[6.5,4.5,-.5]` (13×9 px, de y-4 até y+5, ou seja +2 px nos pés); só de costas (olhando para cima) continua `HB_P`. Se a caixa maior já estiver dentro de uma parede ao virar, usa a menor até sair (sem empurrão/pulo).
+
+### Balão de chat parado (v26.9)
+- O balão (e o "digitando...") era posicionado no topo da cabeça do quadro atual, que balança na animação de andar, então tremia. Agora a altura usa o ponto mais alto da cabeça nas últimas ~1,5–3 s (`stabOff`): fica fixo andando/atacando e ainda acompanha troca de chapéu/skin. Vale para você e para os outros jogadores.
+
+### Balão de chat menor (v26.9)
+- Letra do balão de 8 px para 6 px (`BUB_FS`, perto de `stabOff`) e contorno um pouco mais fino. Mude `BUB_FS` para ajustar.
+
+### Balão "digitando…" menor e pulando (v26.9)
+- `typ()`: balão de 22×11 para 15×8 px (`TYP_W`/`TYP_H`), pontinhos menores. O balão dá um pulinho (até 2 px) e os 3 pontos pulam em sequência (antes só mudavam de brilho).
+
+### Fonte Lilita One no nick e no chat (v26.9)
+- Carregada do Google Fonts (junto da Fredoka). `window.__FN` guarda a família e `window.fnt(px)` monta a fonte do canvas (sem "bold", a Lilita One só tem peso normal; devolve a fonte reserva até `window.__FNOK` = 1, assim os textos em cache do Pixi não ficam presos na fonte errada). Usada em: nickname sobre os personagens, balão de fala, caixa de digitar do chat, mensagens do chat na tela e histórico do chat global (CSS no fim do `<style>` inicial). Se não carregar (sem internet), cai para Fredoka/Verdana. O resto do jogo continua em Fredoka. Para vender sem CDN, ponha o arquivo da fonte em `public/vendor/` e um `@font-face`.
+
+### Espada: alcance até a ponta da lâmina (v26.9)
+- **Bug:** o alcance da espada era só `SWORD_GAP` (4 px) além do corpo, bem menor que a lâmina desenhada; encostar um pouco abaixo da ponta não dava dano nem cortava arbusto.
+- **Agora:** o alcance vai da base até a ponta da lâmina. `SWORD_FR` guarda a distância do centro do jogador até a ponta (px do quadro do sprite, medida na folha: Direita 48, Esquerda 42, Baixo 33, Cima 63) e é multiplicada por `GS`, então acompanha o tamanho do personagem. `SWORD_TRIM` (2 px) tira um tiquinho da ponta: encostar logo abaixo dela já acerta. `swordReach(FV)` devolve o alcance e é usado por monstros, sparring (`swordCovers`) e arbustos (`cutFront`). Continua só de frente (`SWORD_HALF_W` = 7 px de cada lado do eixo; do lado ou atrás não acerta).
+- Ajuste: aumente `SWORD_FR`/diminua `SWORD_TRIM` para alcançar mais; o contrário para alcançar menos.
+
+### (v26.8) Espada: só acerta de frente e bem grudada
+- **Bug:** a espada acertava monstro/arbusto encostado do lado do jogador. Monstros: a caixa do golpe começava no centro do jogador e ainda somava o raio do alvo (vão de ~13 px na frente e ±14 px para os lados). Arbustos: cortava qualquer um com o centro a menos de 22 px de um ponto 16 px à frente (até ~24 px de vão, sem olhar lado nenhum).
+- **Agora (monstros e outros jogadores no sparring):** o alvo tem de estar à frente, com o centro a no máximo `SWORD_HALF_W` (7 px) do eixo do golpe e vão de no máximo `SWORD_GAP` (4 px) entre os corpos. Quem está do lado ou atrás não leva dano.
+- **Agora (arbustos):** `cutFront()` testa uma faixa fina de `SWORD_GAP` px logo na frente da caixa dos pés (largura `BUSH_HALF_W`, 4 px para cada lado); só corta se pelo menos `BUSH_MIN_OV` (3 px) do arbusto entrar na faixa, então raspar a quina não corta.
+- Ajuste em `public/index.html`: `SWORD_GAP`, `SWORD_HALF_W` (perto de `swordCovers`) e `BUSH_HALF_W`, `BUSH_MIN_OV` (perto de `cutFront`). Aumente `SWORD_GAP` se ficar apertado demais.
+
+## Cores do corpo (índice de cor, igual Graal Online)
+O body usa 5 cores-chave (as mesmas dos 20 bodies e dos que você envia): pele `#ffad6b`, casaco `#fffffe` (ou `#ffffff`), mangas `#ff0000`, sapatos `#ce1829` e cinto `#0000ff`. O preto é o contorno e nunca muda.
+- No painel **Personagem e equipamento (C)** há 5 seletores de cor (Pele, Casaco, Mangas, Sapatos, Cinto) e o botão **↺ Cores padrão**. A escolha fica salva em `graal_skin_v2` (campo `c`) e vai junto com a conta.
+- Por baixo: `gTint()` troca só essas cores e guarda uma folha recolorida de 128px por body+paleta (cache de 48). O `gCompose`, o Pixi e os equipamentos não mudaram.
+- Multiplayer: as cores vão numa mensagem leve `kc` (o servidor valida 5 itens `#rrggbb`/null e repassa), sem reenviar as imagens de skin. Quem entra depois já recebe as cores de quem está online.
+- Pixels que não são cor-chave (ex.: o verde do body 12) não mudam.
