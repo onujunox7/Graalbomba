@@ -13,7 +13,7 @@
  *  Cargos (painel 🛡 no jogo):
  *    DONO   quem abre o jogo com ?admin=ADMIN_TOKEN (o mesmo token do editor). Pode tudo, inclusive dar/tirar o cargo de admin e banir.
  *    ADMIN  jogador a quem o dono deu o cargo (fica salvo em DATA_DIR/graal-admins.json, preso à identidade do navegador dele).
- *           Pode: avisar todos, expulsar, silenciar, teleportar, curar, dar gralats/níveis, renascer monstros.
+ *           Pode: avisar todos, expulsar, silenciar, teleportar, curar, dar Glims/níveis, renascer monstros.
  *    Toda permissão é checada AQUI no servidor; o cliente só mostra o painel.
  */
 const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
@@ -106,7 +106,7 @@ const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c =>
 /* ---------------- contas (login com Discord, OAuth2) ----------------
  *  Variáveis: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, SESSION_SECRET (texto longo e aleatório), PUBLIC_URL (opcional, ex.: https://graalbomba.onrender.com)
  *  Redirect no portal do Discord: <PUBLIC_URL>/auth/discord/callback
- *  A conta guarda uma cópia das chaves de progresso do navegador (nível, gralats, skin, equipamentos...) em DATA_DIR/graal-accounts.json.
+ *  A conta guarda uma cópia das chaves de progresso do navegador (nível, Glims, skin, equipamentos...) em DATA_DIR/graal-accounts.json.
  *  Sem as variáveis, o login fica desligado e o jogo funciona como antes (visitante). */
 const DC_ID = process.env.DISCORD_CLIENT_ID || '', DC_SECRET = process.env.DISCORD_CLIENT_SECRET || '', SES_SECRET = process.env.SESSION_SECRET || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
@@ -454,7 +454,7 @@ function electHost() {
   HOST = h; const nw = P.get(h); if (nw) sendTo(nw.ws, { t: 'host', v: 1 });
 }
 setInterval(electHost, 1000);
-/* itens no chão (gralats): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
+/* itens no chão (Glims): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
 const DROPS = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, a] of DROPS) if (a[5] && a[5] < n) DROPS.delete(k) }, 5000); // corações/bombas/flechas somem em 20s
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
@@ -555,7 +555,7 @@ wss.on('connection', (ws, req) => {
       if (!tg) return note('Jogador não encontrado.');
       if (c === 'tp') { if (tg === p) return; sendTo(ws, { t: 'cmd', c: 'tp', x: tg.x, y: tg.y }); return }
       if (c === 'heal') { sendTo(tg.ws, { t: 'cmd', c: 'heal' }); note('Curou ' + nameOf(tg)); return }
-      if (c === 'gl') { sendTo(tg.ws, { t: 'cmd', c: 'gl', v: num(m.v, 1, 100000) | 0 }); note('Gralats enviados para ' + nameOf(tg)); return }
+      if (c === 'gl') { sendTo(tg.ws, { t: 'cmd', c: 'gl', v: num(m.v, 1, 100000) | 0 }); note('Glims enviados para ' + nameOf(tg)); return }
       if (c === 'lvl') { sendTo(tg.ws, { t: 'cmd', c: 'lvl', v: num(m.v, 1, 50) | 0 }); note('Níveis enviados para ' + nameOf(tg)); return }
       if (c === 'mobs') { sendTo(tg.ws, { t: 'cmd', c: 'mobs' }); note('Monstros de ' + nameOf(tg) + ' renasceram'); return }
       if (c === 'op') {
@@ -617,7 +617,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'dr') { // item solto no chão
       const now = Date.now(); if (now - (p.drW || 0) > 1000) { p.drW = now; p.drN = 0 } if (++p.drN > 40) return;
       if (typeof m.id !== 'string' || !/^\d{1,9}-\d{1,9}$/.test(m.id) || DROPS.has(m.id)) return;
-      const x = Math.round(num(m.x, -1e6, 1e6)), y = Math.round(num(m.y, -1e6, 1e6)), v = num(m.v, 0, 999) | 0, pop = m.pop ? 1 : 0;
+      const x = Math.round(num(m.x, -1e6, 1e6)), y = Math.round(num(m.y, -1e6, 1e6)), v = num(m.v, 0, 5000) | 0, pop = m.pop ? 1 : 0;
       const k = /^[hba]$/.test(m.k) ? m.k : 0; DROPS.set(m.id, [m.id, x, y, v, k, k ? now + 20000 : 0]);
       if (DROPS.size > 300) { const k = DROPS.keys().next().value; DROPS.delete(k); wss.clients.forEach(c => sendTo(c, { t: 'dp', id: k })) }
       others(id, { t: 'dr', id: m.id, x, y, v, pop, k }); return;
