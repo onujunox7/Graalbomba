@@ -278,7 +278,7 @@ const srv = http.createServer((req, res) => {
   }
 
   /* arquivos do PWA/APK (manifest, service worker, ícones e o assetlinks.json do Android) */
-  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url))) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url))) {
     const f = path.join(__dirname, 'public', url);
     const ct = url.endsWith('.png') ? 'image/png' : url.endsWith('.js') ? 'application/javascript; charset=utf-8' : url.endsWith('.json') ? 'application/json' : 'application/manifest+json; charset=utf-8';
     return fs.readFile(f, (e, d) => {
@@ -368,6 +368,7 @@ wss.on('connection', (ws, req) => {
   for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
     if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
     if (o.e) sendTo(ws, { t: 'q', id: o.id, e: o.e });
+    if (o.pi) sendTo(ws, Object.assign({ t: 'pi', id: o.id }, o.pi));
   }
 
   const hiT = setTimeout(() => { if (!p.uh && ws.readyState === 1) { sendTo(ws, { t: 'kick', r: 'Recarregue a página (F5) para entrar no jogo.' }); setTimeout(() => ws.close(), 100) } }, 8000);
@@ -530,10 +531,29 @@ wss.on('connection', (ws, req) => {
       const now = Date.now(); if (now - (p.mpW || 0) > 1000) { p.mpW = now; p.mpN = 0 } if (++p.mpN > 120) return;
       const v = P.get(m.pid | 0); if (v && v !== p) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20) }); return;
     }
+    if (m.t === 'pi') { // perfil público: título, status, contadores e opção de sparring (muda de vez em quando)
+      if (d.length > 600) return;
+      const now = Date.now(); if (now - (p.piT || 0) < 700) return; p.piT = now;
+      const tx = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n);
+      const n = v => Math.max(0, Math.min(1e9, +v || 0)) | 0;
+      p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, pt: n(m.pt) };
+      others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
+    }
+    if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
+      const now = Date.now(); if (now - (p.phW || 0) > 1000) { p.phW = now; p.phN = 0 } if (++p.phN > 8) return;
+      const q = P.get(m.to | 0); if (!q || q === p || !p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
+      if (Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
+      q.phFrom = id; q.phT = now; sendTo(q.ws, { t: 'ph', from: id, d: num(m.d, 0, 2000) }); return;
+    }
+    if (m.t === 'pk') { // a vítima do sparring avisa quem a derrubou (só vale se levou golpe dele há pouco)
+      const k = P.get(m.by | 0), now = Date.now(); if (!k || k === p || p.phFrom !== k.id || now - (p.phT || 0) > 15000) return;
+      p.phFrom = 0; sendTo(k.ws, { t: 'pk', id, nm: p.nm }); return;
+    }
     if (m.t === 'u') {
       if (d.length > 400) return;
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
+      if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
       p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1;
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
@@ -564,7 +584,7 @@ function normAn(a) {
 }
 
 setInterval(() => {
-  const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role, tp: p.ty | 0 }));
+  const a = [...P.values()].filter(p => p.ok).map(p => ({ id: p.id, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl }));
   if (!a.length) return;
   const msg = JSON.stringify({ t: 'st', p: a });
   wss.clients.forEach(c => sendTo(c, msg));
