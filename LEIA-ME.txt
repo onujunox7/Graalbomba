@@ -1,0 +1,1 @@
+Coloque aqui o pixi.min.js (v7.4.x) para rodar sem CDN: https://cdn.jsdelivr.net/npm/pixi.js@7.4.2/dist/pixi.min.js
