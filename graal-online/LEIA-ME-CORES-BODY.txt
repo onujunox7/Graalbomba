@@ -1,0 +1,30 @@
+GRAALBOMBA v26.39 — MARCAÇÃO DE CORES DA BODY
+
+Por que algumas cores não mudavam:
+As versões antigas só reconheciam RGBs reservados; PNG indexado no GIMP
+não indica automaticamente que cada índice representa casaco, manga ou cabelo.
+Usar proximidade de cor alterava cabelos e detalhes por engano.
+
+COMO FAZER (BODY QUE NÃO MUDA A ROUPA)
+1. Inicie o jogo e abra Personagem (tecla C).
+2. Escolha a Body; pode ser uma body já enviada.
+3. Clique em "Marcar cores da roupa".
+4. Em cada cor da imagem que pertence à roupa, escolha o slot correto:
+   Pele, Casaco, Mangas, Sapatos ou Cinto.
+   NÃO selecione cores do cabelo, da barba, do contorno ou dos acessórios.
+   Se a roupa tiver sombras, selecione também esses tons no mesmo slot.
+5. Clique em "Aplicar marcação ao corpo".
+6. Escolha as cores no painel normalmente. O resultado é salvo no navegador.
+
+Bodies padrão: ao aplicar, o jogo cria uma cópia personalizada, sem editar a original.
+Bodies personalizadas: aplica na própria body. Para refazer completamente,
+reenvie o PNG original.
+
+ATENÇÃO
+Se roupa e cabelo usam exatamente o MESMO RGB/índice de paleta na mesma
+imagem, não existe forma de distingui-los só pela cor. Nesse caso separe
+essas regiões no GIMP, criando cores diferentes, antes de enviar o PNG.
+A head (arquivo separado) não recebe a recoloração da body.
+
+Conferência feita: sintaxe JavaScript dos scripts do HTML e integridade ZIP.
+Teste visual do jogo no navegador não foi realizado.

@@ -211,3 +211,32 @@ Os botões − e + da barra do topo (ao lado do 🔍) agora diminuem/aumentam o 
 - **⏱ Punições** (aba nova): tempo padrão de **expulsão** (admin e dono) e de **ban** (só o dono), em minutos. Atalhos: 5 min, 30 min, 1 h, 1 dia, 7 dias, 30 dias. Ban 0 = permanente; expulsão 0 = pode voltar na hora. Fica salvo em `graal-admins.json` (`cfg`); a variável `KICK_MINUTES` continua sendo o padrão inicial da expulsão.
 - **Expulsar/Banir** agora perguntam o tempo na hora (já preenchido com o padrão). Aceita `30`, `2h`, `7d`. Bans com prazo vencem sozinhos; a aba ⭐ Cargos mostra "até quando" (ou "permanente"). Limite: 5 anos.
 - Comandos novos do protocolo (`t:'a'`): `hid` (`v`, `sp`), `ol`, `pun` (`kick`, `ban`) e `min` em `kick`/`ban`. Tudo é validado no servidor por cargo.
+
+## v26.31: a aparência do HUD agora vale também para os painéis (não só botões)
+- ⚙ Configurações → 🎨 Aparência → **Aparência do HUD**: a cor, o estilo (Gel 3D / Vidro / Plano) e a opacidade passam a pintar também o **card de vida** (nível, corações, MP, vigor), a **quest**, os **chips** (poções, abates, bombas, flechas, glims, rede, salvo) e o **chat** do HUD, além dos botões.
+- Novo interruptor **"Aplicar também nos painéis"** (`p` em `graal_btn_theme`, padrão ligado). Desligado, só os botões mudam, como antes.
+- Com o tema padrão (Nuvem + Gel 3D + 100%) nada muda: o visual original em nuvem é mantido. A mudança entra por `body.hc` (CSS no bloco v30, no fim do `index.html`).
+- Cores de texto (corações/HP, quest, glims, nome no chat) clareiam sozinhas em temas escuros e no vidro (`body.hc-dk`). O minimapa-sol continua seguindo as cores do período do dia.
+- Console: `hudBtnTheme({c:'#ff8fb8', p:1})`. Só o `public/index.html` mudou.
+
+## v26.32: HUD menos colorido + fonte pixel
+- **Novo visual padrão: Cinza + Plano + 92%.** Painéis (vida, quest, chips, chat) e botões ficam em grafite neutro; o botão de ataque é cinza-areia. O Nuvem azul continua nas Configurações como "Nuvem (clássico)".
+- Barras de MP/vigor, XP, quest, coração, ponto de conexão e tela de morte com cores apagadas (quase cinza). O minimapa ganhou `saturate(.45)`.
+- **Fonte do HUD: Pixelify Sans** (Google Fonts, junto do link que já existia; se não carregar, cai em Fredoka/Verdana). Vale para `#hud`, `#hudctl` e o chat do HUD. Nickname no mapa (canvas) continua em Lilita One.
+- **Migração única:** quem tinha um tema salvo no navegador passa pro novo padrão uma vez (flag `graal_hud_calm1`); depois a escolha da pessoa volta a valer. ↺ Restaurar aparência volta pro cinza.
+- Só o `public/index.html` mudou.
+
+## v26.33: barras combinando + texto do HUD todo branco
+- MP azul-aço, vigor verde-água, XP/quest azul-claro (só tons frios, combinam com o grafite).
+- Todo texto do HUD (HP, nível, glims, quest, chips, chat, nome no chat, tela de morte, botões) é branco com sombra escura, em qualquer tema. `apply()` força `--bc-ink`/`--hc-ink` brancos.
+
+## v26.34: botões quadrados
+Botões de ação, sistema, atalhos, setas e os do card de vida com cantos pouco arredondados (~20% do tamanho). Joystick continua redondo.
+
+## v26.35: interface limpa (padrão ligado)
+Só o `public/index.html` mudou (bloco `#hudclean` no fim). Liga/desliga em ⚙ Configurações → 🎨 Aparência → **🧼 Interface limpa** (`graal_clean`; console: `hudClean(0)` / `hudClean(1)`).
+- Minimapa menor, sem raios/halo do sol e sem a contagem "próximo período" (a hora continua).
+- Barra do topo (− 🔍 + 👾 📂) apagada; aparece inteira ao passar o mouse. No celular só ficam 🔍 e os de admin.
+- Chip de abates ☠ escondido; chips zerados (poção, bomba, flecha, glim) ficam apagados; rede vira só o pontinho (o texto fica no tooltip).
+- Quest em uma linha, sem a barra de progresso (o 0/5 já mostra).
+- Botões de ação, chat/config/mapa e direcional ficam semitransparentes e voltam a 100% ao tocar/passar o mouse.

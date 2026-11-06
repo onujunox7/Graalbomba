@@ -1,0 +1,15 @@
+Graalbomba — Montaria Azul (correção v26.39)
+
+Corrigida a leitura da spritesheet da montaria: 3 animações de 192px de altura,
+com células de 48x48 (frente/costas) e 96x48 (laterais).
+A montaria foi embutida no index.html como PNG em base64. Mesmo que a pasta assets
+não seja enviada corretamente ao Render, o sprite fica disponível.
+
+Tecla M ou botão Montar/Desmontar; personagem aparece deslocado para cima
+sobre as costas da montaria (sem substituir a cabeça).
+Aumento de velocidade de 25% enquanto montado e sincronização entre jogadores.
+
+Para publicar, atualize public/index.html e server.js no GitHub/Render.
+A pasta assets/bluechoco.png foi mantida, mas o desenho não depende dela.
+
+DIREITOS: verifique as condições de uso do GIF original antes de publicar.

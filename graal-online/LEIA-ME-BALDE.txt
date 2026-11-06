@@ -1,0 +1,21 @@
+GRAALBOMBA PIXI V26.39 — BALDE DE TINTA (BODY)
+
+COMO USAR
+1. Abra o jogo e entre em Personagem (C).
+2. Na secao "Balde de tinta — roupa", escolha a cor desejada.
+3. Clique em "Ativar balde". A previa muda para Parado/Frente para facilitar.
+4. Clique diretamente na parte da roupa exibida a esquerda.
+5. Se quiser pintar em todas as animacoes, mantenha marcada a opcao correspondente.
+6. Para pintar somente a regiao conectada do quadro clicado (32x32), desmarque essa opcao.
+7. Use "Desfazer" para reverter a ultima pincelada.
+
+DETALHES
+- So a imagem do corpo (body) e alterada: a imagem da cabeca (head) permanece intacta.
+- No modo todas animacoes, cada pixel com o MESMO RGB na body inteira sera substituido.
+  Se a body tiver cabelo ou acessorios com o MESMO RGB da roupa, eles tambem podem mudar.
+  Nessa situacao, desmarque todas animacoes para pintar apenas a area conectada clicada.
+- Sombras feitas de outros tons exigem cliques adicionais, para nao alterar cores sem querer.
+- A alteracao cria uma copia da body (sem sobrescrever as sprites originais do jogo).
+- Os corpos personalizados ficam armazenados neste navegador como antes.
+- O multiplayer recebe a body personalizada quando ela respeita o limite de tamanho.
+- A versao so modifica o arquivo public/index.html e acrescenta este guia.

@@ -391,7 +391,7 @@ const srv = http.createServer((req, res) => {
   }
 
   /* arquivos do PWA/APK (manifest, service worker, ícones e o assetlinks.json do Android) */
-  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url))) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url) || url === '/assets/bluechoco.png')) {
     const f = path.join(__dirname, 'public', url);
     const ct = url.endsWith('.png') ? 'image/png' : url.endsWith('.js') ? 'application/javascript; charset=utf-8' : url.endsWith('.json') ? 'application/json' : 'application/manifest+json; charset=utf-8';
     return fs.readFile(f, (e, d) => {
@@ -708,7 +708,7 @@ wss.on('connection', (ws, req) => {
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.mt = m.mt ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
@@ -740,7 +740,7 @@ function normAn(a) {
   return m[1] + '_' + (/^[0-3]$/.test(m[2]) ? AN_DIR[+m[2]] : m[2]);
 }
 
-const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl });
+const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt ? 1 : 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl });
 setInterval(() => {
   const a = [...P.values()].filter(p => p.ok && !p.hid).map(pstate);
   if (!a.length) return;
