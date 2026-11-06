@@ -6,14 +6,15 @@
  *    ADMIN_TOKEN  senha de quem pode salvar mudanças do editor no servidor (OBRIGATÓRIA em produção)
  *    DATA_DIR     pasta onde a config é gravada (padrão ./data). Em hospedagem, aponte p/ um disco persistente.
  *    PORT         porta (padrão 3000)
- *    KICK_MINUTES quanto tempo quem foi expulso fica sem conseguir voltar (padrão 5)
+ *    KICK_MINUTES tempo padrão de bloqueio de quem foi expulso (padrão 5). Pode ser mudado no painel 🛡 (aba ⏱ Punições) e na hora de expulsar/banir.
  *
  *  Spawns de monstros: o menu 👾 (tecla N) de admins/dono grava a lista em PostgreSQL (tabela graal_kv); todos os jogadores recebem a mesma lista ao entrar.
  *
  *  Cargos (painel 🛡 no jogo):
  *    DONO   quem abre o jogo com ?admin=ADMIN_TOKEN (o mesmo token do editor). Pode tudo, inclusive dar/tirar o cargo de admin e banir.
  *    ADMIN  jogador a quem o dono deu o cargo (fica salvo em DATA_DIR/graal-admins.json, preso à identidade do navegador dele).
- *           Pode: avisar todos, expulsar, silenciar, teleportar, curar, dar Glims/níveis, renascer monstros.
+ *           Pode: avisar todos, expulsar (com tempo), silenciar, teleportar, curar, dar Glims/níveis, renascer monstros,
+ *           ficar invisível/espectador, ver quem está online e mudar o tempo padrão de expulsão. Só o dono bane (com tempo ou permanente).
  *    Toda permissão é checada AQUI no servidor; o cliente só mostra o painel.
  */
 const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
@@ -46,10 +47,19 @@ let cfg = {};
 
 /* ---------------- cargos: admins e banidos (persistentes) ---------------- */
 const ADM_FILE = path.join(DATA_DIR, 'graal-admins.json');
-let AD = { admins: {}, bans: {}, owners: {} }; // owners: contas Discord que já provaram ser o dono (token) e voltam como dono em qualquer navegador
-try { const o = JSON.parse(fs.readFileSync(ADM_FILE, 'utf8')); if (o && typeof o === 'object') AD = { admins: o.admins || {}, bans: o.bans || {}, owners: o.owners || {} } } catch (e) { }
+let AD = { admins: {}, bans: {}, owners: {}, cfg: {} }; // owners: contas Discord que já provaram ser o dono (token) e voltam como dono em qualquer navegador
+try { const o = JSON.parse(fs.readFileSync(ADM_FILE, 'utf8')); if (o && typeof o === 'object') AD = { admins: o.admins || {}, bans: o.bans || {}, owners: o.owners || {}, cfg: o.cfg && typeof o.cfg === 'object' ? o.cfg : {} } } catch (e) { }
 function saveAD() { try { const t = ADM_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(AD)); fs.renameSync(t, ADM_FILE) } catch (e) { console.error('Falha ao gravar admins:', e.message) } }
-const KICK_MS = Math.max(0, +(process.env.KICK_MINUTES || 5)) * 60 * 1000, KICKED = new Map(); // uid -> até quando está bloqueado
+const KICKED = new Map(); // uid -> até quando está bloqueado
+/* tempos de punição (em MINUTOS), editáveis no painel e salvos em graal-admins.json: expulsão (admin e dono) e ban (só o dono). Ban 0 = permanente. */
+const KICK_DEF = Math.max(0, +(process.env.KICK_MINUTES || 5)), PUN_MAX = 60 * 24 * 365 * 5; // máx. 5 anos
+const cleanMin = (v, d) => { const n = Math.floor(+v); return Number.isFinite(n) ? Math.max(0, Math.min(PUN_MAX, n)) : d };
+const kickMin = () => cleanMin(AD.cfg.kickMin, KICK_DEF), banMin = () => cleanMin(AD.cfg.banMin, 0);
+const punCfg = () => ({ kickMin: kickMin(), banMin: banMin() });
+const fmtDur = ms => { const m = Math.max(1, Math.ceil(ms / 60000)); if (m < 60) return m + ' min'; const h = Math.floor(m / 60); if (h < 24) return h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''); const d = Math.floor(h / 24); return d + ' d' + (h % 24 ? ' ' + (h % 24) + ' h' : '') };
+/* ban ativo de uma identidade (apaga sozinho o que já venceu) */
+const banOf = uh => { const b = uh && AD.bans[uh]; if (!b) return null; if (b.until && b.until <= Date.now()) { delete AD.bans[uh]; saveAD(); return null } return b };
+const banMsg = b => 'Você está banido deste servidor' + (b.until ? '. Faltam ' + fmtDur(b.until - Date.now()) : '') + '.';
 const sha = s => crypto.createHash('sha256').update(String(s)).digest('hex').slice(0, 32);
 function ownerTokenOk(token, req) {
   if (!ADMIN) return isLoop(req); // sem ADMIN_TOKEN: só o localhost é dono
@@ -447,8 +457,9 @@ setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { tr
 /* anfitrião dos monstros: o jogador online mais antigo (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
 let HOST = 0;
 function electHost() {
-  const now = Date.now(); let h = 0;
-  for (const q of P.values()) if (q.ok && now - q.uT < 4000 && (!h || q.id < h)) h = q.id;
+  const now = Date.now(); let h = 0, hh = 0; // hh: melhor candidato entre os ocultos (invisível/espectador) — só vale se não houver ninguém visível
+  for (const q of P.values()) if (q.ok && now - q.uT < 4000) { if (q.hid) { if (!hh || q.id < hh) hh = q.id } else if (!h || q.id < h) h = q.id }
+  if (!h) h = hh;
   if (h === HOST) return;
   const old = P.get(HOST); if (old) sendTo(old.ws, { t: 'host', v: 0 });
   HOST = h; const nw = P.get(h); if (nw) sendTo(nw.ws, { t: 'host', v: 1 });
@@ -459,6 +470,22 @@ const DROPS = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, a] of DROPS) if (a[5] && a[5] < n) DROPS.delete(k) }, 5000); // corações/bombas/flechas somem em 20s
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
+/* invisibilidade / espectador (só admin e dono): o servidor simplesmente PARA de mostrar esse jogador aos outros (nem posição, nem skin, nem perfil).
+   Quem vê o personagem transparente é só o próprio admin, no cliente dele. Espectador = invisível + (no cliente) imortal, atravessa tudo e não ataca. */
+function setHidden(p, h, sp) {
+  const was = !!p.hid; p.hid = (h || sp) ? 1 : 0; p.spec = sp ? 1 : 0;
+  if (p.hid && !was) others(p.id, { t: 'l', id: p.id });          // some da tela de todo mundo
+  else if (!p.hid && was) {                                        // volta a aparecer: reenvia skin/equipamento/perfil/posição
+    const id = p.id;
+    if (p.bs || p.hs) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
+    if (p.c) others(id, { t: 'kc', id, c: p.c });
+    if (p.e) others(id, { t: 'q', id, e: p.e });
+    if (p.pi) others(id, Object.assign({ t: 'pi', id }, p.pi));
+    if (p.ok) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
+  }
+  electHost();
+}
+const onlineList = () => [...P.values()].filter(q => q.ok).sort((a, b) => a.id - b.id).map(q => ({ id: q.id, nm: String(q.nm || '?'), r: q.role | 0, lv: q.lv | 0, hid: q.hid ? 1 : 0, sp: q.spec ? 1 : 0, mu: q.muted ? 1 : 0, dc: q.acc && !GID_RE.test(q.acc) ? 1 : 0 }));
 
 wss.on('connection', (ws, req) => {
   const id = nid++; ws.pid = id; ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true });
@@ -471,7 +498,7 @@ wss.on('connection', (ws, req) => {
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
   if (DROPS.size) { const now = Date.now(); sendTo(ws, { t: 'dall', a: [...DROPS.values()].map(a => [a[0], a[1], a[2], a[3], a[4] || 0, a[5] ? Math.max(0, a[5] - now) : 0]) }) }
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
-  for (const o of P.values()) if (o.id !== id) { // quem entra agora já vê skin/equip de quem está online
+  for (const o of P.values()) if (o.id !== id && !o.hid) { // quem entra agora já vê skin/equip de quem está online (menos de quem está invisível)
     if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
     if (o.c) sendTo(ws, { t: 'kc', id: o.id, c: o.c });
     if (o.e) sendTo(ws, { t: 'q', id: o.id, e: o.e });
@@ -480,19 +507,19 @@ wss.on('connection', (ws, req) => {
 
   const hiT = setTimeout(() => { if (!p.uh && ws.readyState === 1) { sendTo(ws, { t: 'kick', r: 'Recarregue a página (F5) para entrar no jogo.' }); setTimeout(() => ws.close(), 100) } }, 8000);
   ws.on('close', () => clearTimeout(hiT));
-  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }); if (r >= 1) sendTo(ws, { t: 'adm', pfn: pfCount() }) };
+  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }); if (r >= 1) sendTo(ws, { t: 'adm', pfn: pfCount(), cfg: punCfg() }) };
   const note = x => sendTo(ws, { t: 'adm', note: x });
   const lists = () => sendTo(ws, { t: 'adm',
     admins: Object.entries(AD.admins).map(([k, v]) => ({ k, nm: v.nm })),
-    bans: Object.entries(AD.bans).map(([k, v]) => ({ k, nm: v.nm })) });
+    bans: Object.entries(AD.bans).filter(([k]) => banOf(k)).map(([k, v]) => ({ k, nm: v.nm, until: v.until || 0 })) });
 
   { // conectou com a sessão do Discord: a identidade (bans/admins) passa a ser a conta, e o progresso vem do servidor
     const sid = sessionOf(req);
     if (sid) {
       p.acc = sid; p.uh = sha('discord:' + sid);
-      const ku = KICKED.get(p.uh);
-      if (AD.bans[p.uh]) { sendTo(ws, { t: 'kick', r: 'Você está banido deste servidor.' }); setTimeout(() => ws.close(), 100) }
-      else if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + Math.ceil((ku - Date.now()) / 60000) + ' min.' }); setTimeout(() => ws.close(), 100) }
+      const ku = KICKED.get(p.uh), bn = banOf(p.uh);
+      if (bn) { sendTo(ws, { t: 'kick', r: banMsg(bn) }); setTimeout(() => ws.close(), 100) }
+      else if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + fmtDur(ku - Date.now()) + '.' }); setTimeout(() => ws.close(), 100) }
       else {
         KICKED.delete(p.uh);
         for (const o of P.values()) if (o !== p && o.acc === sid) { o.acc = null; sendTo(o.ws, { t: 'kick', r: 'Sua conta entrou em outro lugar.' }); setTimeout(() => o.ws.close(), 100) }
@@ -518,9 +545,9 @@ wss.on('connection', (ws, req) => {
       if (p.uh || typeof m.uid !== 'string' || !/^[a-f0-9]{32}$/.test(m.uid)) return;
       p.uh = sha(m.uid);
       for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
-      if (AD.bans[p.uh]) { sendTo(ws, { t: 'kick', r: 'Você está banido deste servidor.' }); setTimeout(() => ws.close(), 100); return }
+      const bn = banOf(p.uh); if (bn) { sendTo(ws, { t: 'kick', r: banMsg(bn) }); setTimeout(() => ws.close(), 100); return }
       const ku = KICKED.get(p.uh);
-      if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + Math.ceil((ku - Date.now()) / 60000) + ' min.' }); setTimeout(() => ws.close(), 100); return }
+      if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + fmtDur(ku - Date.now()) + '.' }); setTimeout(() => ws.close(), 100); return }
       KICKED.delete(p.uh);
       if (p.role < 2) setRole(AD.admins[p.uh] ? 1 : 0);
       return;
@@ -538,6 +565,14 @@ wss.on('connection', (ws, req) => {
       const can = o => o && o !== p && (owner ? o.role < 2 : o.role < 1); // admin só mexe em jogador comum; dono em todos menos nele mesmo
       const nameOf = o => String(o.nm || '?');
       if (c === 'say') { const x = String(m.x || '').trim().slice(0, 100); if (!x) return; const out = JSON.stringify({ t: 'c', id: 0, nm: '📢 Aviso', x }); wss.clients.forEach(k => sendTo(k, out)); return }
+      if (c === 'hid') { setHidden(p, !!m.v, !!m.sp); return } // invisível / espectador (some para os outros)
+      if (c === 'ol') { sendTo(ws, { t: 'adm', ol: onlineList() }); return } // quem está online (inclui os invisíveis)
+      if (c === 'pun') { // tempos padrão de expulsão (admin/dono) e de ban (só o dono), em minutos
+        let ch = 0;
+        if (m.kick !== undefined) { AD.cfg.kickMin = cleanMin(m.kick, kickMin()); ch = 1 }
+        if (m.ban !== undefined) { if (owner) { AD.cfg.banMin = cleanMin(m.ban, banMin()); ch = 1 } else note('Só o dono muda o tempo de ban.') }
+        if (ch) { saveAD(); pfAdmins({ t: 'adm', cfg: punCfg() }); note('⏱ Salvo: expulsão ' + (kickMin() ? fmtDur(kickMin() * 60000) : 'sem bloqueio') + ' · ban ' + (banMin() ? fmtDur(banMin() * 60000) : 'permanente')) }
+        return }
       if (c === 'list') { if (owner) lists(); return }
       if (c === 'pfl') { sendTo(ws, { t: 'adm', pfl: pfList(!!m.all), pfn: pfCount() }); return } // fila de fotos de perfil
       if (c === 'pfv') { // admin vê a foto ANTES de aprovar (vai pelo WebSocket, só para quem tem cargo)
@@ -550,7 +585,7 @@ wss.on('connection', (ws, req) => {
       if (c === 'deop') {
         const k = m.k || (tg && tg.uh);
         if (!owner || !k || !AD.admins[k]) return; delete AD.admins[k]; saveAD();
-        for (const o of P.values()) if (o.uh === k && o.role === 1) { o.role = 0; sendTo(o.ws, { t: 'role', r: 0 }) }
+        for (const o of P.values()) if (o.uh === k && o.role === 1) { o.role = 0; if (o.hid) setHidden(o, 0, 0); sendTo(o.ws, { t: 'role', r: 0 }) }
         lists(); note('Cargo de admin removido.'); return }
       if (!tg) return note('Jogador não encontrado.');
       if (c === 'tp') { if (tg === p) return; sendTo(ws, { t: 'cmd', c: 'tp', x: tg.x, y: tg.y }); return }
@@ -567,13 +602,17 @@ wss.on('connection', (ws, req) => {
       if (c === 'bringto') { sendTo(tg.ws, { t: 'cmd', c: 'tp', x: p.x, y: p.y }); return }
       if (c === 'mute') { tg.muted = tg.muted ? 0 : 1; note(nameOf(tg) + (tg.muted ? ' silenciado.' : ' pode falar de novo.')); return }
       if (c === 'kick') {
-        if (tg.uh && KICK_MS) KICKED.set(tg.uh, Date.now() + KICK_MS);
-        sendTo(tg.ws, { t: 'kick', r: 'Você foi expulso por um admin.' + (KICK_MS ? ' Só poderá voltar em ' + Math.max(1, Math.round(KICK_MS / 60000)) + ' min.' : '') });
-        setTimeout(() => tg.ws.close(), 100); note(nameOf(tg) + ' expulso.'); return }
+        const ms = (m.min !== undefined ? cleanMin(m.min, kickMin()) : kickMin()) * 60000; // m.min = minutos escolhidos na hora; sem ele vale o padrão do painel
+        if (tg.uh && ms) KICKED.set(tg.uh, Date.now() + ms);
+        sendTo(tg.ws, { t: 'kick', r: 'Você foi expulso por um admin.' + (ms ? ' Só poderá voltar em ' + fmtDur(ms) + '.' : '') });
+        setTimeout(() => tg.ws.close(), 100); note(nameOf(tg) + ' expulso' + (ms ? ' por ' + fmtDur(ms) : ' (pode voltar já)') + '.'); return }
       if (c === 'ban') {
         if (!owner) return;
         if (!tg.uh) return note('Sem identidade para banir (cliente desatualizado). Use Expulsar.');
-        AD.bans[tg.uh] = { nm: nameOf(tg), at: Date.now() }; saveAD(); sendTo(tg.ws, { t: 'kick', r: 'Você foi banido deste servidor.' }); setTimeout(() => tg.ws.close(), 100); note(nameOf(tg) + ' banido.'); return }
+        const mn = m.min !== undefined ? cleanMin(m.min, banMin()) : banMin(); // 0 = permanente
+        AD.bans[tg.uh] = { nm: nameOf(tg), at: Date.now(), until: mn ? Date.now() + mn * 60000 : 0 }; saveAD();
+        sendTo(tg.ws, { t: 'kick', r: 'Você foi banido deste servidor' + (mn ? ' por ' + fmtDur(mn * 60000) : '') + '.' }); setTimeout(() => tg.ws.close(), 100);
+        note(nameOf(tg) + ' banido' + (mn ? ' por ' + fmtDur(mn * 60000) : ' (permanente)') + '.'); return }
       return;
     }
     if (m.t === 'sps') { // edição dos spawns de monstros: só admin/dono; valida, grava no disco e avisa todo mundo
@@ -623,6 +662,7 @@ wss.on('connection', (ws, req) => {
       others(id, { t: 'dr', id: m.id, x, y, v, pop, k }); return;
     }
     if (m.t === 'bo' || m.t === 'ar') { // bomba colocada / flecha atirada: só efeito visual para os outros
+      if (p.hid) return; // invisível não deixa rastro
       const now = Date.now(); if (now - (p.evW || 0) > 1000) { p.evW = now; p.evN = 0 } if (++p.evN > 30) return;
       if (m.t === 'bo') others(id, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1) });
       else others(id, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
@@ -651,11 +691,11 @@ wss.on('connection', (ws, req) => {
       const tx = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n);
       const n = v => Math.max(0, Math.min(1e9, +v || 0)) | 0;
       p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, th: /^[a-z]{3,10}$/.test(m.th) ? m.th : 'preto', pt: n(m.pt) };
-      others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
+      if (!p.hid) others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
     }
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
       const now = Date.now(); if (now - (p.phW || 0) > 1000) { p.phW = now; p.phN = 0 } if (++p.phN > 8) return;
-      const q = P.get(m.to | 0); if (!q || q === p || !p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
+      const q = P.get(m.to | 0); if (!q || q === p || p.hid || q.hid || !p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
       if (Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
       q.phFrom = id; q.phT = now; sendTo(q.ws, { t: 'ph', from: id, d: num(m.d, 0, 2000) }); return;
     }
@@ -668,17 +708,17 @@ wss.on('connection', (ws, req) => {
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
-      others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
+      if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
     } else if (m.t === 'kc') {
       p.c = COLS(m.c);
-      others(id, { t: 'kc', id, c: p.c });
+      if (!p.hid) others(id, { t: 'kc', id, c: p.c });
     } else if (m.t === 'q') {
       if (!m.e || typeof m.e !== 'object' || d.length > 20000) return;
       p.e = { h: m.e.h, s: m.e.s, d: m.e.d };
-      others(id, { t: 'q', id, e: p.e });
+      if (!p.hid) others(id, { t: 'q', id, e: p.e });
     } else if (m.t === 'c') {
       const x = String(m.x || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100), now = Date.now();
       if (!x || p.muted || now - p.lastChat < 500) return; p.lastChat = now;
@@ -702,7 +742,7 @@ function normAn(a) {
 
 const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl });
 setInterval(() => {
-  const a = [...P.values()].filter(p => p.ok).map(pstate);
+  const a = [...P.values()].filter(p => p.ok && !p.hid).map(pstate);
   if (!a.length) return;
   const msg = JSON.stringify({ t: 'st', p: a });
   wss.clients.forEach(c => sendTo(c, msg));

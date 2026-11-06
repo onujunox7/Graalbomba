@@ -736,7 +736,7 @@ function bodyHit(e,x,y){
    const m=re+bodyR(o),dx=x-o.x;if(dx>m||dx<-m)continue;const dy=y-o.y;if(dy>m||dy<-m)continue;
    const d2=dx*dx+dy*dy;if(d2<m*m&&d2<(e.x-o.x)*(e.x-o.x)+(e.y-o.y)*(e.y-o.y))return true}
   return false}
-function move(e,dx,dy){if(e===P&&window.ADMX&&ADMX.nc){e.x=Math.max(0,Math.min(WP,e.x+dx));e.y=Math.max(0,Math.min(HPX,e.y+dy));return} /* modo admin: atravessa tudo */
+function move(e,dx,dy){if(e===P&&window.ADMX&&(ADMX.nc||ADMX.spec)){e.x=Math.max(0,Math.min(WP,e.x+dx));e.y=Math.max(0,Math.min(HPX,e.y+dy));return} /* modo admin: atravessa tudo */
  const hb=e===P?(P.face!=='Up'&&!blocked(e.x,e.y,HB_PS)?HB_PS:HB_P):HB_E; /* de lado usa a caixa maior, menos se ela já estiver dentro de uma parede (evita 'pulo' ao virar) */
  if(blocked(e.x,e.y,hb)){for(let k=1;k<=10;k++)for(const[ox,oy]of[[k,0],[-k,0],[0,k],[0,-k]])if(!blocked(e.x+ox,e.y+oy,hb)){e.x+=ox;e.y+=oy;return}e.x+=dx;e.y+=dy;return}
  /* anda em passos de <=2.5px (não atravessa nada mesmo com FPS baixo). Se um eixo bate na parede, o outro anda só a sua parte (deslizar NUNCA fica mais rápido que andar livre) */
@@ -848,7 +848,7 @@ function updatePlayer(dt){
   if(atkPress){ /* um golpe por aperto: segurar o botão NÃO repete */
    if(lrBoth&&fdy)P.face='Right';else if(udBoth&&fdx<0)P.face='Down';else if((fdx||fdy)&&!(fdx&&fdy))faceTo(P,fdx,fdy);
    startAtk()}
-  else if(dx||dy){const l=Math.hypot(dx,dy);const gm=(window.ADMX&&ADMX.sp)?ADMX.v:1; /* antes: andava a 70% em cima de grama alta (mapa GR); agora velocidade normal em qualquer chão */const ox0=P.x,oy0=P.y;SLD=SPD*dt*gm;move(P,dx/l*SPD*dt*gm*(!an&&dx&&dy?DIAG:1),dy/l*SPD*dt*gm*(!an&&dx&&dy?DIAG:1));SLD=0;
+  else if(dx||dy){const l=Math.hypot(dx,dy);const gm=(window.ADMX&&(ADMX.sp||ADMX.spec))?ADMX.v:1; /* antes: andava a 70% em cima de grama alta (mapa GR); agora velocidade normal em qualquer chão */const ox0=P.x,oy0=P.y;SLD=SPD*dt*gm;move(P,dx/l*SPD*dt*gm*(!an&&dx&&dy?DIAG:1),dy/l*SPD*dt*gm*(!an&&dx&&dy?DIAG:1));SLD=0;
    if(lrBoth&&fdy)P.face='Right';
    else if(udBoth&&fdx<0)P.face='Down';
    else if(!(fdx&&fdy))faceTo(P,fdx,fdy);
@@ -885,7 +885,7 @@ function updateSk(s,dt){
 }
 function update(dt){
  T+=dt;autoSave(dt);skgBuild();updatePlayer(dt);SK.forEach(s=>updateSk(s,dt));
- drops=drops.filter(d=>{d.t+=dt;if(d.pop&&d.t<.45&&!solidAt(d.x+d.vx*dt,d.y))d.x+=d.vx*dt;if(!P.dead&&dist(d,P)<14){if(window.DRP)DRP.take(d);P.gl+=d.v;fx.push({x:P.x,y:P.y-18,txt:'+'+d.v+' Glims',t:1,c:GLC[glimIdx(d.v)]});return false}return true});
+ drops=drops.filter(d=>{d.t+=dt;if(d.pop&&d.t<.45&&!solidAt(d.x+d.vx*dt,d.y))d.x+=d.vx*dt;if(!P.dead&&!(window.ADMX&&ADMX.spec)&&dist(d,P)<14){if(window.DRP)DRP.take(d);P.gl+=d.v;fx.push({x:P.x,y:P.y-18,txt:'+'+d.v+' Glims',t:1,c:GLC[glimIdx(d.v)]});return false}return true});
  fx.forEach(f=>{f.t-=dt;f.y-=12*dt});fx=fx.filter(f=>f.t>0);
  const zC=(window.GZ>0)?window.GZ:1,vwC=Math.max(1,Math.round(VW/zC)),vhC=Math.max(1,Math.round(VH/zC));
  {const _b=D.W===GTW?[3*512,23*512,23*512,GTH*8]:[0,0,WP,HPX];const _tx=Math.max(_b[0],Math.min(Math.max(_b[0],_b[2]-vwC),P.x-vwC/2)),_ty=Math.max(_b[1],Math.min(Math.max(_b[1],_b[3]-vhC),P.y-vhC/2));
@@ -1005,7 +1005,7 @@ function draw(){
  const E=[...PTdraw(),...CH.filter(c=>{const _dx=c.x-cam.x,_dy=c.y-cam.y;return _dx>-40&&_dx<vw+40&&_dy>-12&&_dy<vh+48}).map(c=>({y:c.y,f:()=>{const x=Math.round(c.x-8-cam.x),y=Math.round(c.y-16-cam.y);if(c.open)g.globalAlpha=.55;g.drawImage(IM.ts,448,120,16,16,x,y,16,16);g.globalAlpha=1;if(!c.open&&dist(P,c)<28&&!shop){g.font='7px sans-serif';g.textAlign='center';g.fillStyle='#fff';g.fillText('[E] Abrir',x+8,y-3)}}})),{y:NPC.y,f:()=>{const x=Math.round(NPC.x-cam.x),y=Math.round(NPC.y-cam.y);shd(x,y+1,7,3);spr(tinted(IM.link,'hue-rotate(160deg)'),animFrame(D.link,'Idle_Down',T),NPC.x,NPC.y,1);g.font='7px sans-serif';g.textAlign='center';g.fillStyle='#ffd23a';g.fillText('Mercador',x,y-18);if(dist(P,NPC)<34&&!shop){g.fillStyle='#fff';g.fillText('[E] Loja',x,y-27)}}},...SK.filter(s=>!s.dead&&s.x>cam.x-48&&s.x<cam.x+vw+48&&s.y>cam.y-48&&s.y<cam.y+vh+72).map(s=>({y:s.y,f:()=>{if(s.k)return drawMon(s);const n=s.walk?'Walk_'+s.face:'Idle_'+s.face;const fr=animFrame(D.skel,n,s.anim);if(s.el)spr(tinted(IM.skel,'hue-rotate(150deg) saturate(2)'),fr,s.x,s.y,s.hurt>0&&Math.floor(s.hurt*20)%2?.4:1);
    monBar(s,Math.round(s.x-cam.x),Math.round(s.y-cam.y)-53);lvTag(s,Math.round(s.x-cam.x),Math.round(s.y-cam.y)-57)}})),
   {y:P.y,f:()=>{shd(Math.round(P.x-cam.x),Math.round(P.y-cam.y)+1,7,3);if(P.dead){g.globalAlpha=.5}const n=P.atk>0?'Attack_'+P.face:P.walk?'Run_'+P.face:'Idle_'+P.face;const t=P.atk>0?(P.atkLen-P.atk)*ATK_BASE/P.atkLen:P.anim;
-   spr(IM.link,animFrame(D.link,n,t),P.x,P.y,P.dead?.4:(P.hurt>0&&Math.floor(P.hurt*20)%2?.4:1));g.globalAlpha=1;
+   spr(IM.link,animFrame(D.link,n,t),P.x,P.y,P.dead?.4:(window.ADMX&&(ADMX.inv||ADMX.spec)?.35:(P.hurt>0&&Math.floor(P.hurt*20)%2?.4:1)));g.globalAlpha=1;
    {const _nx=Math.round(P.x-cam.x),_ny=Math.round(P.y-cam.y)+9,_nn=window.__NICK||'Onu';const _lb=(window.__ROLE>0?'★ ':'')+_nn;nameTag(_lb,_nx,_ny,window.__ROLE>0?'#ffd23a':'#fff')}}}];
  if(window.RPE){try{for(const e of window.RPE(vw,vh))E.push(e)}catch(_){}}
  if(window.BOE){try{for(const e of window.BOE())E.push(e)}catch(_){}}
@@ -1323,6 +1323,7 @@ function spreadMonsters(){
    SK.push(m.sk?mkSk(x,y,[[x-45,y-5],[x+45,y+5]],m.el,skLevel(tt,lr,m.el)):mkMon(m.k,x,y,monLevel(tt,lr)));placed++;break}}
  return placed}
 function hurtPlayer(r){
+ if(window.ADMX&&(ADMX.god||ADMX.spec))return; /* admin imortal / espectador */
  P.hp-=r;P.hurt=.3;dmgText(P,r,'#ff5a5a');
  if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}
 }
@@ -1727,7 +1728,7 @@ const DIR={Left:[-1,0],Right:[1,0],Up:[0,-1],Down:[0,1]};
 const zSave=()=>{try{localStorage.setItem(ZK,JSON.stringify(ZL))}catch(e){}};
 try{const o=JSON.parse(localStorage.getItem(ZK)||'null');if(o&&Number.isFinite(o.b)&&Number.isFinite(o.a)){ZL.b=o.b;ZL.a=o.a}}catch(e){}
 const say=(x,y,m,c)=>fx.push({x,y,txt:m,t:1.3,c});
-const hurtP=v=>{if(P.dead||P.inv>0)return;v=Math.ceil(hpBase(P)/6);P.hp-=v;P.hurt=.3;dmgText(P,v,'#ff5a5a');if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}};
+const hurtP=v=>{if(P.dead||P.inv>0||(window.ADMX&&(ADMX.god||ADMX.spec)))return;v=Math.ceil(hpBase(P)/6);P.hp-=v;P.hurt=.3;dmgText(P,v,'#ff5a5a');if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}};
 const hitSk=(s,m,kx,ky)=>{if(s.dead)return;let r=Math.round(calcDmg(P,P.dmg)*m)-calcDef(s,s.def||0);if(!(r>=3))r=3;s.hp-=r;s.hurt=.25;s.combat=1;const d=Math.max(1,Math.hypot(kx,ky));move(s,kx/d*10,ky/d*10);dmgText(s,r,'#ffb05a');if(s.hp<=0)killSk(s)};
 const sd=(px,py,a,b)=>{const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((px-a[0])*dx+(py-a[1])*dy)/(dx*dx+dy*dy||1)));return Math.hypot(px-a[0]-t*dx,py-a[1]-t*dy)};
 function setup(){
@@ -3360,21 +3361,35 @@ const iv2=setInterval(()=>{try{if(!WR.mundo.ready())return;clearInterval(iv2);
    O botão só aparece para quem o SERVIDOR reconheceu como dono ou admin. Quem manda é o servidor: mesmo que alguém abra este painel
    no console, os comandos são recusados lá. Dono = abriu o jogo com ?admin=TOKEN. Admin = jogador a quem o dono deu o cargo. */
 (()=>{
-let role=0,btnEl=null,pn=null,openP=0,tm=0,lists={admins:[],bans:[]},pfn=0,pfl=[],pfAll=0,pfView=null;
+let role=0,btnEl=null,pn=null,openP=0,tm=0,lists={admins:[],bans:[]},pfn=0,pfl=[],pfAll=0,pfView=null,ol=[],olAt=0,olReq=0,cfg={kickMin:5,banMin:0};
 const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let nt=0,tab='pl',flt='',flAdm=0,coinV=1,X=window.ADMX={nc:0,sp:0,v:4,dg:1};
+let nt=0,tab='pl',flt='',flAdm=0,coinV=1,X=window.ADMX={nc:0,sp:0,v:4,dg:1,inv:0,god:0,spec:0,fol:0,folNm:''};
 const send=o=>window.MPNET&&window.MPNET.send(o);
 const note=t=>{window.MPNET&&window.MPNET.note(t);const e=pn&&pn.querySelector('#adn');if(e){e.textContent=t;clearTimeout(nt);nt=setTimeout(()=>{e.textContent=''},6000)}};
 function showTab(t){tab=t;if(!pn)return;pn.querySelectorAll('.adtab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));pn.querySelectorAll('section[data-sec]').forEach(x=>{x.style.display=x.dataset.sec===t?'block':'none'})}
 function build(){if(pn)return;pn=document.createElement('div');pn.id='adm';pn.className='skp sk-card';
  pn.innerHTML='<div class="sk-hd" id="adh"><span id="adt">🛡 Painel</span><button class="sk-x" id="adx" title="Fechar (Esc)">✕</button></div><div id="adn"></div>'
-  +'<div class="adtabs"><button class="adtab" data-tab="say">📢 Aviso</button><button class="adtab" data-tab="pf">🖼 Fotos<i id="adpn" style="display:none"></i></button><button class="adtab" data-tab="pl">👥 Jogadores<i id="adpc" style="background:#3b86d0"></i></button><button class=\"adtab\" data-tab=\"tl\">🧰 Ferramentas</button><button class="adtab" data-tab="ow" id="adtow" style="display:none">⭐ Cargos</button></div>'
+  +'<div class="adtabs"><button class="adtab" data-tab="say">📢 Aviso</button><button class="adtab" data-tab="pf">🖼 Fotos<i id="adpn" style="display:none"></i></button><button class="adtab" data-tab="on">🌐 Online<i id="adoc" style="background:#3b86d0"></i></button><button class="adtab" data-tab="pl">👥 Jogadores<i id="adpc" style="background:#3b86d0"></i></button><button class=\"adtab\" data-tab=\"tl\">🧰 Ferramentas</button><button class=\"adtab\" data-tab=\"pn\">⏱ Punições</button><button class="adtab" data-tab="ow" id="adtow" style="display:none">⭐ Cargos</button></div>'
   +'<div class="adbody">'
   +'<section data-sec="say"><div class="sk-h4">📢 Aviso para todos os jogadores</div><div class="adsay"><input class="sk-in" id="adi" maxlength="100" placeholder="Escreva a mensagem..." autocomplete="off"><button class="sk-b pri" id="ads">Enviar</button></div><div class="adcnt" id="adc">0/100</div></section>'
   +'<section data-sec="pf"><div id="adpf"></div></section>'
+  +'<section data-sec="on"><div class="sk-h4" id="adoh">🌐 Online</div><div id="adol"></div></section>'
+  +'<section data-sec="pn"><div class="sk-h4">⏱ Tempo de punição (padrão)</div>'
+   +'<div class="adcnt" style="text-align:left;margin-bottom:10px">Valor usado quando você não digita outro. Ao clicar em 👢 Expulsar ou ⛔ Banir o painel ainda pergunta o tempo (já preenchido com este).</div>'
+   +'<div class="sk-h4" style="margin-top:6px">👢 Expulsão</div><div class="adsay"><input class="sk-in" id="adkm" type="number" min="0" max="2628000" step="1" style="max-width:130px"><span class="adcnt" style="align-self:center">minutos (0 = pode voltar na hora)</span></div>'
+   +'<div class="adact" data-f="adkm"><button class="sk-b sm" data-m="0">0</button><button class="sk-b sm" data-m="5">5 min</button><button class="sk-b sm" data-m="30">30 min</button><button class="sk-b sm" data-m="60">1 h</button><button class="sk-b sm" data-m="1440">1 dia</button><button class="sk-b sm" data-m="10080">7 dias</button></div>'
+   +'<div class="sk-h4" style="margin-top:18px">⛔ Ban <span id="adbo" style="text-transform:none;letter-spacing:0"></span></div><div class="adsay"><input class="sk-in" id="adbm" type="number" min="0" max="2628000" step="1" style="max-width:130px"><span class="adcnt" style="align-self:center">minutos (0 = permanente)</span></div>'
+   +'<div class="adact" data-f="adbm"><button class="sk-b sm" data-m="0">Permanente</button><button class="sk-b sm" data-m="60">1 h</button><button class="sk-b sm" data-m="1440">1 dia</button><button class="sk-b sm" data-m="10080">7 dias</button><button class="sk-b sm" data-m="43200">30 dias</button></div>'
+   +'<div class="adsay" style="margin-top:16px"><button class="sk-b pri" id="adpsv">💾 Salvar</button></div>'
+   +'<div class="adcnt" style="text-align:left;margin-top:8px">Fica salvo no servidor. Os banimentos com tempo vencem sozinhos (e aparecem na aba ⭐ Cargos, para o dono).</div></section>'
   +'<section data-sec=\"pl\"><input class=\"sk-in adq\" id=\"adq\" placeholder=\"🔍 Buscar jogador (nome ou #id)\" autocomplete=\"off\"><label class=\"sk-sw\"><input type=\"checkbox\" id=\"adfa\"><span></span>Mostrar só admins (para tirar o cargo)</label><div id=\"adp\"></div></section>'
   +'<section data-sec=\"tl\">'
-   +'<div class=\"sk-h4\">🚀 Movimento (só para você)</div>'
+   +'<div class="sk-h4">🕶 Modos de admin (só para você)</div>'
+   +'<label class="sk-sw"><input type="checkbox" id="adiv"><span></span>👻 Invisível para os outros (você se vê transparente)</label>'
+   +'<label class="sk-sw"><input type="checkbox" id="adgd"><span></span>🛡 Imortal (não leva dano e não morre)</label>'
+   +'<label class="sk-sw"><input type="checkbox" id="adsc"><span></span>👁 Espectador (invisível + imortal, voa atravessando tudo, não ataca nem pega itens)</label>'
+   +'<div id="adfw" class="adact" style="display:none;align-items:center;margin:-4px 0 14px"><span class="adcnt" style="margin:0">Seguir:</span><button class="sk-b sm" id="adfp">◀</button><b id="adfn" style="min-width:90px;text-align:center">livre</b><button class="sk-b sm" id="adfx">▶</button><button class="sk-b sm" id="adff">✖ Livre</button></div>'
+   +'<div class=\"sk-h4\" style=\"margin-top:22px\">🚀 Movimento (só para você)</div>'
    +'<label class="sk-sw"><input type="checkbox" id="addg" checked><span></span>Arrastar o personagem: segure nele e leve para qualquer lugar</label>'
    +'<label class=\"sk-sw\"><input type=\"checkbox\" id=\"adnc\"><span></span>Atravessar árvores, casas e paredes</label>'
    +'<label class=\"sk-sw\"><input type=\"checkbox\" id=\"adsp\"><span></span>Velocidade turbo</label>'
@@ -3404,6 +3419,10 @@ function build(){if(pn)return;pn=document.createElement('div');pn.id='adm';pn.cl
  pn.querySelector('#ads').onclick=go;inp.addEventListener('keydown',e=>{if(e.key==='Enter')go()});
  pn.querySelector('#adq').addEventListener('input',e=>{flt=e.target.value;pn.querySelector('#adp')._sig='';render()});
   pn.querySelector('#adfa').addEventListener('change',e=>{flAdm=e.target.checked?1:0;pn.querySelector('#adp')._sig='';render();e.target.blur()});
+  pn.querySelector('#adol').addEventListener('click',e=>{const b=e.target.closest('button[data-tp]');if(b)send({t:'a',c:'tp',id:+b.dataset.tp})});
+  pn.querySelector('section[data-sec="pn"]').addEventListener('click',e=>{const b=e.target.closest('button[data-m]');if(!b||b.disabled)return;const f=b.parentNode.dataset.f;if(f)pn.querySelector('#'+f).value=b.dataset.m});
+  pn.querySelector('#adpsv').onclick=()=>{const k=Math.floor(+pn.querySelector('#adkm').value),bn=Math.floor(+pn.querySelector('#adbm').value);
+   if(!(k>=0)||(role===2&&!(bn>=0)))return note('Tempo inválido.');send(Object.assign({t:'a',c:'pun',kick:k},role===2?{ban:bn}:{}))};
   toolsInit()}
 
 /* ---- ferramentas do admin (só afetam o seu próprio jogador) ---- */
@@ -3411,6 +3430,11 @@ const COINS=[[1,0],[5,1],[30,3],[100,2],[1000,4],[5000,5]]; /* valor, coluna no 
 function unstuck(){try{if(typeof blocked!=='function'||!P||!blocked(P.x,P.y,HB_P))return;for(let r=4;r<=480;r+=4)for(let a=0;a<16;a++){const x=P.x+Math.cos(a/16*6.2832)*r,y=P.y+Math.sin(a/16*6.2832)*r;if(x>0&&y>0&&x<WP&&y<HPX&&!blocked(x,y,HB_P)){P.x=x;P.y=y;return}}}catch(e){}}
 function toolsInit(){
  const $=i=>pn.querySelector(i),nc=$('#adnc'),sp=$('#adsp'),sv=$('#adsv'),sn=$('#adsn'),cn=$('#adcn'),qn=$('#adqn'),ct=$('#adct');
+ $('#adiv').onchange=e=>{X.inv=e.target.checked?1:0;syncHid();note(X.inv?'👻 Invisível: LIGADO (os outros não te veem)':'👻 Invisível: desligado');e.target.blur()};
+ $('#adgd').onchange=e=>{X.god=e.target.checked?1:0;note(X.god?'🛡 Imortal: LIGADO':'🛡 Imortal: desligado');e.target.blur()};
+ $('#adsc').onchange=e=>{X.spec=e.target.checked?1:0;if(!X.spec){X.fol=0;if(!X.nc)unstuck()}syncHid();folUi();note(X.spec?'👁 Espectador: LIGADO (voe com WASD/setas; ◀ ▶ para seguir alguém)':'👁 Espectador: desligado');e.target.blur()};
+ const cyc=d=>{const L=window.MPNET.players().sort((a,b)=>a.id-b.id);if(!L.length){note('👁 Não há outro jogador visível para seguir');return}let i=L.findIndex(q=>q.id===X.fol);i=i<0?(d>0?0:L.length-1):(i+d+L.length)%L.length;X.fol=L[i].id;X.folNm=L[i].nm;folUi()};
+ $('#adfp').onclick=e=>{cyc(-1);e.currentTarget.blur()};$('#adfx').onclick=e=>{cyc(1);e.currentTarget.blur()};$('#adff').onclick=e=>{X.fol=0;folUi();e.currentTarget.blur()}; /* blur: com o foco no painel as teclas do jogo não passam */
  $('#addg').onchange=e=>{X.dg=e.target.checked?1:0;note(X.dg?'🖐 Arrastar personagem: LIGADO':'🖐 Arrastar personagem: desligado');e.target.blur()};
  nc.onchange=()=>{X.nc=nc.checked?1:0;if(!X.nc)unstuck();note(X.nc?'👻 Atravessar tudo: LIGADO':'👻 Atravessar tudo: desligado');nc.blur()};
  sp.onchange=()=>{X.sp=sp.checked?1:0;note(X.sp?'⚡ Turbo: LIGADO ('+X.v+'x)':'⚡ Turbo: desligado');sp.blur()};
@@ -3423,7 +3447,12 @@ function toolsInit(){
  $('#adcd').onclick=()=>{if(typeof dpush!=='function'||!P)return;const n=Math.max(1,Math.min(30,Math.floor(+qn.value)||1));
   for(let i=0;i<n;i++){const a=i/n*6.2832+Math.random()*.3,r=26+(i%3)*9;dpush({x:P.x+Math.cos(a)*r,y:P.y+8+Math.sin(a)*r*.7,v:coinV,t:0,pop:1,vx:(Math.random()-.5)*20})}
   note('💰 '+n+' moeda(s) de '+coinV+' soltas ('+(n*coinV)+' Glims)')}}
-function toolsReset(){X.nc=0;X.sp=0;if(pn){const a=pn.querySelector('#adnc'),b=pn.querySelector('#adsp');if(a)a.checked=false;if(b)b.checked=false}}
+function toolsReset(){X.nc=0;X.sp=0;X.inv=0;X.god=0;X.spec=0;X.fol=0;if(pn){['#adnc','#adsp','#adiv','#adgd','#adsc'].forEach(i=>{const a=pn.querySelector(i);if(a)a.checked=false});folUi()}}
+const syncHid=()=>send({t:'a',c:'hid',v:(X.inv||X.spec)?1:0,sp:X.spec?1:0}); /* avisa o servidor (é ele que esconde você dos outros) */
+function folUi(){if(!pn)return;const w=pn.querySelector('#adfw'),n=pn.querySelector('#adfn');if(w)w.style.display=X.spec?'flex':'none';if(n)n.textContent=X.fol?'#'+X.fol+' '+(X.folNm||''):'livre'}
+/* quanto tempo: aceita 30, 30m, 2h, 7d (em minutos); cancelar = null */
+function askMin(t,d){const v=prompt(t+'\n(ex.: 30 · 2h · 7d)',d);if(v===null)return null;const q=/^\s*(\d+)\s*(m|min|h|d)?\s*$/i.exec(String(v));if(!q){note('Tempo inválido: use um número, ex. 30, 2h ou 7d.');return null}const u=(q[2]||'m').toLowerCase();return +q[1]*(u==='d'?1440:u==='h'?60:1)}
+const fmtMin=m=>!m?'0':m<60?m+' min':m<1440&&m%60===0?(m/60)+' h':m%1440===0?(m/1440)+' d':m+' min';
 function renderPf(){if(!pn)return;const b=pn.querySelector('#adpf');if(!b)return;
  const bd=pn.querySelector('#adpn');bd.textContent=pfn>0?pfn:'';bd.style.display=pfn>0?'':'none';
  const ST={pend:['⏳ Aguardando','pend'],ok:['✅ Aprovada','ok'],no:['❌ Recusada','no']};
@@ -3435,6 +3464,17 @@ function renderPf(){if(!pn)return;const b=pn.querySelector('#adpf');if(!b)return
    +(f.st!=='no'?'<button class="sk-b sm rd" data-c="pfno" data-k="'+k+'">'+(f.st==='ok'?'❌ Desaprovar':'❌ Recusar')+'</button>':'')+'</div>'
    +(v?(pfView.src?'<img class="adimg" alt="" src="'+pfView.src+'">':'<div class="adload">Carregando…</div>'):'')+'</div>'}).join(''):'<div class="ademp">✨ Nenhuma foto '+(pfAll?'':'aguardando ')+'por enquanto.</div>';
  b.innerHTML=h}
+function renderOl(){if(!pn)return;const b=pn.querySelector('#adol');if(!b)return;
+ const n=ol.length,hid=ol.filter(o=>o.hid).length,me=window.MPNET.myId();
+ pn.querySelector('#adoh').textContent='🌐 '+n+(n===1?' jogador online':' jogadores online')+(hid?' · '+hid+' oculto'+(hid>1?'s':''):'');
+ const bd=pn.querySelector('#adoc');if(bd)bd.textContent=n||'';
+ b.innerHTML=n?ol.map(o=>{const self=o.id===me,tags=['#'+o.id,o.lv?'nível '+o.lv:'',o.dc?'Discord':'visitante',self?'você':'',o.r===2?'dono':o.r===1?'admin':'',o.hid&&!o.sp?'👻 invisível':'',o.sp?'👁 espectador':'',o.mu?'🔇 silenciado':''].filter(Boolean);
+  return '<div class="adr'+(self?' me':'')+'"><div class="adrh"><span class="av'+(o.r===2?' own':o.r===1?' adm':'')+'" style="--h:'+(((+o.id||0)*47)%360)+'">'+ini(o.nm)+'</span><div class="adnm"><b class="'+(o.r?'st':'')+'">'+(o.r===2?'👑 ':o.r===1?'★ ':'')+esc(o.nm)+'</b><small>'+esc(tags.join(' · '))+'</small></div>'
+   +(self?'':'<button class="sk-b sm" data-tp="'+(+o.id)+'" title="Teleporta você até ele">➡ Ir até</button>')+'</div></div>'}).join(''):'<div class="ademp">Ninguém online ainda.</div>'}
+function renderPn(sync){if(!pn)return;const own=role===2,k=pn.querySelector('#adkm'),b=pn.querySelector('#adbm');
+ if(sync){if(k)k.value=cfg.kickMin;if(b)b.value=cfg.banMin} /* só quando o servidor mandou valores novos / ao abrir o painel */
+ if(b){b.disabled=!own;pn.querySelectorAll('[data-f="adbm"] button').forEach(x=>x.disabled=!own)}
+ const o=pn.querySelector('#adbo');if(o)o.textContent=own?'':'(só o dono muda)'}
 function pfBadge(){if(btnEl)btnEl.textContent=pfn>0?'🛡'+pfn:'🛡'}
 function num(msg,def){const v=prompt(msg,def);const n=Math.floor(+v);return n>0?n:0}
 function ini(n){return esc(([...String(n||'?')][0]||'?').toUpperCase())}
@@ -3451,13 +3491,15 @@ function row(p,self){const owner=role===2,d=document.createElement('div');d.clas
  B('💰 Glims',()=>{const n=num('Quantos Glims?',100);if(n)A('gl',{v:n})});
  B('⬆ Níveis',()=>{const n=num('Quantos níveis dar?',1);if(n)A('lvl',{v:n})});
  B('🔄 Monstros',()=>A('mobs'),'','Faz os monstros mortos dele renascerem');
- if(touch){B('🔇 Silenciar',()=>A('mute'));B('👢 Expulsar',()=>{if(confirm('Expulsar '+p.nm+'?'))A('kick')},'rd')}
+ if(touch){B('🔇 Silenciar',()=>A('mute'));B('👢 Expulsar',()=>{const n=askMin('Expulsar '+p.nm+' por quantos minutos?\n0 = só desconecta (pode voltar na hora).',cfg.kickMin);if(n!==null)A('kick',{min:n})},'rd')}
  if(owner&&!self){
   if(p.r===0)B('⭐ Dar admin',()=>{if(confirm('Dar cargo de ADMIN para '+p.nm+'?'))A('op')},'gd');
   if(p.r===1)B('⭐ Tirar admin',()=>A('deop'),'gd');
-  if(p.r<2)B('⛔ Banir',()=>{if(confirm('BANIR '+p.nm+'? Fica salvo no servidor.'))A('ban')},'rd')}
+  if(p.r<2)B('⛔ Banir',()=>{const n=askMin('BANIR '+p.nm+' por quantos minutos?\n0 = permanente. Fica salvo no servidor.',cfg.banMin);if(n!==null)A('ban',{min:n})},'rd')}
  return d}
 function render(){if(!openP||!pn)return;const own=role===2;
+ {const t=Date.now();if(t-olReq>1900){olReq=t;send({t:'a',c:'ol'})}} /* lista de online: pergunta ao servidor a cada ~2 s enquanto o painel está aberto */
+ renderPn();
  pn.querySelector('#adtow').style.display=own?'':'none';if(tab==='ow'&&!own)showTab('pl');
  const box=pn.querySelector('#adp'),me=window.MPNET.myId();
  const self={id:me,nm:(window.__NICK||'Você'),r:role},list=window.MPNET.players().sort((a,b)=>a.id-b.id);
@@ -3467,13 +3509,13 @@ function render(){if(!openP||!pn)return;const own=role===2;
  box.innerHTML='';if(ok(self))box.appendChild(row(self,1));const shown=list.filter(ok);shown.forEach(p=>box.appendChild(row(p,0)));
  if(!shown.length){const e=document.createElement('div');e.className='ademp';e.textContent=(q||flAdm)?'Nenhum jogador encontrado.':'Ninguém mais online.';box.appendChild(e)}
  const o=pn.querySelector('#ado');o.innerHTML='';
- if(own){const li=(a,c,lab,cls)=>'<div class="adr"><div class="adrh"><span class="av'+(c==='deop'?' adm':'')+'" style="--h:'+(String(a.nm).length*53%360)+'">'+ini(a.nm)+'</span><div class="adnm"><b class="'+(c==='deop'?'st':'')+'">'+esc(a.nm)+'</b></div><button class="sk-b sm '+cls+'" data-k="'+esc(a.k)+'" data-c="'+c+'">'+lab+'</button></div></div>';
+ if(own){const li=(a,c,lab,cls)=>'<div class="adr"><div class="adrh"><span class="av'+(c==='deop'?' adm':'')+'" style="--h:'+(String(a.nm).length*53%360)+'">'+ini(a.nm)+'</span><div class="adnm"><b class="'+(c==='deop'?'st':'')+'">'+esc(a.nm)+'</b>'+(c==='unban'?'<small>'+(a.until?'até '+esc(new Date(a.until).toLocaleString()):'permanente')+'</small>':'')+'</div><button class="sk-b sm '+cls+'" data-k="'+esc(a.k)+'" data-c="'+c+'">'+lab+'</button></div></div>';
   let h='<div class="sk-h4">⭐ Admins salvos</div>';
   h+=lists.admins.length?lists.admins.map(a=>li(a,'deop','Tirar cargo','gd')).join(''):'<div class="ademp">Nenhum admin salvo.</div>';
   h+='<div class="sk-h4" style="margin-top:12px">⛔ Banidos</div>';
   h+=lists.bans.length?lists.bans.map(a=>li(a,'unban','Desbanir','')).join(''):'<div class="ademp">Nenhum banido.</div>';
   o.innerHTML=h;o.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>send({t:'a',c:b.dataset.c,k:b.dataset.k}))}}
-function openPanel(){build();openP=1;showTab(pfn>0?'pf':tab);send({t:'a',c:'pfl',all:pfAll});renderPf();pn.style.display='flex';pn.querySelector('#adt').textContent=role===2?'👑 Painel do Dono':'★ Painel de Admin';pn.querySelector('#adp')._sig='';
+function openPanel(){build();openP=1;olReq=0;renderOl();renderPn(1);folUi();showTab(pfn>0?'pf':tab);send({t:'a',c:'pfl',all:pfAll});renderPf();pn.style.display='flex';pn.querySelector('#adt').textContent=role===2?'👑 Painel do Dono':'★ Painel de Admin';pn.querySelector('#adp')._sig='';
  if(role===2)send({t:'a',c:'list'});render();clearInterval(tm);tm=setInterval(render,700)}
 function close(){openP=0;if(pn)pn.style.display='none';clearInterval(tm)}
 function setRole(r){role=r;window.__ROLE=r;
@@ -3483,10 +3525,12 @@ function setRole(r){role=r;window.__ROLE=r;
  else if(openP)openPanel()}
 /* comandos que o servidor mandou para ESTE jogador (só chegam se um admin autorizado pediu) */
 window.ADM=function(m){try{
- if(m.t==='role'){const antes=role;setRole(m.r|0);if(m.r>antes)window.MPNET.note(m.r===2?'👑 Cargo: DONO — painel no botão 🛡':'★ Cargo: ADMIN — painel no botão 🛡');return}
+ if(m.t==='role'){const antes=role;setRole(m.r|0);if((m.r|0)>0&&(X.inv||X.spec))setTimeout(syncHid,600); /* reconectou: o servidor esqueceu que você estava invisível */if(m.r>antes)window.MPNET.note(m.r===2?'👑 Cargo: DONO — painel no botão 🛡':'★ Cargo: ADMIN — painel no botão 🛡');return}
  if(m.t==='pfimg'){if(pfView&&pfView.k===m.k&&/^image\/(jpeg|png|webp|gif)$/.test(m.mime)&&/^[A-Za-z0-9+\/=]+$/.test(m.d)){pfView.src='data:'+m.mime+';base64,'+m.d;renderPf()}return}
  if(m.t==='pfs'){if(window.PFS)window.PFS(m.st);return}
  if(m.t==='adm'){if(m.pfn!==undefined){const up=m.pfn>pfn,ch=m.pfn!==pfn;pfn=m.pfn;pfBadge();if(up&&role>0)window.MPNET.note('🖼 '+pfn+' foto(s) de perfil aguardando aprovação (painel 🛡)');if(ch&&openP)send({t:'a',c:'pfl',all:pfAll});renderPf()}
+  if(m.ol){ol=m.ol;olAt=Date.now();renderOl()}
+  if(m.cfg){cfg={kickMin:m.cfg.kickMin|0,banMin:m.cfg.banMin|0};renderPn(1)}
   if(m.pfl){pfl=m.pfl;if(pfView&&!pfl.some(x=>x.k===pfView.k))pfView=null;renderPf()}
   if(m.admins){lists={admins:m.admins,bans:m.bans||[]};if(pn)pn.querySelector('#adp')._sig=''}if(m.note)note(m.note);render();return}
  if(m.t==='kick'){ /* expulso/banido: o jogo congela de vez (o loop para) e a tela fica bloqueada; não há botão para continuar */
@@ -3502,6 +3546,19 @@ window.ADM=function(m){try{
  else if(m.c==='lvl'&&m.v>0){P.exp+=100*(m.v|0);levelCheck();window.MPNET.note('⬆ +'+(m.v|0)+' níveis (admin)');saveGame()}
  else if(m.c==='mobs'){SK.forEach(s=>{if(s.dead){s.dead=0;s.hp=s.hpM;s.x=s.sx;s.y=s.sy;s.combat=0}});window.MPNET.note('🔄 Monstros renasceram')}
 }catch(e){console.error('adm',e)}};
+
+/* ---- modos do admin: imortal, espectador e seguir jogador (roda antes de cada update do jogo) ---- */
+{const _u=update;update=function(dt){
+ try{if(typeof P!=='undefined'&&P&&role>0){
+  if(X.god||X.spec){if(P.dead){P.dead=0;P.rt=0}P.hp=P.hpM;P.hurt=0;P.inv=Math.max(P.inv||0,5)} /* inv>0 = os monstros/sparring/fogo ignoram o jogador */
+  if(X.spec){atkPress=0;keys['e']=0;keys['b']=0;keys['f']=0; /* espectador: não ataca, não abre baú/loja, não usa bomba/arco */
+   if(X.fol){const r=window.RPX&&window.RPX.get(X.fol),JV=window.JOYV,
+     mv=keys['w']||keys['a']||keys['s']||keys['d']||keys['arrowup']||keys['arrowdown']||keys['arrowleft']||keys['arrowright']||(JV&&JV.on);
+    if(!r){X.fol=0;folUi();note('👁 O jogador que você seguia saiu')}
+    else if(mv){X.fol=0;folUi()} /* mexeu nas teclas: solta a câmera */
+    else{P.x=r.x;P.y=r.y;P.walk=0;window.__CAMSNAP=1}}}
+ }}catch(e){}
+ _u(dt)}}
 
 /* ---- arrastar o próprio personagem com o mouse/dedo (atravessa tudo; ao soltar ele fica onde está) ----
    Segure em cima do personagem e mova o ponteiro: ele vai atrás, rápido (quanto mais longe do ponteiro, mais rápido).
