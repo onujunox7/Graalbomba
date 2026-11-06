@@ -114,9 +114,30 @@
       }
       this.build(this.root, this.rootL);
       this.r.render(this.root);
+      if (window.__BLOOM > 0) this.bloom();
       this.lastSig = this.noSkip ? null : sig; this.texDirty = false;
       for (const t of this.grave) { try { t.destroy(true) } catch (e) { } } this.grave.length = 0;
       if (_t) window.__PROF.pp(performance.now() - _t, this.si + this.gi);
+    }
+    /* v26.17 bloom: cena em 1/4 de resolução -> passa só as partes claras -> desfoque -> soma (ADD) por cima. Se der erro, desliga sozinho. */
+    bloom() {
+      try {
+        const lv = window.__BLOOM | 0, w = this.rw, h = this.rh, bw = Math.max(16, w >> 2), bh = Math.max(16, h >> 2);
+        let B = this.bl;
+        if (!B || B.w !== bw || B.h !== bh) {
+          if (B) { try { B.r1.destroy(true); B.r2.destroy(true) } catch (e) { } }
+          const r1 = PIXI.RenderTexture.create({ width: bw, height: bh }), r2 = PIXI.RenderTexture.create({ width: bw, height: bh });
+          const s1 = new PIXI.Sprite(r1), cm = new PIXI.ColorMatrixFilter(), bf = new PIXI.BlurFilter(3, 2);
+          cm.matrix = [3, 0, 0, 0, -2, 0, 3, 0, 0, -2, 0, 0, 3, 0, -2, 0, 0, 0, 1, 0];
+          s1.filters = [cm, bf];
+          const s2 = new PIXI.Sprite(r2); s2.scale.set(w / bw, h / bh); s2.blendMode = PIXI.BLEND_MODES.ADD;
+          B = this.bl = { w: bw, h: bh, r1, r2, s1, s2, bf, mx: new PIXI.Matrix(bw / w, 0, 0, bh / h, 0, 0) };
+        }
+        B.bf.blur = lv >= 2 ? 6 : 3; B.s2.alpha = lv >= 2 ? 0.8 : 0.4;
+        this.r.render(this.root, { renderTexture: B.r1, clear: true, transform: B.mx });
+        this.r.render(B.s1, { renderTexture: B.r2, clear: true });
+        this.r.render(B.s2, { clear: false });
+      } catch (e) { console.warn('[Pixi] bloom desligado:', e); window.__BLOOM = 0 }
     }
     build(c, list) {
       c.removeChildren();

@@ -181,3 +181,18 @@ Os botões − e + da barra do topo (ao lado do 🔍) agora diminuem/aumentam o 
 ### v26.15d: celular sem pixelar com zoom < 100%
 - **Causa:** no celular o RS era limitado a 2 (e 1 no modo de qualidade baixa, ainda com `image-rendering:pixelated`). Numa tela de ~2500 px com zoom 70% o canvas ficava com ~870 px e era esticado ~3x.
 - **Agora:** o limite é um orçamento de pixels do canvas (celular ~3 MP, PC ~9 MP, qualidade baixa ~1,3 MP) e RS continua `k/zoom` com `k` inteiro. Ex. (844×390 @3x): zoom 70% = canvas 1780 px (antes ~870), zoom 50/100/150% = 2492 px. O modo de qualidade baixa agora usa suavização do navegador, sem `pixelated`. Se algum celular fraco engasgar, baixe o `3e6` em `fit()`.
+
+## v26.16: player e tileset mais bonitos (junto de "Gráficos melhorados")
+- **Player:** o quadro composto do personagem (`gCompose`) agora ganha uma versão com Scale2x/EPX (`gEpx`, feita uma vez por quadro e guardada no `CPOOL`) e é desenhada com 2x de detalhe e suavização em `gBlit`: diagonais e cantos mais lisos, sem borrar. Vale para você e para os outros jogadores (e para o preview do perfil).
+- **Tileset:** o atlas `IM.gt` passa uma vez por `saturate(1.14) contrast(1.07) brightness(1.015)` (`gtSrc()`, usado em `WCanvas.build/fillRect`). Navegador sem `ctx.filter` usa o atlas original. Para o tileset mudar depois de ligar/desligar a opção, recarregue a página (os chunks do mapa já montados ficam como estavam). Ajuste os números em `gtSrc()`.
+- Desligar "Gráficos melhorados" volta ao desenho antigo do player (e, após recarregar, do tileset).
+
+## v26.17: Configurações > Aparência > "Qualidade de imagem"
+- **Filtragem de texturas:** *Misto (padrão)* = mapa nítido + personagem suavizado (Scale2x); *Nearest* = tudo em pixels nítidos, sem suavização; *Linear* = mapa e personagem interpolados (mais macio). Chave `graal_tf`; lida em `window.__TF` a cada quadro (muda na hora). Linear só suaviza o mapa (chunks) e o personagem; sprites de atlas continuam nearest para não "sangrar" a borda do vizinho.
+- **Bloom:** Desativado / Baixo / Alto (`graal_bloom`, `window.__BLOOM`). No Pixi: `PixiCtx.bloom()` renderiza a cena em 1/4 de resolução, deixa passar só as partes claras (matriz de cor 3x-2), desfoca (`BlurFilter`) e soma (ADD) por cima; se der erro ele se desliga sozinho e avisa no console. Sem Pixi (Canvas2D): mesma ideia com `ctx.filter` + `lighter` (precisa de navegador com `ctx.filter`). Ajuste o limiar na matriz (`-2`) e a força em `s2.alpha`.
+- **Filtragem anisotrópica:** só informativa ("Controlada pelo jogo"). O jogo é 2D e não usa mipmaps, então não há o que ajustar.
+
+## v26.18: ciclo de dia, tarde e noite
+- Script próprio perto do fim do `index.html` (`window.DN`): por cima do mapa vai uma cor que muda ao longo do dia (noite azul-escura → amanhecer rosado → dia sem filtro → tarde laranja → entardecer arroxeado → noite). À noite fica um círculo de luz em volta do jogador (um gradiente radial de textura estável, então não pesa no Pixi). O HUD (DOM) não escurece; dentro de casas (`INT.loc/view==='i'`) e no editor de mapa o ciclo não aparece.
+- **Configurações > Aparência > Dia e noite:** Automático (ciclo do jogo; um dia dura `DN_DAY` = 24 min e é igual para todos pelo relógio, sem servidor), Hora real do aparelho, Sempre dia / tarde / noite, Desligado (`graal_dn`). Ao mudar de período no automático aparece um aviso rápido (🌇 Tarde). O texto no painel mostra o período atual.
+- Ajuste as cores/horas na tabela `KF` (`[t, r, g, b, alfa]`, t de 0 a 1) e a duração em `DN_DAY`. Console: `DN.mode='noite'`, `DN.phase()`.
