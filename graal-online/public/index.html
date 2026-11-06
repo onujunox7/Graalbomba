@@ -738,9 +738,9 @@ function buy(i){const it=ITEMS[i],t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c
 let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
 const CAMS={ok:0,w:0,z:1,k:16}; /* k: velocidade da câmera (maior = mais colada no jogador) */
 /* v26: amostra um buffer de snapshots [{t,x,y}] com atraso fixo → movimento contínuo mesmo com pacotes a 10/s */
-const INTERP_DELAY=130;
+let INTERP_DELAY=80;const MON_DELAY=130,SNAP={l:0,i:100}; /* INTERP_DELAY se adapta ao intervalo real dos pacotes de jogadores */
 function snapPush(o,x,y,now){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y});if(b.length>8)b.shift()}
-function snapSample(o,now){const b=o.nb;if(!b||!b.length)return false;const rt=now-INTERP_DELAY;
+function snapSample(o,now,dl){const b=o.nb;if(!b||!b.length)return false;const rt=now-(dl||INTERP_DELAY);
  if(b.length===1||rt<=b[0].t){o.x=b[0].x;o.y=b[0].y;return true}
  for(let i=b.length-1;i>0;i--){const a=b[i-1],c=b[i];if(rt>=a.t){if(rt<=c.t){const u=(rt-a.t)/Math.max(1,c.t-a.t);o.x=a.x+(c.x-a.x)*u;o.y=a.y+(c.y-a.y)*u}else{const l=b[b.length-1],pv=b[b.length-2],dtp=Math.max(1,l.t-pv.t),ex=Math.min(120,rt-l.t)/dtp;o.x=l.x+(l.x-pv.x)*ex*.5;o.y=l.y+(l.y-pv.y)*ex*.5}return true}}
  o.x=b[0].x;o.y=b[0].y;return true}
@@ -2125,7 +2125,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='bc'||m.t==='ball'){if(window.BSX)window.BSX.net(m);return}
   if(m.t==='host'||m.t==='ms'||m.t==='mh'||m.t==='mp'||m.t==='dr'||m.t==='dp'||m.t==='dall'||m.t==='bo'||m.t==='ar'){if(window.MSY)window.MSY.net(m);else(window.__MSQ=window.__MSQ||[]).push(m);return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
-  if(m.t!=='st')return;const seen=new Set();
+  if(m.t!=='st')return;const seen=new Set();{const _n=performance.now();if(SNAP.l){const iv=Math.min(250,_n-SNAP.l);SNAP.i+=(iv-SNAP.i)*.1;INTERP_DELAY=Math.max(55,Math.min(170,SNAP.i*1.25+10))}SNAP.l=_n}
   for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}snapPush(r,p.x,p.y,performance.now());
    r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl}
   for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
@@ -2143,7 +2143,7 @@ setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
- ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0}))}catch(e){}},100);
+ ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0}))}catch(e){}},50);
 /* desenho do personagem remoto com a mesma engine de skin */
 function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm[1])?+mm[1]:{Up:0,Left:1,Down:2,Right:3}[mm[1]],kn=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':'idle';
  const A=X.GANI[kn],fi=kn==='walk'?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};
@@ -3708,7 +3708,7 @@ updateSk=function(s,dt){
   if(t-(s.ls||0)<1500){ /* seguindo o anfitrião */
    if(s.dead)return;
    s.hurt=Math.max(0,(s.hurt||0)-dt);
-   if(s.nb&&s.nb.length)snapSample(s,t);else if(s.tx!==undefined){const k=1-Math.exp(-dt*14);s.x+=(s.tx-s.x)*k;s.y+=(s.ty-s.y)*k}
+   if(s.nb&&s.nb.length)snapSample(s,t,MON_DELAY);else if(s.tx!==undefined){const k=1-Math.exp(-dt*14);s.x+=(s.tx-s.x)*k;s.y+=(s.ty-s.y)*k}
    if(s.walk)s.anim+=dt;return}
   return _upd(s,dt)} /* anfitrião sumiu/sem dados: simula local */
  const o=nearest(s);if(!o)return _upd(s,dt); /* o alvo mais perto sou eu */

@@ -588,7 +588,7 @@ setInterval(() => {
   if (!a.length) return;
   const msg = JSON.stringify({ t: 'st', p: a });
   wss.clients.forEach(c => sendTo(c, msg));
-}, 100);
+}, 50);
 
 Promise.all([initAccountsDB(), initSpawnsDB()]).then(() => {
   srv.listen(PORT, () => {

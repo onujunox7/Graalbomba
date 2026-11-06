@@ -52,3 +52,7 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 - **Câmera suave.** `update()` segue o jogador com amortecimento exponencial `1-exp(-dt*k)` (`CAMS.k`, padrão 16), independente do FPS. Teletransporte, troca de mundo/interior, mudança de zoom ou salto > 160 px encaixam a câmera na hora. `window.__CAMSNAP=1` força o encaixe.
 - Movimento e animações já usavam `dt`. Para passar de 60 FPS em monitor de 144 Hz, use a configuração de FPS (Sem limite ou travar em 144).
 - Ajustes: `INTERP_DELAY` (mais baixo = menos atraso, mais tremida) e `CAMS.k` (maior = câmera mais colada).
+
+### v26.1: menos atraso nos jogadores remotos
+- Cliente envia posição a 20/s (antes 10/s) e o servidor repassa a 20/s (`setInterval` de 50 ms). **Precisa trocar o `server.js` também.**
+- `INTERP_DELAY` agora é adaptativo: ~1,25× o intervalo real entre pacotes (≈72 ms com servidor a 20/s; ≈135 ms se o servidor ainda estiver a 10/s). Antes era fixo em 130 ms.
