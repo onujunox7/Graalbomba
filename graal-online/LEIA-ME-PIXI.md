@@ -72,3 +72,12 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 ### v26.6: buffer de jitter adaptativo
 - O atraso da interpolação agora é `intervalo + 1,2 × pior atraso de chegada recente + 12 ms` (entre 65 e 220 ms), medido com o carimbo `ct`; muda no máximo ±2 ms por pacote. Quando faltava pacote na hora de desenhar, o remoto extrapolava devagar e depois "puxava", dando a sensação de lento/deslizando. Extrapolação agora a 75% da velocidade, até 100 ms.
 - Diagnóstico no console: `__ID()` (atraso atual, ms) e `__SNAP.u` (quantas vezes faltou pacote).
+
+### v26.7: câmera clássica por padrão
+- A câmera volta a ficar travada no jogador (como no Graal Classic). A câmera suave da v26 continua disponível: abra com `?cam=suave` ou rode `__CAM('suave')` no console (`__CAM('classica')` volta). A escolha fica salva no navegador.
+- Movimento do jogador (início/parada instantâneos, diagonal na velocidade cheia por eixo, deslizar na parede) já era assim e não foi alterado.
+
+### v26.8: fim do atraso alto (o `__ID()` marcava 220 ms)
+- **Bug:** o servidor mandava o estado de todos a cada 50 ms, repetindo o último dado conhecido quando não tinha pacote novo. O cliente tratava cada repetição como ponto novo (mesma posição, 1 ms depois), o que gerava paradas na interpolação e inflava a medida de jitter até o teto de 220 ms.
+- **Cliente:** pacotes repetidos/antigos (mesmo `ct`) são ignorados; o jitter e o intervalo são medidos por jogador, só com pacotes novos; atraso = intervalo + pior atraso recente + 10 ms (65 a 220 ms).
+- **Servidor:** cada `u` recebido é repassado na hora aos outros (`pu`), sem esperar o próximo ciclo de 50 ms. O `st` completo continua, mas a cada 500 ms, só para sincronizar e limpar quem saiu. **Precisa trocar o `server.js`.**

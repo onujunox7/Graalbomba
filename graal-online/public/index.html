@@ -736,9 +736,11 @@ let NPC={x:0,y:0},shop=0,showMap=1,MM=null,CH=[],GR=null;
 const ITEMS=[{n:'Poção de vida (+30 HP)',c:()=>10,ok:()=>P.pot<9,f:()=>P.pot++},{n:'Afiar espada (+4 dano)',c:()=>30+20*P.up,ok:()=>P.up<5,f:()=>{P.up++;P.dmg+=4}},{n:'Curar tudo agora',c:()=>15,ok:()=>P.hp<P.hpM,f:()=>P.hp=P.hpM}];
 function buy(i){const it=ITEMS[i],t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c});if(!it.ok())return t('Indisponível','#ffb05a');if(P.gl<it.c())return t('Gralats insuficientes','#ff5a5a');P.gl-=it.c();it.f();saveGame();t('Comprado!','#5aff7a')}
 let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
-const CAMS={ok:0,w:0,z:1,k:16}; /* k: velocidade da câmera (maior = mais colada no jogador) */
+const CAMS={ok:0,w:0,z:1,k:16,classic:true}; /* classic: câmera travada no jogador, como no Graal Classic */
+try{const _q=new URLSearchParams(location.search).get('cam')||localStorage.getItem('graal_cam');if(_q==='suave')CAMS.classic=false}catch(e){}
+window.__CAM=function(m){if(m==='suave'||m==='classica'){CAMS.classic=m==='classica';window.__CAMSNAP=1;try{localStorage.setItem('graal_cam',m)}catch(e){}}return CAMS.classic?'classica':'suave'}; /* k: velocidade da câmera (maior = mais colada no jogador) */
 /* v26: amostra um buffer de snapshots [{t,x,y}] com atraso fixo → movimento contínuo mesmo com pacotes a 10/s */
-let INTERP_DELAY=80;const MON_DELAY=130,SNAP={l:0,i:100,j:0,u:0}; /* INTERP_DELAY se adapta ao intervalo real dos pacotes de jogadores */
+let INTERP_DELAY=80;const MON_DELAY=130,SNAP={l:0,i:50,j:0,u:0}; /* INTERP_DELAY se adapta ao intervalo real dos pacotes de jogadores */
 function snapPush(o,x,y,now,an,ak,ad){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y,an,ak,ad});if(b.length>8)b.shift()}
 window.__SNAP=SNAP;window.__ID=()=>INTERP_DELAY; /* diagnóstico: no console, __SNAP.u = vezes que faltou pacote (extrapolou), __ID() = atraso atual em ms */
 function snapAn(a,c){const i=v=>!v||/^Idle/.test(v),at=v=>/^Attack/.test(v||'');if(at(a.an)||at(c.an))return a.an; /* ataque só entra junto com o contador ak (um reinício só) */return !i(c.an)?c.an:!i(a.an)?a.an:c.an} /* animação coerente com o movimento mostrado: não anda parado nem desliza em Idle */
@@ -838,7 +840,7 @@ function update(dt){
  {const _b=D.W===GTW?[3*512,23*512,23*512,GTH*8]:[0,0,WP,HPX];const _tx=Math.max(_b[0],Math.min(Math.max(_b[0],_b[2]-vwC),P.x-vwC/2)),_ty=Math.max(_b[1],Math.min(Math.max(_b[1],_b[3]-vhC),P.y-vhC/2));
   /* v26: câmera suave. Segue o alvo com amortecimento exponencial (independe do FPS); teletransporte, troca de mundo/interior ou salto grande = encaixa na hora */
   const _dx=_tx-cam.x,_dy=_ty-cam.y;
-  if(!CAMS.ok||CAMS.w!==D.W||CAMS.z!==zC||Math.abs(_dx)>160||Math.abs(_dy)>160||window.__CAMSNAP){cam.x=_tx;cam.y=_ty;window.__CAMSNAP=0}
+  if(CAMS.classic||!CAMS.ok||CAMS.w!==D.W||CAMS.z!==zC||Math.abs(_dx)>160||Math.abs(_dy)>160||window.__CAMSNAP){cam.x=_tx;cam.y=_ty;window.__CAMSNAP=0}
   else{const k=1-Math.exp(-dt*CAMS.k);cam.x+=_dx*k;cam.y+=_dy*k;if(Math.abs(_tx-cam.x)<.05)cam.x=_tx;if(Math.abs(_ty-cam.y)<.05)cam.y=_ty}
   CAMS.ok=1;CAMS.w=D.W;CAMS.z=zC}
 }
@@ -2127,13 +2129,21 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='bc'||m.t==='ball'){if(window.BSX)window.BSX.net(m);return}
   if(m.t==='host'||m.t==='ms'||m.t==='mh'||m.t==='mp'||m.t==='dr'||m.t==='dp'||m.t==='dall'||m.t==='bo'||m.t==='ar'){if(window.MSY)window.MSY.net(m);else(window.__MSQ=window.__MSQ||[]).push(m);return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
-  if(m.t!=='st')return;const seen=new Set();{const _n=performance.now();if(SNAP.l){const iv=Math.min(250,_n-SNAP.l);SNAP.i+=(iv-SNAP.i)*.1}SNAP.l=_n}var _ml=0;
-  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}{const _a=performance.now();let _t=_a;if(typeof p.ct==='number'){const c=_a-p.ct;if(r.off===undefined||c<r.off)r.off=c;else r.off+=(c-r.off)*.01;if(c-r.off>_ml)_ml=c-r.off;_t=p.ct+r.off;const _l=r.nb&&r.nb[r.nb.length-1];if(_l&&_t<=_l.t)_t=_l.t+1} /* v26.3: tempo do remetente (sem o jitter da rede) */
-   snapPush(r,p.x,p.y,_t,p.an,p.ak,p.ad)}
+  if(m.t==='pu')m={t:'st',p:[m.p],part:1}; /* v26.8: atualização individual, repassada na hora pelo servidor */
+  if(m.t!=='st')return;const seen=new Set();
+  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}
+   if(typeof p.ct==='number'){
+    if(r.lct===undefined||p.ct>r.lct){ /* só pacote novo vira ponto (repetido/antigo é ignorado) */
+     const _a=performance.now(),c=_a-p.ct;
+     if(r.off===undefined||c<r.off)r.off=c;else r.off+=(c-r.off)*.005;
+     if(r.lct!==undefined){const iv=Math.min(250,p.ct-r.lct);SNAP.i+=(iv-SNAP.i)*.05;SNAP.j=Math.max(Math.max(0,c-r.off),SNAP.j*.995);
+      /* buffer de jitter: atraso = intervalo entre pacotes + pior atraso de chegada recente; muda devagar para não dar tranco */
+      const tg=Math.max(65,Math.min(220,SNAP.i+SNAP.j+10));INTERP_DELAY+=Math.max(-.5,Math.min(.5,tg-INTERP_DELAY))}
+     let _t=p.ct+r.off;const _l=r.nb&&r.nb[r.nb.length-1];if(_l&&_t<=_l.t)_t=_l.t+1;
+     r.lct=p.ct;snapPush(r,p.x,p.y,_t,p.an,p.ak,p.ad)}
+   }else{snapPush(r,p.x,p.y,performance.now(),p.an,p.ak,p.ad);INTERP_DELAY+=Math.max(-.5,Math.min(.5,150-INTERP_DELAY))} /* servidor antigo, sem ct */
    r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl}
-  /* v26.6: buffer de jitter adaptativo: atraso = intervalo + folga pelo pior atraso recente de chegada; muda devagar (±2 ms por pacote) para não dar tranco */
-  SNAP.j=Math.max(_ml,SNAP.j*.98);{const tg=Math.max(65,Math.min(220,SNAP.i+SNAP.j*1.2+12));INTERP_DELAY+=Math.max(-2,Math.min(2,tg-INTERP_DELAY))}
-  for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
+  if(!m.part)for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
 conn();
 addEventListener('pagehide',()=>{window.__KICKED=1;try{ws&&ws.close()}catch(e){}});
