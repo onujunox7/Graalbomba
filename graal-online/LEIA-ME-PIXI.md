@@ -136,3 +136,22 @@ O body usa 5 cores-chave (as mesmas dos 20 bodies e dos que você envia): pele `
 - Por baixo: `gTint()` troca só essas cores e guarda uma folha recolorida de 128px por body+paleta (cache de 48). O `gCompose`, o Pixi e os equipamentos não mudaram.
 - Multiplayer: as cores vão numa mensagem leve `kc` (o servidor valida 5 itens `#rrggbb`/null e repassa), sem reenviar as imagens de skin. Quem entra depois já recebe as cores de quem está online.
 - Pixels que não são cor-chave (ex.: o verde do body 12) não mudam.
+
+## v26.10: painéis Admin e Personagem no estilo "Céu & Nuvens"
+Só `public/index.html` mudou (CSS novo `#skui` + HTML/JS dos dois painéis). Todos os IDs e `data-a`/`data-k` foram mantidos, então a lógica, o servidor e o multiplayer são os mesmos.
+- **Painel admin (🛡):** cabeçalho azul arrastável (dá para empurrar o painel para o canto sem bloquear o jogo), abas **Aviso / Fotos / Jogadores / Cargos** (Cargos só para o dono; a aba Fotos abre sozinha quando há foto aguardando), contador vermelho de fotos pendentes, busca de jogador por nome ou #id, avatar com inicial, selo de dono/admin, status colorido (aguardando/aprovada/recusada), botões em pílula (verde = aprovar, vermelho = expulsar/banir, amarelo = cargo), contador de caracteres no aviso e mensagem de status que some sozinha em 6 s.
+- **Personagem e equipamento (C / V):** fundo desfocado (clicar fora ou Esc fecha), preview num gramado, layout em duas colunas (some para uma coluna no celular), seções em cartões (Aparência, Cores do corpo, Imagens próprias, Equipamento), cores como bolinhas, slider de tamanho estilizado, equipamento em linhas com ícone (🎩 ⚔️ 🛡️) e botões de enviar / baixar modelo / apagar. Telas baixas (celular deitado) ganham uma versão compacta.
+
+### v26.11: Configurações em retângulo grande, com abas e a sua foto de fundo
+- O painel ⚙ agora tem o formato do Perfil (980×660, cabeçalho, abas, cartões, mesmo tema de cores do Perfil) e clicar fora fecha. Abas: **🚀 Desempenho** (sem limite, travar FPS, VSync, contador), **🕹 Controles** (joystick e lista de teclas), **🎨 Aparência** (esconder nomes e fundo) e **⚡ Atalhos** (os botões que ficavam no menu, inclusive o 🛡 admin).
+- **Fundo:** usa a foto que você enviou no Perfil (a sua, não a dos outros). Em Aparência dá para desligar e ajustar o escurecimento (`graal_cfg_bg`, `graal_cfg_bgd`). Sem foto, usa só a cor do tema. Mudou a foto ou o tema no Perfil, o painel acompanha (evento `pfbg`; o Perfil expõe `window.__PFX`).
+- Celular deitado: versão compacta (cartões em 2 colunas, cabeçalho menor).
+
+## v26.11: painel de personagem com o fundo do Perfil
+O painel "Personagem e equipamento" (tecla C, ou botão de editar no Perfil) agora usa o mesmo tema de cores e a mesma foto de fundo do Perfil, com o mesmo escurecimento (o controle "Escurecer" do Perfil). Sem foto, usa só a cor do tema. Trocar o tema ou a foto no Perfil atualiza o painel na hora.
+
+## v26.12: zoom de pinça (celular)
+Com dois dedos na tela do jogo, afastar os dedos aproxima a câmera e juntar afasta (de 50% a 250%). O zoom é contínuo e fica salvo no aparelho. O botão 🔍 continua funcionando: ao tocar nele, volta aos níveis fixos. O gesto é ignorado no editor de mapa, e o toque que sobra depois da pinça não abre perfil de jogador por engano.
+
+## v26.13: botões embaixo do HUD de vida
+Chat 💬, Configurações ⚙, Minimapa 🗺 e Tela cheia ⛶ agora ficam numa fileira logo abaixo do card de vida (nível, corações, MP e vigor), no canto superior esquerdo, e acompanham o tamanho do HUD (A−/A+). Saíram do canto inferior direito e do menu de Configurações (o Zoom 🔍 e os outros continuam no menu).

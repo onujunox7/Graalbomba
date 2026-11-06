@@ -149,7 +149,7 @@ async function flushACC() {
 /* slow: mudança só de posição (acontece o tempo todo) -> grava no banco no máximo a cada ~12 s; qualquer outra mudança grava em 1 s */
 const saveACC = (id, slow) => { if (id) accDirty.add(String(id));
   if (accT && accSlow && !slow) { clearTimeout(accT); accT = null }
-  if (!accT) { accSlow = !!slow; accT = setTimeout(() => flushACC().catch(e => console.error(e)), slow ? 12000 : 1000) } };
+  if (!accT) { accSlow = !!slow; accT = setTimeout(() => flushACC().catch(e => console.error(e)), 1000) } };
 const sign = s => crypto.createHmac('sha256', SES_SECRET).update(s).digest('base64url');
 const mkSession = id => { const p = Buffer.from(JSON.stringify({ id, exp: Date.now() + SES_DAYS * 864e5 })).toString('base64url'); return p + '.' + sign(p) };
 const readCookie = (req, name) => { const c = (req.headers.cookie || '').split(/;\s*/).find(x => x.startsWith(name + '=')); try { return c ? decodeURIComponent(c.slice(name.length + 1)) : '' } catch (e) { return '' } };
@@ -602,7 +602,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'sv') { // salva o progresso na conta; se vier rápido demais guarda o último e grava logo depois (não descarta)
       if (!p.acc || ACTIVE_ACC.get(p.acc) !== p || !m.d || typeof m.d !== 'object') return;
       const now = Date.now();
-      if (now - p.svT < 2000) { p.svD = m.d; if (!p.svTm) p.svTm = setTimeout(() => { p.svTm = null; const d = p.svD; p.svD = null; applySv(p, d) }, 2050 - (now - p.svT)); return }
+      if (now - p.svT < 900) { p.svD = m.d; if (!p.svTm) p.svTm = setTimeout(() => { p.svTm = null; const d = p.svD; p.svD = null; applySv(p, d) }, 950 - (now - p.svT)); return }
       p.svD = null; applySv(p, m.d); return;
     }
     if (m.t === 'bc') { // arbusto cortado: valida, guarda e avisa os outros (quem cortou já mostrou na própria tela)
