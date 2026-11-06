@@ -650,7 +650,7 @@ wss.on('connection', (ws, req) => {
       const now = Date.now(); if (now - (p.piT || 0) < 700) return; p.piT = now;
       const tx = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n);
       const n = v => Math.max(0, Math.min(1e9, +v || 0)) | 0;
-      p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, pt: n(m.pt) };
+      p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, th: /^[a-z]{3,10}$/.test(m.th) ? m.th : 'preto', pt: n(m.pt) };
       others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
     }
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
