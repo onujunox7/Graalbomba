@@ -659,11 +659,12 @@ let VW=384,VH=288;const SC=1;var EDZ=1,EDSZ=1;try{EDZ=+localStorage.getItem('gra
 let WP=D.W*8,HPX=D.H*8,RS=3,SO=null;
 const MOBILE=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);let QL=0;
 window.NOMON=true;window.NOCK=true; /* true = SEM monstros (nem os do mapa, nem o esqueleto inicial, nem os spawns de admin) e SEM galinhas. Troque por false para voltar ao normal. */
-function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);{const cap=QL>=2?1:(MOBILE?2:4),Sx=cv.clientWidth*(devicePixelRatio||1)/VW,Z=(!ed&&window.GZ>0&&window.GZ!==1)?window.GZ:1;
- let r=Math.min(cap,Math.max(QL>=2?1:2,Math.ceil(Sx)));
- /* v26.15 zoom nítido: com zoom o jogo desenha a arte em escala RS*Z. Se isso for fracionado (ex.: 3*0.75=2.25) o NEAREST faz pixels largos e finos alternados (serrilhado/pixelado). Aqui escolhemos RS = k/Z com k INTEIRO (pixels de mundo uniformes) e o navegador só reamostra suave por cima (bilinear = "sharp bilinear"). */
- if(Z!==1&&QL<2){let k=Math.max(1,Math.ceil(Sx*Z-.34));const lim=Math.min(cap,4096/VW);if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));r=k/Z}
- RS=r;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
+function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);{const Sx=cv.clientWidth*(devicePixelRatio||1)/VW,Z=(!ed&&window.GZ>0&&window.GZ!==1)?window.GZ:1;
+ /* v26.15 nitidez: RS = k/Z com k INTEIRO => RS*Z inteiro (pixels de mundo todos do mesmo tamanho, sem serrilhado). Com "Gráficos melhorados" o canvas é ~1,5x maior que a tela e o navegador reduz suave.
+    O limite agora é um ORÇAMENTO DE PIXELS (e não um RS fixo): celular com tela de 2400 px não fica mais com canvas minúsculo esticado (era isso que pixelava no zoom < 100%). */
+ const lowq=QL>=2,budget=lowq?1.3e6:(MOBILE?3e6:9e6),lim=Math.min(4,4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||window.__GFX===0)?1:1.5;
+ let k=Math.max(Z===1&&!lowq?2:1,Math.ceil(Sx*Z*SS-.34));if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));
+ RS=k/Z;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
 const keys={};let atkPress=0;
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(!keys[k]&&(k===' '||k==='j'||k==='control'))atkPress=1;keys[k]=1;if(e.key.startsWith('Arrow')||e.key===' ')e.preventDefault()});
 addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
@@ -934,10 +935,11 @@ function nameTag(lb,x,y,col){
   e=mkLbl(k,w,14,c=>{c.font=font;c.textAlign='center';c.lineJoin='round';c.lineWidth=2.5;c.strokeStyle='rgba(0,0,0,.8)';c.strokeText(lb,w/2,10);c.fillStyle=col;c.fillText(lb,w/2,10)})}
  g.drawImage(e.c,Math.round(x-e.w/2),Math.round(y-10),e.w,e.h)}
 function shd(x,y,rx,ry){
- g.fillStyle='rgba(0,0,0,.3)';
- if(lblZoom()){g.beginPath();g.ellipse(x,y,rx,ry,0,0,6.3);g.fill();return}
- const cx=Math.ceil(rx)+1,cy=Math.ceil(ry)+1;
- const e=lblSprite('sh|'+rx+'|'+ry,cx*2,cy*2,c=>{c.fillStyle='rgba(0,0,0,.3)';c.beginPath();c.ellipse(cx,cy,rx,ry,0,0,6.3);c.fill()});
+ const sf=window.__GFX!==0; /* sombra suave: elipse externa clara + miolo mais escuro */
+ g.fillStyle=sf?'rgba(0,0,0,.14)':'rgba(0,0,0,.3)';
+ if(lblZoom()){g.beginPath();g.ellipse(x,y,rx+(sf?1.2:0),ry+(sf?.8:0),0,0,6.3);g.fill();if(sf){g.fillStyle='rgba(0,0,0,.2)';g.beginPath();g.ellipse(x,y,rx*.78,ry*.78,0,0,6.3);g.fill()}return}
+ const cx=Math.ceil(rx)+2,cy=Math.ceil(ry)+2;
+ const e=lblSprite((sf?'sh2|':'sh|')+rx+'|'+ry,cx*2,cy*2,c=>{if(sf){c.fillStyle='rgba(0,0,0,.14)';c.beginPath();c.ellipse(cx,cy,rx+1.2,ry+.8,0,0,6.3);c.fill();c.fillStyle='rgba(0,0,0,.2)';c.beginPath();c.ellipse(cx,cy,rx*.78,ry*.78,0,0,6.3);c.fill()}else{c.fillStyle='rgba(0,0,0,.3)';c.beginPath();c.ellipse(cx,cy,rx,ry,0,0,6.3);c.fill()}});
  g.drawImage(e.c,Math.round(x)-cx,Math.round(y)-cy,e.w,e.h)}
 function monSpr(fi,row,x,y){
  const im=IM.mon2;
@@ -3857,7 +3859,7 @@ body.full #main>p,body.full #edbtn,body.full #gbtn{display:none!important}
 #hud,#hudctl{contain:layout style}
 #hud .card,#hud .chip,#hudctl #sys button,#hudctl #act button{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 #hud .card,#hud .chip{transform:translateZ(0)}
-body.pix #c{image-rendering:pixelated}
+body.pix #c{image-rendering:auto}
 body.lowq #hud,body.lowq #hud *{animation:none!important;text-shadow:none!important}
 body.lowq #hud .card,body.lowq #hud .chip,body.lowq #hud .msg,body.lowq #hudctl button,body.lowq #hudctl #stick{box-shadow:none!important}
 body.lowq #hud .card:before,body.lowq #hud .card:after{display:none}
@@ -3927,7 +3929,7 @@ function hsFit(){const want=HSL[hsi];if(want<=1){hsApply(want);return want}
 let hsT=0,hsE=null;
 function hsToast(t){if(!hsE){hsE=document.createElement('div');hsE.style.cssText="position:fixed;left:50%;top:14%;transform:translateX(-50%);z-index:10001;pointer-events:none;padding:6px 16px;border-radius:99px;font:600 15px Fredoka,Verdana,Arial,sans-serif;color:#24507f;background:linear-gradient(180deg,#fdfeff,#e4f2ff);border:0;box-shadow:0 3px 0 #8fc0ef,0 5px 10px rgba(60,120,190,.4),inset 0 0 0 1.5px #fff;transition:opacity .2s;opacity:0;white-space:nowrap";document.body.appendChild(hsE)}
  hsE.textContent=t;hsE.style.opacity=1;clearTimeout(hsT);hsT=setTimeout(()=>{hsE.style.opacity=0},1300)}
-function hudScale(d){const n=Math.max(0,Math.min(HSL.length-1,hsi+d));let t;
+window.hudScale=hudScale;function hudScale(d){const n=Math.max(0,Math.min(HSL.length-1,hsi+d));let t;
  if(n!==hsi){hsi=n;LS('graal_hud_scale',HSL[n])}
  const e=hsFit();t='HUD '+Math.round(e*100)+'%';
  if(e<HSL[hsi])t+=' (máximo que cabe nesta tela)';else if(n===hsi&&(d<0?hsi===0:hsi===HSL.length-1))t+=d<0?' (mínimo)':' (máximo)';
@@ -4567,12 +4569,12 @@ if(mode!=='auto')apply(+mode);else{const st=+LGk('graal_auto_tier')||0;if(st>0&&
 (()=>{
 'use strict';
 const ld=k=>{try{return localStorage.getItem(k)}catch(e){return null}},sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-const KEY={unl:'graal_fps_unl',lock:'graal_fps_lock',cap:'graal_fps_cap',vs:'graal_vsync',joy:'graal_joy',show:'graal_fps_show',nm:'graal_hide_names',bg:'graal_cfg_bg',bgd:'graal_cfg_bgd'};
+const KEY={unl:'graal_fps_unl',lock:'graal_fps_lock',cap:'graal_fps_cap',vs:'graal_vsync',joy:'graal_joy',show:'graal_fps_show',nm:'graal_hide_names',gfx:'graal_gfx_fx',bg:'graal_cfg_bg',bgd:'graal_cfg_bgd'};
 const CAPS=[30,45,60,90,120,144];
-const S={unl:ld(KEY.unl)==='1',lock:ld(KEY.lock)==='1',cap:+ld(KEY.cap)||60,vs:ld(KEY.vs)!=='0',joy:ld(KEY.joy)==='1',show:ld(KEY.show)==='1',nm:ld(KEY.nm)==='1',bg:ld(KEY.bg)!=='0',bgd:isFinite(parseFloat(ld(KEY.bgd)))?Math.max(0,Math.min(90,Math.round(parseFloat(ld(KEY.bgd))))):60};
+const S={unl:ld(KEY.unl)==='1',lock:ld(KEY.lock)==='1',cap:+ld(KEY.cap)||60,vs:ld(KEY.vs)!=='0',joy:ld(KEY.joy)==='1',show:ld(KEY.show)==='1',nm:ld(KEY.nm)==='1',gfx:ld(KEY.gfx)!=='0',bg:ld(KEY.bg)!=='0',bgd:isFinite(parseFloat(ld(KEY.bgd)))?Math.max(0,Math.min(90,Math.round(parseFloat(ld(KEY.bgd))))):60};
 if(CAPS.indexOf(S.cap)<0)S.cap=60;
-if(S.unl)S.lock=false;
-const save=()=>{sv(KEY.unl,S.unl?'1':'0');sv(KEY.lock,S.lock?'1':'0');sv(KEY.cap,String(S.cap));sv(KEY.vs,S.vs?'1':'0');sv(KEY.joy,S.joy?'1':'0');sv(KEY.show,S.show?'1':'0');sv(KEY.nm,S.nm?'1':'0');sv(KEY.bg,S.bg?'1':'0');sv(KEY.bgd,String(S.bgd))};
+if(S.unl)S.lock=false;window.__GFX=S.gfx?1:0;
+const save=()=>{sv(KEY.unl,S.unl?'1':'0');sv(KEY.lock,S.lock?'1':'0');sv(KEY.cap,String(S.cap));sv(KEY.vs,S.vs?'1':'0');sv(KEY.joy,S.joy?'1':'0');sv(KEY.show,S.show?'1':'0');sv(KEY.nm,S.nm?'1':'0');sv(KEY.gfx,S.gfx?'1':'0');sv(KEY.bg,S.bg?'1':'0');sv(KEY.bgd,String(S.bgd))};
 
 /* ---- FPS + VSync ----
    VSync ligado: o jogo roda no ritmo da tela (requestAnimationFrame).
@@ -4623,7 +4625,7 @@ let fc=0,ft=performance.now();
 const _d=drawUI;drawUI=function(){fc++;return _d.apply(this,arguments)};
 setInterval(()=>{const n=performance.now();if(S.show)fe.textContent=Math.round(fc*1000/(n-ft))+' FPS';fc=0;ft=n},500);
 const applyShow=()=>{fe.style.display=S.show?'block':'none'};
-const applyNames=()=>{window.__HIDENAMES=S.nm?1:0}; /* o nameTag lê __HIDENAMES a cada quadro */
+const applyNames=()=>{window.__HIDENAMES=S.nm?1:0;const g0=S.gfx?1:0;if(window.__GFX!==g0){window.__GFX=g0;try{fit()}catch(e){}}}; /* o nameTag lê __HIDENAMES a cada quadro */
 
 /* ---- painel ---- */
 const css=document.createElement('style');css.textContent=
@@ -4652,7 +4654,7 @@ pn.innerHTML='<div class="cH"><div class="cHt"><b>⚙ Configurações</b><small>
 '<div class="cB">'+
 '<section data-c="perf"><div class="cG"><div class="cC"><div class="cCt">Taxa de quadros</div><div class="cr" data-r="unl"><span>Sem limite de FPS</span><button type="button" class="sw" role="switch"></button></div><div class="cr" data-r="lock"><span>Travar FPS</span><select class="cs" aria-label="FPS travado">'+CAPS.map(c=>'<option value="'+c+'">'+c+'</option>').join('')+'</select><button type="button" class="sw" role="switch"></button></div><div class="cr" data-r="vs"><span>VSync</span><button type="button" class="sw" role="switch"></button></div></div><div class="cC"><div class="cCt">Diagnóstico</div><div class="cr" data-r="show"><span>Mostrar contador de FPS</span><button type="button" class="sw" role="switch"></button></div><p class="ci"></p></div></div></section>'+
 '<section data-c="ctl" hidden><div class="cG"><div class="cC"><div class="cCt">Toque</div><div class="cr" data-r="joy"><span>Joystick no lugar do direcional</span><button type="button" class="sw" role="switch"></button></div><p class="cj">O joystick analógico anda em 8 direções. Só aparece em aparelhos com tela de toque.</p></div><div class="cC"><div class="cCt">Teclado</div><div class="cK"><kbd>Setas / WASD</kbd><span>Andar</span><kbd>Espaço</kbd><span>Atacar com a espada</span><kbd>Shift</kbd><span>Esquivar</span><kbd>Q</kbd><span>Usar poção</span><kbd>F</kbd><span>Atirar com o arco</span><kbd>B</kbd><span>Colocar bomba</span><kbd>E</kbd><span>Pegar arbusto / interagir</span><kbd>Enter</kbd><span>Abrir o chat</span><kbd>C ou V</kbd><span>Personagem e equipamento</span></div></div></div></section>'+
-'<section data-c="ui" hidden><div class="cG"><div class="cC"><div class="cCt">Nomes</div><div class="cr" data-r="nm"><span>Esconder nomes dos players (inclusive o seu)</span><button type="button" class="sw" role="switch"></button></div></div><div class="cC"><div class="cCt">Fundo das configurações</div><div class="cr" data-r="bg"><span>Usar minha foto de perfil como fundo</span><button type="button" class="sw" role="switch"></button></div><div class="cDm"><span>Escurecer</span><input type="range" id="cbgd" min="0" max="90"><b id="cbgn"></b></div><div class="cPv" id="cpv"></div><p class="cj" id="cbgi"></p></div></div></section>'+
+'<section data-c="ui" hidden><div class="cG"><div class="cC"><div class="cCt">Gráficos</div><div class="cr" data-r="gfx"><span>Gráficos melhorados (imagem mais lisa, sombras suaves, vinheta)</span><button type="button" class="sw" role="switch"></button></div></div><div class="cC"><div class="cCt">Nomes</div><div class="cr" data-r="nm"><span>Esconder nomes dos players (inclusive o seu)</span><button type="button" class="sw" role="switch"></button></div></div><div class="cC"><div class="cCt">Fundo das configurações</div><div class="cr" data-r="bg"><span>Usar minha foto de perfil como fundo</span><button type="button" class="sw" role="switch"></button></div><div class="cDm"><span>Escurecer</span><input type="range" id="cbgd" min="0" max="90"><b id="cbgn"></b></div><div class="cPv" id="cpv"></div><p class="cj" id="cbgi"></p></div></div></section>'+
 '<section data-c="acc" hidden><div class="cG"><div class="cC"><div class="cCt">Conta do Discord</div><p class="cj">Entre com o Discord para salvar seu progresso na conta e continuar de onde parou em qualquer aparelho.</p><div id="cAcc"></div><p class="cj" id="cAccE" style="display:none">Conta do Discord indisponível no momento.</p></div></div></section>'+
 '<section data-c="sys" hidden><div class="cC"><div class="cCt">Atalhos do jogo</div><div id="cSysBox"></div></div></section>'+
 '</div><div class="cf"><button type="button" class="rs">↺ Restaurar padrão</button></div>';
@@ -4682,7 +4684,7 @@ function commit(){save();applyFps();applyJoy();applyShow();applyNames();render()
 pn.querySelectorAll('.cr').forEach(r=>{const k=r.dataset.r;r.querySelector('.sw').addEventListener('click',()=>{
  S[k]=!S[k];if(k==='unl'&&S.unl)S.lock=false;if(k==='lock'&&S.lock)S.unl=false;commit()})});
 sel.addEventListener('change',()=>{S.cap=+sel.value;commit()});
-pn.querySelector('.rs').addEventListener('click',()=>{S.unl=false;S.lock=false;S.cap=60;S.vs=true;S.joy=false;S.show=false;S.nm=false;S.bg=true;S.bgd=60;commit()});
+pn.querySelector('.rs').addEventListener('click',()=>{S.unl=false;S.lock=false;S.cap=60;S.vs=true;S.joy=false;S.show=false;S.nm=false;S.gfx=true;S.bg=true;S.bgd=60;commit()});
 
 /* tema do Perfil (cores) + foto de perfil como fundo, com escurecimento próprio */
 function applyLook(){const X=window.__PFX;
@@ -4827,9 +4829,9 @@ const hud=document.getElementById('hud');if(!hud)return;
 const tc=document.createElement('div');tc.id='tbar';tc.className='hb';
 const mk=(txt,title,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=txt;b.title=title;b.setAttribute('aria-label',title);b.addEventListener('click',e=>{e.stopPropagation();fn()});return b};
 const zb=document.getElementById('zmb'),spb=document.getElementById('spb'),adm=[];
-tc.appendChild(mk('−','Afastar a câmera',()=>{window.GZSTEP&&GZSTEP(1/1.2)}));
+tc.appendChild(mk('−','Diminuir o HUD',()=>{window.hudScale&&hudScale(-1)}));
 if(zb)tc.appendChild(zb);
-tc.appendChild(mk('+','Aproximar a câmera',()=>{window.GZSTEP&&GZSTEP(1.2)}));
+tc.appendChild(mk('+','Aumentar o HUD',()=>{window.hudScale&&hudScale(1)}));
 if(spb){spb.hidden=true;tc.appendChild(spb);adm.push(spb)}
 if(!(window.matchMedia&&matchMedia('(pointer:coarse)').matches)){ /* o editor de mapa não existe no celular */
  const tsb=mk('📂','Tileset (editor de mapa)',()=>{try{if(!ED){TSopen=true;edToggle();if(!ED)TSopen=false}else{TSopen=!TSopen;tsShow()}}catch(e){console.error(e)}});
@@ -4844,5 +4846,17 @@ document.head.appendChild(st);hud.appendChild(tc);
 const isAdm=()=>(window.__ROLE|0)>=1||!window.__MPSRV; /* sem servidor (jogo local) o dono é você */
 const sync=()=>{const a=isAdm();adm.forEach(b=>{if(b.hidden===a)b.hidden=!a})};sync();setInterval(sync,1000);
 }catch(e){console.error('tbar',e)}})();
+</script>
+<script>
+/* ===== v26.15: acabamento gráfico (vinheta suave + leve tom quente). Liga/desliga em Configurações > Aparência > Gráficos ===== */
+(()=>{try{
+let gr=null,gk='';
+const _gx=draw;draw=function(){_gx();
+ try{if(window.__GFX===0||(typeof ED!=='undefined'&&ED)||typeof P==='undefined'||!P||!(IM&&IM.link))return;
+  const k=VW+'x'+VH;if(!gr||gk!==k){gk=k;const R=Math.hypot(VW,VH)/2;gr=g.createRadialGradient(VW/2,VH/2,Math.min(VW,VH)*.5,VW/2,VH/2,R);gr.addColorStop(0,'rgba(10,8,30,0)');gr.addColorStop(1,'rgba(10,8,30,.34)')}
+  g.save();g.setTransform(RS,0,0,RS,0,0);g.globalAlpha=1;
+  g.fillStyle='rgba(255,226,170,.045)';g.fillRect(0,0,VW,VH);
+  g.fillStyle=gr;g.fillRect(0,0,VW,VH);g.restore()}catch(e){}};
+}catch(e){console.error('gfx',e)}})();
 </script>
 </body></html>

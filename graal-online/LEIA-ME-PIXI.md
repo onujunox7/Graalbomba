@@ -168,3 +168,16 @@ Chat 💬, Configurações ⚙, Minimapa 🗺 e Tela cheia ⛶ agora ficam numa 
 - O tamanho do canvas continua perto da resolução da tela (limites: RS máx. 4 no PC / 2 no celular e 4096 px de largura), então não pesa mais.
 - `lab()` (zoom) chama `fit()` 120 ms depois da última mudança, então a pinça não redimensiona o canvas a cada quadro.
 - Modo de qualidade baixa (`pix`) e editor de mapa continuam como antes.
+
+### v26.15b: − e + do topo mudam o tamanho do HUD
+Os botões − e + da barra do topo (ao lado do 🔍) agora diminuem/aumentam o HUD (mesma função dos botões A−/A+ e das teclas - e +), e não mais o zoom da câmera. O 🔍 continua alternando os níveis de zoom (e a pinça no celular).
+
+## v26.15c: gráficos melhorados (Configurações > Aparência > Gráficos, ligado por padrão)
+- **Menos pixelado fora da tela cheia:** o canvas agora é desenhado ~1,5x maior que a área na tela (sempre com `RS*zoom` inteiro) e o navegador reduz suave. Antes, em janela, a escala ficava quase 1:1 e os pixels saíam desiguais/blocados. Limites: RS máx. 4 no PC / 2 no celular e 4096 px de largura (o modo de qualidade baixa continua em RS 1).
+- **Sombras suaves** (`shd`): borda clara + miolo mais escuro, em vez de uma elipse chapada.
+- **Acabamento:** vinheta leve nas bordas + um tom quente bem discreto por cima do mapa (script no fim do `index.html`, não aparece no editor de mapa).
+- Desligando a opção volta ao visual antigo (sombra chapada, sem vinheta, canvas sem o 1,5x). Ajuste a força em `rgba(10,8,30,.34)` (vinheta) e `rgba(255,226,170,.045)` (tom quente).
+
+### v26.15d: celular sem pixelar com zoom < 100%
+- **Causa:** no celular o RS era limitado a 2 (e 1 no modo de qualidade baixa, ainda com `image-rendering:pixelated`). Numa tela de ~2500 px com zoom 70% o canvas ficava com ~870 px e era esticado ~3x.
+- **Agora:** o limite é um orçamento de pixels do canvas (celular ~3 MP, PC ~9 MP, qualidade baixa ~1,3 MP) e RS continua `k/zoom` com `k` inteiro. Ex. (844×390 @3x): zoom 70% = canvas 1780 px (antes ~870), zoom 50/100/150% = 2492 px. O modo de qualidade baixa agora usa suavização do navegador, sem `pixelated`. Se algum celular fraco engasgar, baixe o `3e6` em `fit()`.
