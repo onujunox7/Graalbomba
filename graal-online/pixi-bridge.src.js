@@ -70,7 +70,7 @@
       this.stack = []; this.path = []; this.sub = null;
       this.rootL = []; this.cur = this.rootL;
       this.tc = document.createElement('canvas').getContext('2d');
-      window.__PIXI_ON = true;
+      window.__PIXI_ON = true; window.__PIXI_FORGET = src => this.forget(src);
       // re-renderiza o último frame se o canvas for redimensionado fora do ciclo de desenho
       const watch = () => { if (!this.open && (cv.width !== this.rw || cv.height !== this.rh)) this.paint(); requestAnimationFrame(watch) };
       requestAnimationFrame(watch);
@@ -187,6 +187,10 @@
       const sm = !!this.imageSmoothingEnabled; if (en.sm !== sm) { en.sm = sm; en.base.scaleMode = sm ? LINEAR : NEAREST }
       const s = this.spr(); s.texture = tex; s.alpha = this.globalAlpha;
       this.place(s, iw, ih, dx, dy, dw * iw / sw, dh * ih / sh); this.add(s);
+    }
+    forget(src) {
+      const e = this.bases.get(src); if (!e) return; this.bases.delete(src);
+      this.grave.push({ destroy() { try { e.tex.forEach(t => t.destroy(false)); e.base.destroy() } catch (x) { } } });
     }
     chunk(cvs, dx, dy, dw, dh) { this.drawImage(cvs, 0, 0, cvs.width, cvs.height, dx, dy, dw, dh) }
     rectSprite(x, y, w, h, hex, a) {

@@ -264,7 +264,7 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
       this.stack = []; this.path = []; this.sub = null;
       this.rootL = []; this.cur = this.rootL;
       this.tc = document.createElement('canvas').getContext('2d');
-      window.__PIXI_ON = true;
+      window.__PIXI_ON = true; window.__PIXI_FORGET = src => this.forget(src);
       // re-renderiza o último frame se o canvas for redimensionado fora do ciclo de desenho
       const watch = () => { if (!this.open && (cv.width !== this.rw || cv.height !== this.rh)) this.paint(); requestAnimationFrame(watch) };
       requestAnimationFrame(watch);
@@ -381,6 +381,10 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
       const sm = !!this.imageSmoothingEnabled; if (en.sm !== sm) { en.sm = sm; en.base.scaleMode = sm ? LINEAR : NEAREST }
       const s = this.spr(); s.texture = tex; s.alpha = this.globalAlpha;
       this.place(s, iw, ih, dx, dy, dw * iw / sw, dh * ih / sh); this.add(s);
+    }
+    forget(src) {
+      const e = this.bases.get(src); if (!e) return; this.bases.delete(src);
+      this.grave.push({ destroy() { try { e.tex.forEach(t => t.destroy(false)); e.base.destroy() } catch (x) { } } });
     }
     chunk(cvs, dx, dy, dw, dh) { this.drawImage(cvs, 0, 0, cvs.width, cvs.height, dx, dy, dw, dh) }
     rectSprite(x, y, w, h, hex, a) {
@@ -1681,18 +1685,35 @@ function gUpload(files,kind){
    assim head e body ficam SEMPRE na mesma distância, sem arredondar cada peça separada */
 const GM=32,GSZ=112,GOFF=document.createElement('canvas');GOFF.width=GOFF.height=GSZ;
 const GOC=GOFF.getContext('2d',{willReadFrequently:true});GOC.imageSmoothingEnabled=false;
+/* cada pose (animação+direção+corpo+cabeça+equipamento) é montada UMA vez num canvas próprio e reaproveitada (vira textura do Pixi);
+   a posição da cabeça também é calculada uma vez por pose, sem ler pixels todo quadro */
+let GCUR=null;const CPOOL=new Map(),GID=new WeakMap(),EQL=new Map();let gidN=0;
+const gid=o=>{if(!o)return 0;let v=GID.get(o);if(!v)GID.set(o,v=++gidN);return v};
+const gOk=i=>i&&i.complete&&i.naturalWidth?1:0;
+const gEq=v=>{if(typeof v!=='string')return v|0;let i=EQL.get(v);if(!i){i=new Image();i.src=v;EQL.set(v,i)}return 'u'+gid(i)+gOk(i)};
 function gCompose(parts,BI,bo,HI,ho,eq,obj,onlyHead){
- GOC.clearRect(0,0,GSZ,GSZ);
+ const key=gid(parts)+'|'+gid(BI)+gOk(BI)+'|'+bo+'|'+gid(HI)+gOk(HI)+'|'+ho+'|'+(eq?gEq(eq.h)+','+gEq(eq.s)+','+gEq(eq.d)+','+(eq.sw?1:0):'-')+'|'+(obj?1:0)+(onlyHead?1:0);
+ let e=CPOOL.get(key);
+ if(e){CPOOL.delete(key);CPOOL.set(key,e);GCUR=e;return}
+ const c=document.createElement('canvas');c.width=c.height=GSZ;const X=c.getContext('2d');X.imageSmoothingEnabled=false;
  for(const[k,sx,sy,w,h,px,py]of parts){
   const dx=px+GM,dy=py+GM;
   if(onlyHead&&!(k===1||(k===2&&w===48&&h===48)))continue;
-  if(k===0)GOC.drawImage(BI,sx+bo,sy,w,h,dx,dy,w,h);
-  else if(k===1)GOC.drawImage(HI,sx+ho,sy,w,h,dx,dy,w,h);
-  else if(k===2){if(sx===40&&sy===96)continue;EQX.part(GOC,GI.misc,sx,sy,w,h,dx,dy,w,h,eq)}
-  else if(k===3&&obj)GOC.drawImage(IM.ts,400,80,16,16,dx+8,dy+8,16,16);
+  if(k===0)X.drawImage(BI,sx+bo,sy,w,h,dx,dy,w,h);
+  else if(k===1)X.drawImage(HI,sx+ho,sy,w,h,dx,dy,w,h);
+  else if(k===2){if(sx===40&&sy===96)continue;EQX.part(X,GI.misc,sx,sy,w,h,dx,dy,w,h,eq)}
+  else if(k===3&&obj)X.drawImage(IM.ts,400,80,16,16,dx+8,dy+8,16,16);
  }
+ e={c,hd:null};CPOOL.set(key,e);GCUR=e;
+ if(CPOOL.size>300){const k0=CPOOL.keys().next().value,o=CPOOL.get(k0);CPOOL.delete(k0);if(window.__PIXI_FORGET)window.__PIXI_FORGET(o.c)}
 }
-function gBlit(c,ox,oy,s){c.imageSmoothingEnabled=false;c.drawImage(GOFF,Math.round(ox-GM*s),Math.round(oy-GM*s),GSZ*s,GSZ*s);c.imageSmoothingEnabled=false}
+function gHD(e){
+ if(!e)return{y0:-1,mn:GSZ,mx:-1};if(e.hd)return e.hd;
+ const d=e.c.getContext('2d').getImageData(0,0,GSZ,GSZ).data;let y0=-1,mn=GSZ,mx=-1;
+ for(let y=0;y<GSZ&&y0<0;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){y0=y;break}
+ if(y0>=0)for(let y=y0;y<y0+6&&y<GSZ;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){if(x<mn)mn=x;if(x>mx)mx=x}
+ return e.hd={y0,mn,mx}}
+function gBlit(c,ox,oy,s){if(!GCUR)return;c.imageSmoothingEnabled=false;c.drawImage(GCUR.c,Math.round(ox-GM*s),Math.round(oy-GM*s),GSZ*s,GSZ*s);c.imageSmoothingEnabled=false}
 /* SENTADO: sprites da folha do corpo, um por direção [cima, esquerda, baixo, direita] (medidos contra a referência do jogo):
    costas = (0,448), esquerda = (32,640), frente = (96,608), direita = (96,640).
    SIT_DY = quanto escudo/espada/cabeça descem; SIT_H = ajuste extra [x,y] só de cabeça e chapéu (de lado a cabeça vai 8px pra trás) */
@@ -1716,15 +1737,11 @@ function gPlayer(al){
  else if(P.dash>0){n='jump';fi=0}else if(P.walk&&PUSHT>.12){n='push';fi=Math.floor(P.anim/.1)}else if(P.walk){n='walk';fi=Math.floor(P.anim/.05)}
  if(P.dead){const sx=Math.round(P.x-cam.x),sy=Math.round(P.y-cam.y);g.save();g.globalAlpha=1;g.translate(sx,sy-8*GS);g.rotate(P.face==='Left'?-Math.PI/2:Math.PI/2);gPaint(g,'hurt',0,2,-24*GS,-31*GS,GS,GSK.b,GSK.h,0);g.restore();g.globalAlpha=1;return}
  g.globalAlpha=al;{const ox=Math.round(P.x-cam.x)-24*GS,oy=Math.round(P.y-cam.y)-39*GS;gPaint(g,n,fi,dir,ox,oy,GS,GSK.b,GSK.h,CARRY);window.__LP={n,fi,dir,ox,oy,al};
- try{const hk=n+'|'+fi+'|'+dir+'|'+GSK.b+'|'+GSK.h+'|'+(CARRY?1:0),tn=performance.now();let hc=HDC.get(hk);
-  if(!hc||tn-hc.t>2000){const d=GOC.getImageData(0,0,GSZ,GSZ).data;let y0=-1,mn=GSZ,mx=-1;
-   for(let y=0;y<GSZ&&y0<0;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){y0=y;break}
-   if(y0>=0)for(let y=y0;y<y0+6&&y<GSZ;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40){if(x<mn)mn=x;if(x>mx)mx=x}
-   hc={t:tn,y0,mn,mx};if(HDC.size>64)HDC.clear();HDC.set(hk,hc)}
+ try{const hc=gHD(GCUR);
   window.__HD=hc.y0>=0?{x:Math.round(ox-GM*GS)+(hc.mn+hc.mx+1)/2*GS,y:Math.round(oy-GM*GS)+hc.y0*GS}:undefined}catch(e){window.__HD=null}}g.globalAlpha=1;
 }
 const _spr=spr;spr=function(img,fr,x,y,a){if(GOK&&P&&img===IM.link&&x===P.x&&y===P.y){gPlayer(a);return}_spr(img,fr,x,y,a)};
-window.MPX={GM,hy(){try{const d=GOC.getImageData(0,0,GSZ,GSZ).data;for(let y=0;y<GSZ;y++)for(let x=0;x<GSZ;x++)if(d[(y*GSZ+x)*4+3]>40)return y}catch(e){}return -1},compose:gCompose,blit:gBlit,get ok(){return GOK},get GS(){return GS},get GSK(){return GSK},GI,GANI,gSrc,paint:gPaint,nb:()=>GI.bodies.width/128|0,nh:()=>GI.heads.width/32|0,cb:()=>GCB,ch:()=>GCH};
+window.MPX={GM,hy(){try{return gHD(GCUR).y0}catch(e){}return -1},compose:gCompose,blit:gBlit,get ok(){return GOK},get GS(){return GS},get GSK(){return GSK},GI,GANI,gSrc,paint:gPaint,nb:()=>GI.bodies.width/128|0,nh:()=>GI.heads.width/32|0,cb:()=>GCB,ch:()=>GCH};
 /* pegar, carregar e jogar arbustos (E levanta; ataque ou E joga) */
 const nearOther=()=>dist(P,NPC)<34||CH.some(c=>!c.open&&dist(P,c)<28);
 function bushFront(fd){const x=P.x+fd[0]*16,y=P.y-4+fd[1]*16;let best=null,bd=22;BUSH.forEach((b,k)=>{const d=Math.hypot(b[0]*8+8-x,b[1]*8+8-y);if(d<bd){bd=d;best=k}});return best}
