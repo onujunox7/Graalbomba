@@ -62,3 +62,6 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 
 ### v26.3: carimbo de tempo do remetente
 - O cliente envia `ct` (seu `performance.now()`) junto da posição; o servidor repassa. Quem recebe interpola pela hora em que a posição foi medida (com um deslocamento de relógio estimado por mínimo móvel), em vez da hora em que o pacote chegou. Isso tira o jitter de rede/timer, que dava ritmo irregular e aparência de deslizar. Com servidor antigo (sem `ct`) volta ao comportamento anterior. **Precisa trocar o `server.js`.**
+
+### v26.4: ataque do amigo na velocidade certa
+- O cliente envia `ak` (contador de golpes) e `ad` (duração do golpe em ms). O remoto reinicia a animação de espada a cada golpe novo e a toca na mesma velocidade do golpe original (a duração varia com o ritmo dos cliques, de 110 a 200 ms). Antes ela rodava sempre em 300 ms e, clicando rápido, o estado "Attack" nunca mudava e a animação travava no último quadro. **Precisa trocar o `server.js`.**

@@ -739,12 +739,12 @@ let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
 const CAMS={ok:0,w:0,z:1,k:16}; /* k: velocidade da câmera (maior = mais colada no jogador) */
 /* v26: amostra um buffer de snapshots [{t,x,y}] com atraso fixo → movimento contínuo mesmo com pacotes a 10/s */
 let INTERP_DELAY=80;const MON_DELAY=130,SNAP={l:0,i:100}; /* INTERP_DELAY se adapta ao intervalo real dos pacotes de jogadores */
-function snapPush(o,x,y,now,an){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y,an});if(b.length>8)b.shift()}
+function snapPush(o,x,y,now,an,ak,ad){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y,an,ak,ad});if(b.length>8)b.shift()}
 function snapAn(a,c){const i=v=>!v||/^Idle/.test(v);return !i(c.an)?c.an:!i(a.an)?a.an:c.an} /* animação coerente com o movimento mostrado: não anda parado nem desliza em Idle */
 function snapSample(o,now,dl){const b=o.nb;if(!b||!b.length)return false;const rt=now-(dl||INTERP_DELAY);
- if(b.length===1||rt<=b[0].t){o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;return true}
- for(let i=b.length-1;i>0;i--){const a=b[i-1],c=b[i];if(rt>=a.t){if(rt<=c.t){const u=(rt-a.t)/Math.max(1,c.t-a.t);o.x=a.x+(c.x-a.x)*u;o.y=a.y+(c.y-a.y)*u;o.sa=snapAn(a,c)}else{const l=b[b.length-1],pv=b[b.length-2],dtp=Math.max(1,l.t-pv.t),ex=Math.min(120,rt-l.t)/dtp;o.x=l.x+(l.x-pv.x)*ex*.5;o.y=l.y+(l.y-pv.y)*ex*.5;o.sa=l.an}return true}}
- o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;return true}
+ if(b.length===1||rt<=b[0].t){o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;o.sk=b[0].ak;o.sd=b[0].ad;return true}
+ for(let i=b.length-1;i>0;i--){const a=b[i-1],c=b[i];if(rt>=a.t){if(rt<=c.t){const u=(rt-a.t)/Math.max(1,c.t-a.t);o.x=a.x+(c.x-a.x)*u;o.y=a.y+(c.y-a.y)*u;o.sa=snapAn(a,c);o.sk=a.ak;o.sd=a.ad}else{const l=b[b.length-1],pv=b[b.length-2],dtp=Math.max(1,l.t-pv.t),ex=Math.min(120,rt-l.t)/dtp;o.x=l.x+(l.x-pv.x)*ex*.5;o.y=l.y+(l.y-pv.y)*ex*.5;o.sa=l.an;o.sk=l.ak;o.sd=l.ad}return true}}
+ o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;o.sk=b[0].ak;o.sd=b[0].ad;return true}
 function dpush(o){drops.push(window.DRP?DRP.add(o):o)} /* item no chão: o módulo de rede avisa os outros jogadores */
 /* ---- monstros: ajuste aqui ---- */
 const MON_RESPAWN=30; /* segundos até o monstro renascer depois de morto */
@@ -768,7 +768,7 @@ function swordHit(){const FV={Left:[-1,0],Right:[1,0],Up:[0,-1],Down:[0,1]}[P.fa
  /* só acerta quem está NA FRENTE (cone de ~145°, cos>=.3); de costas não pega */
  for(const s of SK)if(!s.dead&&dist(P,s)<=50&&((s.x-P.x)*FV[0]+(s.y-P.y)*FV[1])>=.3*dist(P,s)){const r=Math.max(0,calcDmg(P,P.dmg)-calcDef(s,s.def));s.hp-=r;s.hurt=.25;s.combat=1;{const dd=Math.max(1,dist(s,P));move(s,(s.x-P.x)/dd*10,(s.y-P.y)/dd*10)}dmgText(s,r,'#fff');if(s.hp<=0)killSk(s)}}
 function startAtk(){const now=performance.now()/1000,gap=now-(P.lastAtk||0);P.lastAtk=now; /* quanto mais rápido o clique, mais curto o golpe */
- P.atkLen=Math.max(ATK_MIN,Math.min(ATK_T,gap));P.atk=P.atkLen;P.anim=0;P.hitPend=1}
+ P.atkLen=Math.max(ATK_MIN,Math.min(ATK_T,gap));P.atk=P.atkLen;P.anim=0;P.hitPend=1;P.akc=(P.akc|0)+1}
 /* portais entre o mundo original e o novo mapa: [E] para atravessar */
 /* minimapa: mostra só a camada onde o jogador está (mapa novo = principal, mundo original = 2ª camada) */
 function mmReg(){if(D.W!==GTW)return{x:0,y:0,w:WP,h:HPX,l:'i'};return{x:3*512,y:23*512,w:20*512,h:20*512,l:'n',n:'Novo mapa'}}
@@ -2128,7 +2128,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
   if(m.t!=='st')return;const seen=new Set();{const _n=performance.now();if(SNAP.l){const iv=Math.min(250,_n-SNAP.l);SNAP.i+=(iv-SNAP.i)*.1;INTERP_DELAY=Math.max(55,Math.min(170,SNAP.i*1.25+10))}SNAP.l=_n}
   for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}{const _a=performance.now();let _t=_a;if(typeof p.ct==='number'){const c=_a-p.ct;if(r.off===undefined||c<r.off)r.off=c;else r.off+=(c-r.off)*.01;_t=p.ct+r.off;const _l=r.nb&&r.nb[r.nb.length-1];if(_l&&_t<=_l.t)_t=_l.t+1} /* v26.3: tempo do remetente (sem o jitter da rede) */
-   snapPush(r,p.x,p.y,_t,p.an)}
+   snapPush(r,p.x,p.y,_t,p.an,p.ak,p.ad)}
    r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl}
   for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
@@ -2145,10 +2145,10 @@ setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
- ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,ct:Math.round(performance.now()*10)/10,lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0}))}catch(e){}},50);
+ ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0}))}catch(e){}},50);
 /* desenho do personagem remoto com a mesma engine de skin */
 function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm[1])?+mm[1]:{Up:0,Left:1,Down:2,Right:3}[mm[1]],kn=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':'idle';
- const A=X.GANI[kn],fi=kn==='walk'?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};
+ const A=X.GANI[kn],fi=kn==='walk'?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/((r.sd||200)/1000)*ATK_BASE/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};
  const ok=i=>i&&i.complete&&i.naturalWidth;
  const[BI,bo]=ok(sk.bi)?[sk.bi,0]:X.gSrc('b',Math.min(r.b|0,X.nb()-1)),[HI,ho]=ok(sk.hi)?[sk.hi,0]:X.gSrc('h',Math.min(r.h|0,X.nh()-1));
  const ox=x-24*sc,oy=y-39*sc;g.globalAlpha=r.al;const sws=EQX.beg(g,x,y,r.sw);
@@ -2367,7 +2367,7 @@ window.RPE=function(vw,vh){ /* sprites dos remotos entram na ordenação por Y j
  return out};
 const _dm=draw;draw=function(){const X=window.MPX;rpOn=0;
  const act=!!(P&&!ED&&IM.link&&X&&X.ok),now=performance.now(),dt=Math.min(.1,(now-lt)/1000);
- if(act){lt=now;rpOn=1;for(const r of RP.values()){if(!snapSample(r,now)){r.x=r.tx;r.y=r.ty}else if(r.sa)r.an=r.sa;if(r.an!==r.pn){r.pn=r.an;r.t=0}r.t+=dt}}
+ if(act){lt=now;rpOn=1;for(const r of RP.values()){if(!snapSample(r,now)){r.x=r.tx;r.y=r.ty}else if(r.sa)r.an=r.sa;if(r.an!==r.pn){r.pn=r.an;r.t=0}if(r.sk!==r.pk){r.pk=r.sk;r.t=0}r.t+=dt}}
  _dm();if(!act)return;
  const z=window.GZ>0?window.GZ:1,vw=VW/z,vh=VH/z;
  g.save();g.setTransform(RS*z,0,0,RS*z,0,0);g.imageSmoothingEnabled=false;
