@@ -276,7 +276,7 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
       this.lineWidth = 1; this.lineJoin = 'miter'; this.lineCap = 'butt'; this.font = '10px sans-serif';
       this.textAlign = 'left'; this.textBaseline = 'alphabetic';
       this.imageSmoothingEnabled = true; this.imageSmoothingQuality = 'low'; this.lineDashOffset = 0;
-      this.stack = []; this.path = []; this.sub = null;
+      this.dash = []; this.stack = []; this.path = []; this.sub = null;
       this.rootL = []; this.cur = this.rootL;
       this.tc = document.createElement('canvas').getContext('2d');
       window.__PIXI_ON = true; window.__PIXI_FORGET = src => this.forget(src);
@@ -418,16 +418,26 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
     clearRect(x, y, w, h) { /* o jogo só usa para limpar canvases auxiliares */ }
     gradRect(x, y, w, h, gr) {
       const s = Math.max(1, Math.ceil(this.sc())), cw = Math.max(1, Math.ceil(Math.abs(w) * s)), ch = Math.max(1, Math.ceil(Math.abs(h) * s));
-      const key = 'g|' + cw + 'x' + ch + '|' + [gr.x0 - x, gr.y0 - y, gr.x1 - x, gr.y1 - y].join(',') + '|' + gr.stops.map(t => t[0] + t[1]).join(';');
+      // se todas as paradas têm a MESMA cor e só o alfa muda (vinheta de dano, sombras), a textura é feita com alfa normalizado
+      // e o alfa máximo vai no sprite: a vinheta pulsando não gera uma textura nova a cada quadro.
+      const pc = gr.stops.map(t => parseColor(t[1])); let amax = 0, same = pc.length > 0;
+      for (const c of pc) { if (c[0] !== pc[0][0]) same = false; if (c[1] > amax) amax = c[1] }
+      const norm = same && amax > 0, hex = norm ? ('000000' + pc[0][0].toString(16)).slice(-6) : '';
+      const rgb = norm ? [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)] : null;
+      const stops = norm ? gr.stops.map((t, i) => [t[0], 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (pc[i][1] / amax).toFixed(3) + ')']) : gr.stops;
+      const key = 'g|' + (gr.rad ? 'r' + gr.r0 + ',' + gr.r1 : 'l') + '|' + cw + 'x' + ch + '|' + [gr.x0 - x, gr.y0 - y, gr.x1 - x, gr.y1 - y].join(',') + '|' + stops.map(t => t[0] + t[1]).join(';');
       const tex = this.lru(key, () => {
         const c = document.createElement('canvas'); c.width = cw; c.height = ch; const q = c.getContext('2d');
-        const kx = cw / Math.abs(w), ky = ch / Math.abs(h), G = q.createLinearGradient((gr.x0 - x) * kx, (gr.y0 - y) * ky, (gr.x1 - x) * kx, (gr.y1 - y) * ky);
-        gr.stops.forEach(t => G.addColorStop(t[0], t[1])); q.fillStyle = G; q.fillRect(0, 0, cw, ch);
+        const kx = cw / Math.abs(w), ky = ch / Math.abs(h);
+        const G = gr.rad ? q.createRadialGradient((gr.x0 - x) * kx, (gr.y0 - y) * ky, gr.r0 * kx, (gr.x1 - x) * kx, (gr.y1 - y) * ky, gr.r1 * kx)
+          : q.createLinearGradient((gr.x0 - x) * kx, (gr.y0 - y) * ky, (gr.x1 - x) * kx, (gr.y1 - y) * ky);
+        stops.forEach(t => G.addColorStop(t[0], t[1])); q.fillStyle = G; q.fillRect(0, 0, cw, ch);
         return PIXI.Texture.from(c, { scaleMode: LINEAR });
       });
-      const sp = this.spr(); sp.texture = tex; sp.alpha = this.globalAlpha; this.place(sp, cw, ch, x, y, w, h); this.add(sp);
+      const sp = this.spr(); sp.texture = tex; sp.alpha = this.globalAlpha * (norm ? amax : 1); this.place(sp, cw, ch, x, y, w, h); this.add(sp);
     }
     createLinearGradient(x0, y0, x1, y1) { return { __grad: 1, x0, y0, x1, y1, stops: [], addColorStop(o, c) { this.stops.push([o, c]) } } }
+    createRadialGradient(x0, y0, r0, x1, y1, r1) { return { __grad: 1, rad: 1, x0, y0, r0, x1, y1, r1, stops: [], addColorStop(o, c) { this.stops.push([o, c]) } } }
 
     /* ---------- texto (rasterizado uma vez por combinação e guardado em cache) ---------- */
     measureText(t) { this.tc.font = this.font; return this.tc.measureText(t) }
@@ -460,9 +470,26 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
     translate(x, y) { const m = this.m; this.m = [m[0], m[1], m[2], m[3], m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] }
     scale(x, y) { const m = this.m; this.m = [m[0] * x, m[1] * x, m[2] * y, m[3] * y, m[4], m[5]] }
     rotate(t) { const m = this.m, c = Math.cos(t), s = Math.sin(t); this.m = [m[0] * c + m[2] * s, m[1] * c + m[3] * s, -m[0] * s + m[2] * c, -m[1] * s + m[3] * c, m[4], m[5]] }
-    save() { this.touch(); this.stack.push({ m: this.m, ga: this.globalAlpha, fs: this.fillStyle, ss: this.strokeStyle, lw: this.lineWidth, lj: this.lineJoin, f: this.font, ta: this.textAlign, tb: this.textBaseline, sm: this.imageSmoothingEnabled, cur: this.cur }) }
-    restore() { const s = this.stack.pop(); if (!s) return; this.m = s.m; this.globalAlpha = s.ga; this.fillStyle = s.fs; this.strokeStyle = s.ss; this.lineWidth = s.lw; this.lineJoin = s.lj; this.font = s.f; this.textAlign = s.ta; this.textBaseline = s.tb; this.imageSmoothingEnabled = s.sm; this.cur = s.cur }
-    setLineDash() { } getLineDash() { return [] }
+    save() { this.touch(); this.stack.push({ m: this.m, ga: this.globalAlpha, fs: this.fillStyle, ss: this.strokeStyle, lw: this.lineWidth, lj: this.lineJoin, f: this.font, ta: this.textAlign, tb: this.textBaseline, sm: this.imageSmoothingEnabled, cur: this.cur, ld: this.dash, ldo: this.lineDashOffset }) }
+    restore() { const s = this.stack.pop(); if (!s) return; this.m = s.m; this.globalAlpha = s.ga; this.fillStyle = s.fs; this.strokeStyle = s.ss; this.lineWidth = s.lw; this.lineJoin = s.lj; this.font = s.f; this.textAlign = s.ta; this.textBaseline = s.tb; this.imageSmoothingEnabled = s.sm; this.cur = s.cur; this.dash = s.ld; this.lineDashOffset = s.ldo }
+    setLineDash(a) { a = Array.from(a || [], Number); this.dash = a.some(v => !(v >= 0) || !isFinite(v)) ? [] : (a.length % 2 ? a.concat(a) : a) }
+    getLineDash() { return this.dash.slice() }
+    /* desenha a polilinha q (px do dispositivo) tracejada, usando setLineDash/lineDashOffset (em unidades do jogo -> px via sc()) */
+    dashLine(G, q, closed) {
+      const k = this.sc(), pat = this.dash.map(v => v * k), tot = pat.reduce((a, b) => a + b, 0);
+      const pts = q.slice(); if (closed) pts.push(q[0], q[1]);
+      let idx = 0, rem = pat[0], on = true, o = (((this.lineDashOffset * k) % tot) + tot) % tot;
+      while (o > 0) { if (o >= rem) { o -= rem; idx = (idx + 1) % pat.length; rem = pat[idx]; on = !on } else { rem -= o; o = 0 } }
+      for (let i = 0; i + 3 < pts.length; i += 2) {
+        const x0 = pts[i], y0 = pts[i + 1], dx = pts[i + 2] - x0, dy = pts[i + 3] - y0, len = Math.hypot(dx, dy); let pos = 0;
+        while (pos < len) {
+          const st = Math.min(rem, len - pos);
+          if (on && st > 0) { G.moveTo(x0 + dx * pos / len, y0 + dy * pos / len); G.lineTo(x0 + dx * (pos + st) / len, y0 + dy * (pos + st) / len) }
+          pos += st; rem -= st;
+          if (rem <= 1e-9) { idx = (idx + 1) % pat.length; rem = pat[idx]; on = !on }
+        }
+      }
+    }
 
     /* ---------- paths ---------- */
     beginPath() { this.path = []; this.sub = null }
@@ -478,6 +505,14 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
       return o;
     }
     addPts(pts) { if (!this.sub) { this.sub = { p: [pts[0], pts[1]], c: false }; this.path.push(this.sub) } const p = this.sub.p; for (let i = 0; i < pts.length; i++) p.push(pts[i]) }
+    quadraticCurveTo(cx, cy, x, y) {
+      if (!this.sub) this.moveTo(cx, cy); const p = this.sub.p, x0 = p[p.length - 2], y0 = p[p.length - 1];
+      for (let i = 1; i <= 16; i++) { const t = i / 16, u = 1 - t; p.push(u * u * x0 + 2 * u * t * cx + t * t * x, u * u * y0 + 2 * u * t * cy + t * t * y) }
+    }
+    bezierCurveTo(c1x, c1y, c2x, c2y, x, y) {
+      if (!this.sub) this.moveTo(c1x, c1y); const p = this.sub.p, x0 = p[p.length - 2], y0 = p[p.length - 1];
+      for (let i = 1; i <= 20; i++) { const t = i / 20, u = 1 - t; p.push(u * u * u * x0 + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * x, u * u * u * y0 + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * y) }
+    }
     arc(x, y, r, a0, a1, ccw) { this.addPts(this.arcPts(x, y, r, r, 0, a0, a1, ccw)) }
     ellipse(x, y, rx, ry, rot, a0, a1, ccw) { this.addPts(this.arcPts(x, y, rx, ry, rot, a0, a1, ccw)) }
     arcTo(x1, y1, x2, y2, r) {
@@ -509,7 +544,9 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
       this.touch(); const [hex, a] = parseColor(this.strokeStyle); if (a <= 0) return;
       const G = this.gfx(); G.alpha = this.globalAlpha; const J = PIXI.LINE_JOIN;
       G.lineStyle({ width: Math.max(0.01, this.lineWidth * this.sc()), color: hex, alpha: a, alignment: 0.5, join: this.lineJoin === 'round' ? J.ROUND : this.lineJoin === 'bevel' ? J.BEVEL : J.MITER });
-      for (const s of this.path) { if (s.p.length < 4) continue; const q = this.tp(s.p); G.moveTo(q[0], q[1]); for (let i = 2; i < q.length; i += 2) G.lineTo(q[i], q[i + 1]); if (s.c) G.closePath() }
+      for (const s of this.path) { if (s.p.length < 4) continue; const q = this.tp(s.p);
+        if (this.dash.length && this.dash.some(v => v > 0)) { this.dashLine(G, q, s.c); continue }
+        G.moveTo(q[0], q[1]); for (let i = 2; i < q.length; i += 2) G.lineTo(q[i], q[i + 1]); if (s.c) G.closePath() }
       this.add(G);
     }
     strokeRect(x, y, w, h) { const sp = this.path, ss = this.sub; this.beginPath(); this.rect(x, y, w, h); this.stroke(); this.path = sp; this.sub = ss }
