@@ -46,8 +46,8 @@ let cfg = {};
 
 /* ---------------- cargos: admins e banidos (persistentes) ---------------- */
 const ADM_FILE = path.join(DATA_DIR, 'graal-admins.json');
-let AD = { admins: {}, bans: {} };
-try { const o = JSON.parse(fs.readFileSync(ADM_FILE, 'utf8')); if (o && typeof o === 'object') AD = { admins: o.admins || {}, bans: o.bans || {} } } catch (e) { }
+let AD = { admins: {}, bans: {}, owners: {} }; // owners: contas Discord que já provaram ser o dono (token) e voltam como dono em qualquer navegador
+try { const o = JSON.parse(fs.readFileSync(ADM_FILE, 'utf8')); if (o && typeof o === 'object') AD = { admins: o.admins || {}, bans: o.bans || {}, owners: o.owners || {} } } catch (e) { }
 function saveAD() { try { const t = ADM_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(AD)); fs.renameSync(t, ADM_FILE) } catch (e) { console.error('Falha ao gravar admins:', e.message) } }
 const KICK_MS = Math.max(0, +(process.env.KICK_MINUTES || 5)) * 60 * 1000, KICKED = new Map(); // uid -> até quando está bloqueado
 const sha = s => crypto.createHash('sha256').update(String(s)).digest('hex').slice(0, 32);
@@ -497,7 +497,7 @@ wss.on('connection', (ws, req) => {
         KICKED.delete(p.uh);
         for (const o of P.values()) if (o !== p && o.acc === sid) { o.acc = null; sendTo(o.ws, { t: 'kick', r: 'Sua conta entrou em outro lugar.' }); setTimeout(() => o.ws.close(), 100) }
         ACTIVE_ACC.set(sid, p);
-        setRole(AD.admins[p.uh] ? 1 : 0);
+        setRole(AD.owners[p.uh] ? 2 : AD.admins[p.uh] ? 1 : 0);
         sendTo(ws, accMsg(ACC[sid]));
       }
     } else {
@@ -527,7 +527,7 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'auth') { // dono: mesmo ADMIN_TOKEN do editor
       if (p.authFails >= 5) return;
-      if (ownerTokenOk(m.token, req)) setRole(2);
+      if (ownerTokenOk(m.token, req)) { setRole(2); if (p.uh && p.acc && !GID_RE.test(p.acc) && !AD.owners[p.uh]) { AD.owners[p.uh] = { nm: String(p.nm || '?').slice(0, 24), at: Date.now() }; saveAD() } } // conta Discord vira dono de forma permanente
       else { p.authFails++; if (p.authFails >= 5) ws.close() }
       return;
     }

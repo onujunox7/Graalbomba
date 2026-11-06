@@ -2487,7 +2487,8 @@ const pfDB={
  async get(k){const d=await this.open();return new Promise((ok,no)=>{const q=d.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})},
  async set(k,v){const d=await this.open();return new Promise((ok,no)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);t.onabort=()=>no(t.error)})},
  async del(k){const d=await this.open();return new Promise((ok,no)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').delete(k);t.oncomplete=()=>ok();t.onerror=()=>no(t.error)})}};
-function pfBgSet(blob){if(pfBgO){try{URL.revokeObjectURL(pfBgO)}catch(e){}}pfBgO=blob?URL.createObjectURL(blob):'';pfBgU=pfBgO;try{pfBgApply()}catch(e){}}
+let pfLocal=null; /* arquivo original deste aparelho (para reenviar ao servidor se ele ainda não tiver) */
+function pfBgSet(blob){pfLocal=blob||null;if(pfBgO){try{URL.revokeObjectURL(pfBgO)}catch(e){}}pfBgO=blob?URL.createObjectURL(blob):'';pfBgU=pfBgO;try{pfBgApply()}catch(e){}}
 pfDB.get('bg').then(bl=>{if(bl&&bl.size)pfBgSet(bl);else pfFromServer()}).catch(()=>pfFromServer());
 function pfFromServer(){ /* sem foto neste aparelho: usa a que está guardada no servidor (ex.: enviada de outro aparelho) */
  try{fetch('/api/pfbg/me/img',{headers:pfHd(),cache:'no-cache'}).then(r=>r.ok?r.blob():null).then(b=>{if(b&&b.size&&!pfBgU)pfBgSet(b)}).catch(()=>{})}catch(e){}}
@@ -2567,7 +2568,8 @@ pfBd.addEventListener('click',pfClose); /* clicar fora fecha o perfil */
  $q('#pfBgS').addEventListener('change',e=>{try{localStorage.setItem('graal_pf_seebg',e.target.checked?'1':'0')}catch(err){}if(pfR!=null)pfLoadRemote(pfR)});
  const stTxt=s=>s==='ok'?'✅ Fundo aprovado: todos os jogadores veem.':s==='pend'?'⏳ Aguardando um admin aprovar. Enquanto isso só você vê.':s==='no'?'❌ Um admin recusou esse fundo: só você vê. Escolha outra foto.':'';
  const mine=()=>pf.style.display!=='none'&&pfR==null;
- window.PFMY=()=>{try{fetch('/api/pfbg/me',{headers:pfHd(),cache:'no-store'}).then(r=>r.json()).then(o=>{pfSt=o.st||null;if(mine()&&!bgM.textContent)bgM.textContent=stTxt(pfSt)}).catch(()=>{})}catch(e){}};
+ window.PFMY=()=>{try{fetch('/api/pfbg/me',{headers:pfHd(),cache:'no-store'}).then(r=>r.json()).then(o=>{pfSt=o.st||null;if(!pfSt&&pfLocal&&!window.__pfSync){window.__pfSync=1;bgM.textContent='Enviando seu fundo para aprovação…';pfShare(pfLocal);return} /* foto escolhida antes da atualização: envia agora */
+   if(mine()&&!bgM.textContent)bgM.textContent=stTxt(pfSt)}).catch(()=>{})}catch(e){}};
  window.PFS=st=>{pfSt=st;if(mine())bgM.textContent=stTxt(st);try{MPNET.note(st==='ok'?'🖼 Seu fundo de perfil foi aprovado ✅':st==='no'?'🖼 Seu fundo de perfil foi recusado ❌':'')}catch(e){}};
  async function pfShrink(f){ /* foto parada: reduz (máx. 1000 px) e vira JPEG leve para o servidor; o original continua só no seu aparelho */
   let im;try{im=await createImageBitmap(f)}catch(e){im=await new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{URL.revokeObjectURL(u);ok(i)};i.onerror=()=>no();i.src=u})}
