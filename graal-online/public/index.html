@@ -2600,11 +2600,13 @@ function pfFit(){try{const vv=window.visualViewport,vw=Math.round(vv?vv.width:in
  if(!mob){['width','height','maxHeight','left','top'].forEach(k=>pf.style[k]='');pfZoom();return}
  const m=port?8:6;pf.style.width=Math.min(vw-2*m,port?560:900)+'px';pf.style.height=(vh-2*m)+'px';pf.style.maxHeight=(vh-2*m)+'px';
  pf.style.left=Math.round((vv?vv.offsetLeft:0)+vw/2)+'px';pf.style.top=Math.round((vv?vv.offsetTop:0)+vh/2)+'px';pfZoom()}catch(e){}}
-/* encolhe o conteúdo da aba até caber na tela do celular, sem precisar rolar (mínimo 55%; abaixo disso volta a rolar) */
-function pfZoom(){try{const all=[...pf.querySelectorAll('section[data-p]')];all.forEach(x=>x.style.zoom='');
+function pfZoom(){try{const all=[...pf.querySelectorAll('section[data-p]')],ZM=window.CSS&&CSS.supports&&CSS.supports('zoom','1');
+ all.forEach(x=>{x.style.zoom='';x.style.transform='';x.style.width='';x.style.marginBottom=''});
  if(!pf.classList.contains('mob')||pf.style.display==='none')return;const bd=pf.querySelector('#pfBody');if(!bd)return;
  const cs=getComputedStyle(bd),av=bd.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);
- all.filter(x=>!x.hidden).forEach(x=>{const need=x.offsetHeight;if(av>0&&need>av)x.style.zoom=Math.max(.55,av/need-.01).toFixed(3)})}catch(e){}}
+ all.filter(x=>!x.hidden).forEach(x=>{const need=x.offsetHeight;if(!(av>0&&need>av))return;const z=Math.max(.4,av/need-.03);
+  if(ZM)x.style.zoom=z.toFixed(3);
+  else{x.style.transformOrigin='0 0';x.style.transform='scale('+z.toFixed(3)+')';x.style.width=(100/z).toFixed(1)+'%';x.style.marginBottom=(-(need*(1-z))).toFixed(0)+'px'}})}catch(e){}} /* encolhe a aba até caber na tela (mínimo 40%) */
 {const fit=()=>{if(pf.style.display!=='none')pfFit()};addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,150));
  if(window.visualViewport){visualViewport.addEventListener('resize',fit);visualViewport.addEventListener('scroll',fit)}}
 const pfOpen=id=>{pfFit();try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}
