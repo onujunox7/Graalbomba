@@ -2127,7 +2127,8 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='host'||m.t==='ms'||m.t==='mh'||m.t==='mp'||m.t==='dr'||m.t==='dp'||m.t==='dall'||m.t==='bo'||m.t==='ar'){if(window.MSY)window.MSY.net(m);else(window.__MSQ=window.__MSQ||[]).push(m);return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
   if(m.t!=='st')return;const seen=new Set();{const _n=performance.now();if(SNAP.l){const iv=Math.min(250,_n-SNAP.l);SNAP.i+=(iv-SNAP.i)*.1;INTERP_DELAY=Math.max(55,Math.min(170,SNAP.i*1.25+10))}SNAP.l=_n}
-  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}snapPush(r,p.x,p.y,performance.now(),p.an);
+  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}{const _a=performance.now();let _t=_a;if(typeof p.ct==='number'){const c=_a-p.ct;if(r.off===undefined||c<r.off)r.off=c;else r.off+=(c-r.off)*.01;_t=p.ct+r.off;const _l=r.nb&&r.nb[r.nb.length-1];if(_l&&_t<=_l.t)_t=_l.t+1} /* v26.3: tempo do remetente (sem o jitter da rede) */
+   snapPush(r,p.x,p.y,_t,p.an)}
    r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl}
   for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
@@ -2144,7 +2145,7 @@ setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
- ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0}))}catch(e){}},50);
+ ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,ct:Math.round(performance.now()*10)/10,lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0}))}catch(e){}},50);
 /* desenho do personagem remoto com a mesma engine de skin */
 function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm[1])?+mm[1]:{Up:0,Left:1,Down:2,Right:3}[mm[1]],kn=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':'idle';
  const A=X.GANI[kn],fi=kn==='walk'?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};

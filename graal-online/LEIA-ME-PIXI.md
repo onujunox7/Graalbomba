@@ -59,3 +59,6 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 
 ### v26.2: remoto não "desliza"
 - A animação (Idle/Run/Attack) do jogador remoto agora vem do mesmo snapshot usado para a posição, não do pacote mais recente. Antes ele voltava a Idle (ou começava a correr) ~70 ms antes/depois de realmente parar/andar, e parecia deslizar de pé.
+
+### v26.3: carimbo de tempo do remetente
+- O cliente envia `ct` (seu `performance.now()`) junto da posição; o servidor repassa. Quem recebe interpola pela hora em que a posição foi medida (com um deslocamento de relógio estimado por mínimo móvel), em vez da hora em que o pacote chegou. Isso tira o jitter de rede/timer, que dava ritmo irregular e aparência de deslizar. Com servidor antigo (sem `ct`) volta ao comportamento anterior. **Precisa trocar o `server.js`.**
