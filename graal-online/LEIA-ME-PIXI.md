@@ -68,3 +68,7 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 
 ### v26.5: golpe do amigo não repete o início
 - O estado "Attack" entrava um pacote antes do contador de golpe `ak`, então a animação reiniciava duas vezes seguidas. Agora o ataque só começa quando os dois chegam juntos (um reinício só). Só o cliente mudou.
+
+### v26.6: buffer de jitter adaptativo
+- O atraso da interpolação agora é `intervalo + 1,2 × pior atraso de chegada recente + 12 ms` (entre 65 e 220 ms), medido com o carimbo `ct`; muda no máximo ±2 ms por pacote. Quando faltava pacote na hora de desenhar, o remoto extrapolava devagar e depois "puxava", dando a sensação de lento/deslizando. Extrapolação agora a 75% da velocidade, até 100 ms.
+- Diagnóstico no console: `__ID()` (atraso atual, ms) e `__SNAP.u` (quantas vezes faltou pacote).
