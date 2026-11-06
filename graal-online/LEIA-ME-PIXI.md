@@ -155,3 +155,16 @@ Com dois dedos na tela do jogo, afastar os dedos aproxima a câmera e juntar afa
 
 ## v26.13: botões embaixo do HUD de vida
 Chat 💬, Configurações ⚙, Minimapa 🗺 e Tela cheia ⛶ agora ficam numa fileira logo abaixo do card de vida (nível, corações, MP e vigor), no canto superior esquerdo, e acompanham o tamanho do HUD (A−/A+). Saíram do canto inferior direito e do menu de Configurações (o Zoom 🔍 e os outros continuam no menu).
+
+## v26.14: topo da tela reorganizado
+- **Login com Discord** saiu do topo e agora fica em Configurações, na aba "👤 Conta" (entrar, avatar, nome, sair e o status do salvamento na nuvem).
+- **Contador de FPS** (o que ficava no centro do topo) foi para o canto inferior esquerdo. Continua ligando em Configurações > Desempenho.
+- **Barra do topo** (centro): botões − 🔍% + de zoom para todos (🔍 ainda alterna entre os níveis fixos). Só para admin aparecem também 👾 Spawns de monstros e 📂 Tileset (o tileset abre o editor de mapa já com o painel de tilesets; não existe no celular).
+- No editor de mapa a barra some (o editor tem os próprios botões).
+
+## v26.15: zoom nítido (50% ou menos / mais)
+- **Problema:** a arte é 1 px de mundo = 1 px de sprite e é desenhada com NEAREST na escala `RS*Z` (RS do canvas × zoom). Com zoom, isso ficava fracionado (ex.: 3×0,75 = 2,25; 3×0,5 = 1,5), então uns pixels saíam largos e outros finos: serrilhado, tremida ao andar e visual "pixelado".
+- **Agora:** `fit()` escolhe `RS = k/Z` com `k` inteiro (k ≈ pixels de tela por pixel de mundo). Assim `RS*Z` é sempre inteiro e todo pixel de mundo tem o mesmo tamanho; o navegador só reamostra o canvas para a tela de forma suave (bilinear, o "sharp bilinear"). Com zoom 100% nada muda.
+- O tamanho do canvas continua perto da resolução da tela (limites: RS máx. 4 no PC / 2 no celular e 4096 px de largura), então não pesa mais.
+- `lab()` (zoom) chama `fit()` 120 ms depois da última mudança, então a pinça não redimensiona o canvas a cada quadro.
+- Modo de qualidade baixa (`pix`) e editor de mapa continuam como antes.

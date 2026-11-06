@@ -659,7 +659,11 @@ let VW=384,VH=288;const SC=1;var EDZ=1,EDSZ=1;try{EDZ=+localStorage.getItem('gra
 let WP=D.W*8,HPX=D.H*8,RS=3,SO=null;
 const MOBILE=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);let QL=0;
 window.NOMON=true;window.NOCK=true; /* true = SEM monstros (nem os do mapa, nem o esqueleto inicial, nem os spawns de admin) e SEM galinhas. Troque por false para voltar ao normal. */
-function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);RS=Math.min(QL>=2?1:(MOBILE?2:4),Math.max(QL>=2?1:2,Math.ceil(cv.clientWidth*(devicePixelRatio||1)/VW)));cv.width=VW*RS;cv.height=VH*RS}
+function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);{const cap=QL>=2?1:(MOBILE?2:4),Sx=cv.clientWidth*(devicePixelRatio||1)/VW,Z=(!ed&&window.GZ>0&&window.GZ!==1)?window.GZ:1;
+ let r=Math.min(cap,Math.max(QL>=2?1:2,Math.ceil(Sx)));
+ /* v26.15 zoom nítido: com zoom o jogo desenha a arte em escala RS*Z. Se isso for fracionado (ex.: 3*0.75=2.25) o NEAREST faz pixels largos e finos alternados (serrilhado/pixelado). Aqui escolhemos RS = k/Z com k INTEIRO (pixels de mundo uniformes) e o navegador só reamostra suave por cima (bilinear = "sharp bilinear"). */
+ if(Z!==1&&QL<2){let k=Math.max(1,Math.ceil(Sx*Z-.34));const lim=Math.min(cap,4096/VW);if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));r=k/Z}
+ RS=r;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
 const keys={};let atkPress=0;
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(!keys[k]&&(k===' '||k==='j'||k==='control'))atkPress=1;keys[k]=1;if(e.key.startsWith('Arrow')||e.key===' ')e.preventDefault()});
 addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
@@ -2156,8 +2160,10 @@ try{const v=localStorage.getItem('graal_zoom_v2');if(v!==null&&LV[+v]!==undefine
 /* zf: zoom contínuo feito com o pinça (2 dedos); null = usa os níveis fixos do botão 🔍 */
 const ZMIN=.5,ZMAX=2.5;let zf=null;
 try{const f=parseFloat(localStorage.getItem('graal_zoom_f'));if(isFinite(f)&&f>=ZMIN&&f<=ZMAX)zf=f}catch(e){}
-const lab=()=>{const z=zf||LV[zi];window.GZ=z;zb.textContent=Math.abs(z-1)<.005?'🔍':('🔍 '+Math.round(z*100)+'%');zb.title='Zoom da câmera (Z): '+Math.round(z*100)+'% da visão'};lab();
+const lab=()=>{const z=zf||LV[zi];window.GZ=z;zb.textContent=Math.abs(z-1)<.005?'🔍':('🔍 '+Math.round(z*100)+'%');zb.title='Zoom da câmera (Z): '+Math.round(z*100)+'% da visão';clearTimeout(window.__zfT);window.__zfT=setTimeout(()=>{try{fit()}catch(e){}},120)};lab();
 zb.addEventListener('click',()=>{zf=null;try{localStorage.removeItem('graal_zoom_f')}catch(e){}zi=(zi+1)%LV.length;lab();try{localStorage.setItem('graal_zoom_v2',zi)}catch(e){}});
+/* passos do zoom (botões − e + do topo): multiplica a câmera por f, de 50% a 250% */
+window.GZSTEP=f=>{let z=(window.GZ>0?window.GZ:1)*f;z=Math.max(ZMIN,Math.min(ZMAX,z));if(Math.abs(z-1)<.09)z=1;zf=z;lab();try{localStorage.setItem('graal_zoom_f',zf.toFixed(3))}catch(e){}};
 /* zoom de pinça no celular: 2 dedos na tela do jogo aproximam/afastam a câmera */
 (()=>{const tp=new Map();let d0=0,z0=1,pinching=false,lastPinch=0;
  const dist=()=>{const a=[...tp.values()];return a.length<2?0:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)};
@@ -4462,12 +4468,12 @@ function snap(){const o={};KEYS.forEach(k=>{const v=ls(k);if(typeof v==='string'
 function sync(force){if(!ready||!window.MPNET||!MPNET.live())return;const o=snap(),j=JSON.stringify(o);if(!force&&j===lastSent)return;lastSent=j;let d=o;if(!force){d={};for(const k in o)if(o[k]!==lastK[k])d[k]=o[k]}lastK=o;MPNET.send({t:'sv',d});setSt('☁ enviando…','#ffd27a')}
 /* barra no topo: entrar / avatar + nome + sair */
 const bar=document.createElement('div');bar.id='accbar';
-bar.style.cssText='position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:60;display:none;align-items:center;gap:7px;padding:3px 11px 3px 4px;border-radius:15px;background:rgba(30,22,12,.85);border:2px solid #5a4020;color:#f3e6c4;font:600 12px Verdana,Arial,sans-serif;white-space:nowrap;user-select:none';
-document.body.appendChild(bar);
-const stEl=document.createElement('span');stEl.style.cssText='font-weight:400;font-size:11px;margin-left:4px;color:#cfe8ff';function setSt(t,c){stEl.textContent=t;stEl.style.color=c||'#cfe8ff'}setSt('v6');
+bar.style.cssText='display:none;align-items:center;gap:8px;user-select:none';
+window.__ACCBAR=bar; /* a barra de conta mora na aba "Conta" das Configurações (o painel pega daqui) */
+const stEl=document.createElement('span');stEl.style.cssText='font-weight:400;font-size:12px;margin-left:4px;color:var(--mut,#cfe8ff)';function setSt(t,c){stEl.textContent=t;stEl.style.color=c||'var(--mut,#cfe8ff)'}setSt('v6');
 function ui(u){bar.textContent='';bar.style.display='flex';
- if(u){const i=new Image();i.src=u.av;i.width=i.height=20;i.style.cssText='border-radius:50%;display:block';const n=document.createElement('span');n.textContent=u.name;const a=document.createElement('a');a.href='/auth/logout';a.onclick=function(ev){ev.preventDefault();try{dispatchEvent(new Event('beforeunload'))}catch(e){}try{sync(1)}catch(e){}setTimeout(function(){location.href='/auth/logout'},500)};a.textContent='sair';a.style.cssText='color:#ffb05a;text-decoration:none;margin-left:2px';bar.append(i,n,a,stEl);bar.style.paddingLeft='4px'}
- else{const a=document.createElement('a');a.href='/auth/discord';a.textContent='🔑 Entrar com Discord';a.style.cssText='color:#fff;text-decoration:none;padding-left:7px';bar.append(a,stEl)}}
+ if(u){const i=new Image();i.src=u.av;i.width=i.height=20;i.style.cssText='border-radius:50%;display:block';const n=document.createElement('span');n.textContent=u.name;const a=document.createElement('a');a.href='/auth/logout';a.onclick=function(ev){ev.preventDefault();try{dispatchEvent(new Event('beforeunload'))}catch(e){}try{sync(1)}catch(e){}setTimeout(function(){location.href='/auth/logout'},500)};a.textContent='sair';a.className='sr';bar.append(i,n,a,stEl)}
+ else{const a=document.createElement('a');a.href='/auth/discord';a.textContent='🔑 Entrar com Discord';a.className='lg';bar.append(a,stEl)}}
 if(/[?&]logout=1/.test(location.search)){try{history.replaceState(null,'',location.pathname)}catch(e){}ui(null)}
 if(location.protocol!=='file:')fetch('/api/me',{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&j.on){ui(j.user);if(j.user)setTimeout(()=>{if(!ready)setSt('⚠ conta não chegou ao jogo','#ff9a9a')},10000)}}).catch(()=>{});
 try{if(/[?&]login=erro/.test(location.search)){history.replaceState(null,'',location.pathname);setTimeout(()=>{try{MPNET.note('Não consegui entrar com o Discord. Tente de novo.')}catch(e){}},1500)}}catch(e){}
@@ -4628,7 +4634,7 @@ const css=document.createElement('style');css.textContent=
 '#joy .jk{position:absolute;left:29%;top:29%;width:42%;height:42%;border-radius:50%;border:2px solid #fff;background:linear-gradient(180deg,rgba(253,254,255,.8),rgba(185,217,246,.75));box-shadow:0 3px 0 #8fc0ef,0 4px 8px rgba(60,120,190,.45);transition:transform .07s;will-change:transform;pointer-events:none}'+
 '#joy.on .jk{transition:none}'+
 '@media (pointer:fine){#hudctl #joy{display:none!important}}'+
-'#fpsc{display:none;position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:9995;font:bold 11px monospace;color:#9aff9a;background:rgba(0,0,0,.55);padding:1px 6px;border-radius:4px;pointer-events:none}';
+'#fpsc{display:none;position:fixed;bottom:max(4px,env(safe-area-inset-bottom,0px));left:max(6px,env(safe-area-inset-left,0px));z-index:9995;font:bold 11px monospace;color:#9aff9a;background:rgba(0,0,0,.55);padding:1px 6px;border-radius:4px;pointer-events:none}';
 css.textContent+=
 '#qk{position:absolute;right:max(18px,env(safe-area-inset-right,0px));bottom:calc(max(14px,env(safe-area-inset-bottom,0px)) + var(--b)*3.3 + 24px);display:flex;flex-direction:column;align-items:flex-end;gap:calc(var(--tb)*.2);pointer-events:none}'+
 '#hudctl #qk.row{flex-direction:row}'+
@@ -4642,14 +4648,24 @@ document.head.appendChild(css);
 
 const pn=document.createElement('div');pn.id='cfgp';pn.setAttribute('role','dialog');pn.setAttribute('aria-label','Configurações');
 pn.innerHTML='<div class="cH"><div class="cHt"><b>⚙ Configurações</b><small>Ajuste o jogo ao seu aparelho e ao seu gosto</small></div><button type="button" class="cx" aria-label="Fechar">✕</button></div>'+
-'<div class="cT" role="tablist"><button type="button" data-t="perf" class="on">🚀 Desempenho</button><button type="button" data-t="ctl">🕹 Controles</button><button type="button" data-t="ui">🎨 Aparência</button><button type="button" data-t="sys">⚡ Atalhos</button></div>'+
+'<div class="cT" role="tablist"><button type="button" data-t="perf" class="on">🚀 Desempenho</button><button type="button" data-t="ctl">🕹 Controles</button><button type="button" data-t="ui">🎨 Aparência</button><button type="button" data-t="acc">👤 Conta</button><button type="button" data-t="sys">⚡ Atalhos</button></div>'+
 '<div class="cB">'+
 '<section data-c="perf"><div class="cG"><div class="cC"><div class="cCt">Taxa de quadros</div><div class="cr" data-r="unl"><span>Sem limite de FPS</span><button type="button" class="sw" role="switch"></button></div><div class="cr" data-r="lock"><span>Travar FPS</span><select class="cs" aria-label="FPS travado">'+CAPS.map(c=>'<option value="'+c+'">'+c+'</option>').join('')+'</select><button type="button" class="sw" role="switch"></button></div><div class="cr" data-r="vs"><span>VSync</span><button type="button" class="sw" role="switch"></button></div></div><div class="cC"><div class="cCt">Diagnóstico</div><div class="cr" data-r="show"><span>Mostrar contador de FPS</span><button type="button" class="sw" role="switch"></button></div><p class="ci"></p></div></div></section>'+
 '<section data-c="ctl" hidden><div class="cG"><div class="cC"><div class="cCt">Toque</div><div class="cr" data-r="joy"><span>Joystick no lugar do direcional</span><button type="button" class="sw" role="switch"></button></div><p class="cj">O joystick analógico anda em 8 direções. Só aparece em aparelhos com tela de toque.</p></div><div class="cC"><div class="cCt">Teclado</div><div class="cK"><kbd>Setas / WASD</kbd><span>Andar</span><kbd>Espaço</kbd><span>Atacar com a espada</span><kbd>Shift</kbd><span>Esquivar</span><kbd>Q</kbd><span>Usar poção</span><kbd>F</kbd><span>Atirar com o arco</span><kbd>B</kbd><span>Colocar bomba</span><kbd>E</kbd><span>Pegar arbusto / interagir</span><kbd>Enter</kbd><span>Abrir o chat</span><kbd>C ou V</kbd><span>Personagem e equipamento</span></div></div></div></section>'+
 '<section data-c="ui" hidden><div class="cG"><div class="cC"><div class="cCt">Nomes</div><div class="cr" data-r="nm"><span>Esconder nomes dos players (inclusive o seu)</span><button type="button" class="sw" role="switch"></button></div></div><div class="cC"><div class="cCt">Fundo das configurações</div><div class="cr" data-r="bg"><span>Usar minha foto de perfil como fundo</span><button type="button" class="sw" role="switch"></button></div><div class="cDm"><span>Escurecer</span><input type="range" id="cbgd" min="0" max="90"><b id="cbgn"></b></div><div class="cPv" id="cpv"></div><p class="cj" id="cbgi"></p></div></div></section>'+
+'<section data-c="acc" hidden><div class="cG"><div class="cC"><div class="cCt">Conta do Discord</div><p class="cj">Entre com o Discord para salvar seu progresso na conta e continuar de onde parou em qualquer aparelho.</p><div id="cAcc"></div><p class="cj" id="cAccE" style="display:none">Conta do Discord indisponível no momento.</p></div></div></section>'+
 '<section data-c="sys" hidden><div class="cC"><div class="cCt">Atalhos do jogo</div><div id="cSysBox"></div></div></section>'+
 '</div><div class="cf"><button type="button" class="rs">↺ Restaurar padrão</button></div>';
 document.body.appendChild(pn);
+{const ab=window.__ACCBAR,ca=pn.querySelector('#cAcc');if(ab&&ca)ca.appendChild(ab);
+ const st2=document.createElement('style');st2.textContent=
+  '#cfgp #accbar{flex-wrap:wrap;margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--bd);background:var(--inp);color:var(--tx);font:14px Verdana,Arial,sans-serif;white-space:normal}'+
+  '#cfgp.hasbg #accbar{background:color-mix(in srgb,var(--inp) 40%,transparent)}'+
+  '#cfgp #accbar img{width:28px;height:28px;border-radius:50%}'+
+  '#cfgp #accbar a{color:var(--tx);text-decoration:none}'+
+  '#cfgp #accbar a.lg{padding:9px 14px;border:1px solid var(--acc);border-radius:10px;background:var(--btn);color:var(--btnt);font-weight:bold}'+
+  '#cfgp #accbar a.sr{margin-left:auto;padding:6px 10px;border:1px solid var(--bd);border-radius:10px;color:#ffb05a}';
+ document.head.appendChild(st2)}
 const sel=pn.querySelector('.cs'),info=pn.querySelector('.ci');
 pn.querySelectorAll('button,select').forEach(b=>b.tabIndex=-1);
 
@@ -4688,7 +4704,7 @@ const bd=document.createElement('div');bd.id='cfgBd';document.body.appendChild(b
 bd.addEventListener('contextmenu',e=>e.preventDefault());bd.addEventListener('click',()=>setOpen(false));
 
 let opened=false;
-const setOpen=v=>{opened=v;pn.style.display=v?'flex':'none';bd.style.display=v?'block':'none';if(v){render();caps();applyLook();goTab(curTab)}};
+const setOpen=v=>{opened=v;pn.style.display=v?'flex':'none';bd.style.display=v?'block':'none';if(v){render();caps();applyLook();goTab(curTab);{const ae=pn.querySelector('#cAccE'),ab=window.__ACCBAR;if(ae&&ab)ae.style.display=ab.style.display==='none'?'block':'none'}}};
 pn.querySelector('.cx').addEventListener('click',()=>setOpen(false));
 ['keydown','keyup','keypress','pointerdown'].forEach(ev=>pn.addEventListener(ev,e=>{e.stopPropagation();if(ev==='keydown'&&e.key==='Escape')setOpen(false)}));
 pn.addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});
@@ -4710,17 +4726,17 @@ if(sys&&ctl){
  b.addEventListener('mousedown',e=>e.preventDefault());
  ['click','pointerdown'].forEach(ev=>b.addEventListener(ev,e=>{e.stopPropagation();if(ev==='click'){setOpen(!opened);b.blur()}}));
  /* fileira de botões logo abaixo do HUD de vida: Chat, Configurações, Minimapa e Tela cheia */
- const bar=document.createElement('div');bar.id='hbar';
+ const bar=document.createElement('div');bar.id='hbar';bar.className='hb';
  [chatB,b,mapB,fsB].forEach(x=>{if(x)bar.appendChild(x)});
  ['pointerdown','mousedown','touchstart'].forEach(ev=>bar.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
  bar.addEventListener('contextmenu',e=>e.preventDefault());
  const st=document.createElement('style');st.textContent=
-  '#hud #hbar{display:flex;flex-wrap:wrap;gap:calc(var(--k)*6px);pointer-events:none}'+
-  '#hud #hbar button{position:relative;display:grid;place-items:center;flex:none;width:calc(var(--k)*40px);min-width:0;height:calc(var(--k)*40px);padding:0;border:0;border-radius:50%;color:#24507f;font-family:inherit;font-size:calc(var(--k)*20px);line-height:1;white-space:nowrap;cursor:pointer;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-shadow:none;opacity:.95;'+
+  '#hud .hb{display:flex;flex-wrap:wrap;gap:calc(var(--k)*6px);pointer-events:none}'+
+  '#hud .hb button{position:relative;display:grid;place-items:center;flex:none;width:calc(var(--k)*40px);min-width:0;height:calc(var(--k)*40px);padding:0;border:0;border-radius:50%;color:#24507f;font-family:inherit;font-size:calc(var(--k)*20px);line-height:1;white-space:nowrap;cursor:pointer;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-shadow:none;opacity:.95;'+
   'background:linear-gradient(180deg,rgb(253 254 255/var(--gb)),rgb(228 242 255/var(--gb)) 70%,rgb(196 225 251/var(--gb)));box-shadow:0 3px 0 #8fc0ef,0 5px 9px rgba(60,120,190,.4),inset 0 0 0 1.5px #fff;transition:transform .06s,filter .1s}'+
-  '#hud #hbar button:active{transform:translateY(2px) scale(.96);background:linear-gradient(180deg,#d4e9fd,#a9d0f4);box-shadow:0 1px 0 #8fc0ef,inset 0 0 0 1.5px #fff}'+
-  '#hud #hbar button .t{display:none!important}'+
-  '#hud #hbar button i{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#e03a3a;color:#fff;font:700 10px/16px Verdana,sans-serif;font-style:normal;text-align:center;display:none;padding:0 3px;box-sizing:border-box;pointer-events:none}';
+  '#hud .hb button:active{transform:translateY(2px) scale(.96);background:linear-gradient(180deg,#d4e9fd,#a9d0f4);box-shadow:0 1px 0 #8fc0ef,inset 0 0 0 1.5px #fff}'+
+  '#hud .hb button .t{display:none!important}'+
+  '#hud .hb button i{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#e03a3a;color:#fff;font:700 10px/16px Verdana,sans-serif;font-style:normal;text-align:center;display:none;padding:0 3px;box-sizing:border-box;pointer-events:none}';
  document.head.appendChild(st);
  /* entra logo depois do card de vida (nível, corações, MP e vigor), antes das fichas de poções/bombas */
  const stats=document.querySelector('#hud .tl .stats');
@@ -4803,5 +4819,30 @@ let wT=0;cv.addEventListener('wheel',e=>{if(!ED||!e.ctrlKey)return;e.preventDefa
 document.body.style.setProperty('--edsz',SL[si]);lab();
 const _et2=edToggle;edToggle=function(){_et2();if(ED){document.body.style.setProperty('--edsz',SL[si]);fit();edClamp()}};
 })();
+</script>
+<script>
+/* ===== barra do topo: botões de zoom para todos; spawns de monstros e tileset só para admin ===== */
+(()=>{try{
+const hud=document.getElementById('hud');if(!hud)return;
+const tc=document.createElement('div');tc.id='tbar';tc.className='hb';
+const mk=(txt,title,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=txt;b.title=title;b.setAttribute('aria-label',title);b.addEventListener('click',e=>{e.stopPropagation();fn()});return b};
+const zb=document.getElementById('zmb'),spb=document.getElementById('spb'),adm=[];
+tc.appendChild(mk('−','Afastar a câmera',()=>{window.GZSTEP&&GZSTEP(1/1.2)}));
+if(zb)tc.appendChild(zb);
+tc.appendChild(mk('+','Aproximar a câmera',()=>{window.GZSTEP&&GZSTEP(1.2)}));
+if(spb){spb.hidden=true;tc.appendChild(spb);adm.push(spb)}
+if(!(window.matchMedia&&matchMedia('(pointer:coarse)').matches)){ /* o editor de mapa não existe no celular */
+ const tsb=mk('📂','Tileset (editor de mapa)',()=>{try{if(!ED){TSopen=true;edToggle();if(!ED)TSopen=false}else{TSopen=!TSopen;tsShow()}}catch(e){console.error(e)}});
+ tsb.id='tsb';tsb.hidden=true;tc.appendChild(tsb);adm.push(tsb)}
+['pointerdown','mousedown','touchstart'].forEach(ev=>tc.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
+tc.addEventListener('contextmenu',e=>e.preventDefault());
+const st=document.createElement('style');st.textContent=
+ '#hud #tbar{position:absolute;left:50%;top:max(calc(var(--k)*14px),env(safe-area-inset-top,0px));transform:translateX(-50%);flex-wrap:nowrap;justify-content:center}'+
+ '#hud .hb button[hidden]{display:none}'+
+ '#hud .hb button#zmb{width:auto;min-width:calc(var(--k)*40px);padding:0 calc(var(--k)*10px);font-size:calc(var(--k)*14px);font-weight:600;border-radius:calc(var(--k)*20px)}';
+document.head.appendChild(st);hud.appendChild(tc);
+const isAdm=()=>(window.__ROLE|0)>=1||!window.__MPSRV; /* sem servidor (jogo local) o dono é você */
+const sync=()=>{const a=isAdm();adm.forEach(b=>{if(b.hidden===a)b.hidden=!a})};sync();setInterval(sync,1000);
+}catch(e){console.error('tbar',e)}})();
 </script>
 </body></html>
