@@ -212,6 +212,21 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
     });
   } catch (e) { }
 
+
+  /* ?prof=1 -> medidor no canto da tela: onde o tempo de cada quadro está indo (atualização, desenho, Pixi) */
+  if (/[?&]prof=1/.test(location.search)) {
+    const P = window.__PROF = { n: 0, u: 0, d: 0, p: 0, it: 0, t0: performance.now(), el: null };
+    P.f = (u, d) => { P.n++; P.u += u; P.d += d };
+    P.pp = (ms, it) => { P.p += ms; P.it = it };
+    const show = () => {
+      const now = performance.now(), s = (now - P.t0) / 1000, n = Math.max(1, P.n);
+      const txt = Math.round(P.n / s) + ' fps | update ' + (P.u / n).toFixed(2) + ' ms | draw(JS) ' + (P.d / n).toFixed(2) + ' ms | Pixi ' + (P.p / n).toFixed(2) + ' ms | itens ' + P.it + ' | ' + (window.__PIXI_ON ? 'Pixi' : 'Canvas2D');
+      if (!P.el) { P.el = document.createElement('div'); P.el.style.cssText = 'position:fixed;left:6px;top:6px;z-index:99999;background:#000c;color:#9f9;font:11px monospace;padding:3px 6px;border-radius:4px;pointer-events:none'; (document.body || document.documentElement).appendChild(P.el) }
+      P.el.textContent = txt; console.log('[prof]', txt); P.n = P.u = P.d = P.p = 0; P.t0 = now;
+    };
+    setInterval(show, 1000);
+  }
+
   window.__mkGfx = function (cv) {
     try {
       if (!window.PIXI) throw new Error('PIXI ausente');
@@ -277,12 +292,14 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
       queueMicrotask(() => { this.open = false; this.paint() });
     }
     paint() {
+      const _t = window.__PROF ? performance.now() : 0;
       const cv = this.canvas;
       if (cv.width !== this.rw || cv.height !== this.rh) { this.rw = cv.width; this.rh = cv.height; this.r.resize(this.rw, this.rh) }
       for (const d of this.dead) { try { d.destroy({ children: false }) } catch (e) { } } this.dead.length = 0;
       this.build(this.root, this.rootL);
       this.r.render(this.root);
       for (const t of this.grave) { try { t.destroy(true) } catch (e) { } } this.grave.length = 0;
+      if (_t) window.__PROF.pp(performance.now() - _t, this.si + this.gi);
     }
     build(c, list) {
       c.removeChildren();
@@ -1481,7 +1498,7 @@ function tsInit(){
 function start(){try{fit();buildWorld();reset();loadGame()}catch(e){g.setTransform(RS,0,0,RS,0,0);g.fillStyle='#14161c';g.fillRect(0,0,VW,VH);g.fillStyle='#ff5a5a';g.font='10px sans-serif';g.textAlign='center';g.fillText('Erro: '+e.message,VW/2,VH/2);return}last=performance.now();requestAnimationFrame(loop)}
 let LG=0,LC=12,LGAP=15;var GFPS={gap:null}; /* gap: null=automático (LGAP), 0=sem limite, >0=ms entre quadros */
 var GSCHED=function(f){requestAnimationFrame(f)}; /* trocado pelo painel de configurações (VSync desligado usa outro agendador) */
-function loop(n){const gp=GFPS.gap==null?LGAP:GFPS.gap,el=n-LG;if(gp>0&&el<gp-Math.min(2,gp*.15)){GSCHED(loop,gp-el);return}LG=(gp>0&&el<gp*2)?n-Math.min(Math.max(el-gp,0),gp/2):n;const t0=performance.now();const dt=Math.max(0,Math.min(.1,(n-last)/1000));last=n;if(keys['r']){keys['r']=0;clearSave();P=null;reset()}if(keys['m']){keys['m']=0;showMap=!showMap}if(keys['t']){keys['t']=0;edToggle()}if(ED)edUpdate(dt);else update(dt);draw();drawUI();if(ED)drawEd();LC=LC*.9+(performance.now()-t0)*.1;GSCHED(loop,gp>0?gp-(performance.now()-LG):0)} /* FPS travado em 60: LGAP fica fixo em 15 ms (antes caía para 30 fps quando o quadro demorava) */
+function loop(n){const gp=GFPS.gap==null?LGAP:GFPS.gap,el=n-LG;if(gp>0&&el<gp-Math.min(2,gp*.15)){GSCHED(loop,gp-el);return}LG=(gp>0&&el<gp*2)?n-Math.min(Math.max(el-gp,0),gp/2):n;const t0=performance.now();const dt=Math.max(0,Math.min(.1,(n-last)/1000));last=n;if(keys['r']){keys['r']=0;clearSave();P=null;reset()}if(keys['m']){keys['m']=0;showMap=!showMap}if(keys['t']){keys['t']=0;edToggle()}const _pa=performance.now();if(ED)edUpdate(dt);else update(dt);const _pb=performance.now();draw();drawUI();if(ED)drawEd();if(window.__PROF)window.__PROF.f(_pb-_pa,performance.now()-_pb);LC=LC*.9+(performance.now()-t0)*.1;GSCHED(loop,gp>0?gp-(performance.now()-LG):0)} /* FPS travado em 60: LGAP fica fixo em 15 ms (antes caía para 30 fps quando o quadro demorava) */
 
 /* ===================== ADD-ON ESTILO ZELDA: arbustos, bombas, arco, drops ===================== */
 (()=>{
