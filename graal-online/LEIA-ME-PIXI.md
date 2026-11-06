@@ -56,3 +56,6 @@ A assinatura de quadro da v20 usava `texture.uid`, que o Pixi real não garante 
 ### v26.1: menos atraso nos jogadores remotos
 - Cliente envia posição a 20/s (antes 10/s) e o servidor repassa a 20/s (`setInterval` de 50 ms). **Precisa trocar o `server.js` também.**
 - `INTERP_DELAY` agora é adaptativo: ~1,25× o intervalo real entre pacotes (≈72 ms com servidor a 20/s; ≈135 ms se o servidor ainda estiver a 10/s). Antes era fixo em 130 ms.
+
+### v26.2: remoto não "desliza"
+- A animação (Idle/Run/Attack) do jogador remoto agora vem do mesmo snapshot usado para a posição, não do pacote mais recente. Antes ele voltava a Idle (ou começava a correr) ~70 ms antes/depois de realmente parar/andar, e parecia deslizar de pé.

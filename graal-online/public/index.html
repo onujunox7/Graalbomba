@@ -739,11 +739,12 @@ let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
 const CAMS={ok:0,w:0,z:1,k:16}; /* k: velocidade da câmera (maior = mais colada no jogador) */
 /* v26: amostra um buffer de snapshots [{t,x,y}] com atraso fixo → movimento contínuo mesmo com pacotes a 10/s */
 let INTERP_DELAY=80;const MON_DELAY=130,SNAP={l:0,i:100}; /* INTERP_DELAY se adapta ao intervalo real dos pacotes de jogadores */
-function snapPush(o,x,y,now){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y});if(b.length>8)b.shift()}
+function snapPush(o,x,y,now,an){const b=o.nb||(o.nb=[]);const l=b[b.length-1];if(l&&(Math.abs(x-l.x)+Math.abs(y-l.y)>96)){b.length=0}b.push({t:now,x,y,an});if(b.length>8)b.shift()}
+function snapAn(a,c){const i=v=>!v||/^Idle/.test(v);return !i(c.an)?c.an:!i(a.an)?a.an:c.an} /* animação coerente com o movimento mostrado: não anda parado nem desliza em Idle */
 function snapSample(o,now,dl){const b=o.nb;if(!b||!b.length)return false;const rt=now-(dl||INTERP_DELAY);
- if(b.length===1||rt<=b[0].t){o.x=b[0].x;o.y=b[0].y;return true}
- for(let i=b.length-1;i>0;i--){const a=b[i-1],c=b[i];if(rt>=a.t){if(rt<=c.t){const u=(rt-a.t)/Math.max(1,c.t-a.t);o.x=a.x+(c.x-a.x)*u;o.y=a.y+(c.y-a.y)*u}else{const l=b[b.length-1],pv=b[b.length-2],dtp=Math.max(1,l.t-pv.t),ex=Math.min(120,rt-l.t)/dtp;o.x=l.x+(l.x-pv.x)*ex*.5;o.y=l.y+(l.y-pv.y)*ex*.5}return true}}
- o.x=b[0].x;o.y=b[0].y;return true}
+ if(b.length===1||rt<=b[0].t){o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;return true}
+ for(let i=b.length-1;i>0;i--){const a=b[i-1],c=b[i];if(rt>=a.t){if(rt<=c.t){const u=(rt-a.t)/Math.max(1,c.t-a.t);o.x=a.x+(c.x-a.x)*u;o.y=a.y+(c.y-a.y)*u;o.sa=snapAn(a,c)}else{const l=b[b.length-1],pv=b[b.length-2],dtp=Math.max(1,l.t-pv.t),ex=Math.min(120,rt-l.t)/dtp;o.x=l.x+(l.x-pv.x)*ex*.5;o.y=l.y+(l.y-pv.y)*ex*.5;o.sa=l.an}return true}}
+ o.x=b[0].x;o.y=b[0].y;o.sa=b[0].an;return true}
 function dpush(o){drops.push(window.DRP?DRP.add(o):o)} /* item no chão: o módulo de rede avisa os outros jogadores */
 /* ---- monstros: ajuste aqui ---- */
 const MON_RESPAWN=30; /* segundos até o monstro renascer depois de morto */
@@ -2126,7 +2127,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='host'||m.t==='ms'||m.t==='mh'||m.t==='mp'||m.t==='dr'||m.t==='dp'||m.t==='dall'||m.t==='bo'||m.t==='ar'){if(window.MSY)window.MSY.net(m);else(window.__MSQ=window.__MSQ||[]).push(m);return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
   if(m.t!=='st')return;const seen=new Set();{const _n=performance.now();if(SNAP.l){const iv=Math.min(250,_n-SNAP.l);SNAP.i+=(iv-SNAP.i)*.1;INTERP_DELAY=Math.max(55,Math.min(170,SNAP.i*1.25+10))}SNAP.l=_n}
-  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}snapPush(r,p.x,p.y,performance.now());
+  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}snapPush(r,p.x,p.y,performance.now(),p.an);
    r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl}
   for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
@@ -2365,7 +2366,7 @@ window.RPE=function(vw,vh){ /* sprites dos remotos entram na ordenação por Y j
  return out};
 const _dm=draw;draw=function(){const X=window.MPX;rpOn=0;
  const act=!!(P&&!ED&&IM.link&&X&&X.ok),now=performance.now(),dt=Math.min(.1,(now-lt)/1000);
- if(act){lt=now;rpOn=1;for(const r of RP.values()){if(!snapSample(r,now)){r.x=r.tx;r.y=r.ty}if(r.an!==r.pn){r.pn=r.an;r.t=0}r.t+=dt}}
+ if(act){lt=now;rpOn=1;for(const r of RP.values()){if(!snapSample(r,now)){r.x=r.tx;r.y=r.ty}else if(r.sa)r.an=r.sa;if(r.an!==r.pn){r.pn=r.an;r.t=0}r.t+=dt}}
  _dm();if(!act)return;
  const z=window.GZ>0?window.GZ:1,vw=VW/z,vh=VH/z;
  g.save();g.setTransform(RS*z,0,0,RS*z,0,0);g.imageSmoothingEnabled=false;
