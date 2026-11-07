@@ -573,6 +573,25 @@ function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
   const slow = Object.keys(out).every(k => k === 'graal_pos_v1');
   p.svT = Date.now(); a.data = Object.assign(a.data || {}, out); a.last = p.svT; saveACC(a.id, slow);
 }
+/* Saiu (fechou, celular matou o app, a internet caiu): o servidor já recebe a posição do jogador o tempo todo, então grava a ÚLTIMA posição conhecida na conta.
+   No mundo aberto só vale perto do último ponto salvo pelo navegador (se teleportou, mantém o que o navegador salvou); dentro de casa grava a posição do interior. */
+function savePosOnLeave(p) {
+  try {
+    const a = p.acc && ACC[p.acc];
+    if (!a || ACTIVE_ACC.get(p.acc) !== p || !p.ok || p.al !== 1 || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+    if (p.il) { // estava dentro de uma casa: grava a posição do interior e o ponto de retorno
+      const o = { x: p.il.x, y: p.il.y, f: p.il.f, l: 'i' }; if (p.il.r) o.r = p.il.r;
+      a.data = Object.assign(a.data || {}, { graal_pos_v1: JSON.stringify(o) }); a.last = Date.now(); saveACC(a.id); return;
+    }
+    let o = null; try { o = JSON.parse((a.data || {}).graal_pos_v1 || 'null') } catch (e) { }
+    if (!o || o.l !== 'w' || !Number.isFinite(o.x) || !Number.isFinite(o.y)) return;
+    if (Math.hypot(p.x - o.x, p.y - o.y) > 600) return;
+    const f = (/(Up|Down|Left|Right)$/.exec(String(p.an || '')) || [])[1] || o.f;
+    if (o.x === Math.round(p.x) && o.y === Math.round(p.y) && o.f === f) return;
+    o.x = Math.round(p.x); o.y = Math.round(p.y); o.f = f;
+    a.data = Object.assign(a.data || {}, { graal_pos_v1: JSON.stringify(o) }); a.last = Date.now(); saveACC(a.id);
+  } catch (e) { console.error('savePosOnLeave:', e.message) }
+}
 /* arbustos cortados (compartilhado entre todos): chave "x,y" (tile) -> quando volta a crescer (ms). Mundo: 1664 x 2752 tiles. */
 const BUSH_MS = 15000, BUSH_MAX = 4000, BCUT = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, t] of BCUT) if (t <= n) BCUT.delete(k) }, 5000);
@@ -845,8 +864,15 @@ wss.on('connection', (ws, req) => {
       const k = P.get(m.by | 0), now = Date.now(); if (!k || k === p || p.phFrom !== k.id || now - (p.phT || 0) > 15000) return;
       p.phFrom = 0; sendTo(k.ws, { t: 'pk', id, nm: p.nm }); return;
     }
+    if (m.t === 'ip') { // posição DENTRO de uma casa (o 'u' não vem de lá): guardada só para gravar na conta se ele sair
+      if (d.length > 300 || !p.ok) return;
+      const x = Math.round(+m.x), y = Math.round(+m.y), r = m.r && Number.isFinite(+m.r.x) && Number.isFinite(+m.r.y) ? { x: Math.round(+m.r.x), y: Math.round(+m.r.y) } : null;
+      if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) return;
+      p.il = { x, y, f: /^(Up|Down|Left|Right)$/.test(m.f) ? m.f : 'Down', r }; return;
+    }
     if (m.t === 'u') {
       if (d.length > 400) return;
+      p.il = null; // voltou ao mundo aberto
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
@@ -869,7 +895,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
     }
   });
-  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
+  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
   ws.on('error', () => { });
 });
 

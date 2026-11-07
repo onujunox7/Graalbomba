@@ -14,7 +14,7 @@ var LS=window.localStorage,SP=Storage.prototype,gi=SP.getItem,si=SP.setItem,ri=S
 var G=function(k){try{return gi.call(LS,k)}catch(e){return null}},S=function(k,v){try{si.call(LS,k,v)}catch(e){}},R=function(k){try{ri.call(LS,k)}catch(e){}};
 var TOK='';try{var q=new URLSearchParams(location.search);if(q.get('admin')){S('graal_admin_token',q.get('admin'));q.delete('admin');var qs=q.toString();history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+location.hash)}TOK=G('graal_admin_token')||''}catch(e){}
 /* ?sync=1: descarta as edições locais pendentes e volta a usar o mapa/tilesets/colisão do SERVIDOR (conserta o dono que vê o mapa diferente dos outros) */
-try{var q2=new URLSearchParams(location.search);if(q2.has('sync')){R('graal_cfg_dirty');R('graal_cfg_rev');q2.delete('sync');var qs2=q2.toString();history.replaceState(null,'',location.pathname+(qs2?'?'+qs2:'')+location.hash)}}catch(e){}
+try{var q2=new URLSearchParams(location.search);if(q2.has('sync')){R('graal_cfg_dirty');R('graal_cfg_rev');for(var kk in KM)R(KM[kk]);q2.delete('sync');var qs2=q2.toString();history.replaceState(null,'',location.pathname+(qs2?'?'+qs2:'')+location.hash)}}catch(e){}
 var dirty={};try{(JSON.parse(G('graal_cfg_dirty')||'[]')||[]).forEach(function(k){if(KM[k])dirty[k]=1})}catch(e){}
 var saveDirty=function(){var a=Object.keys(dirty);if(a.length)S('graal_cfg_dirty',JSON.stringify(a));else R('graal_cfg_dirty')};
 var have={};
@@ -1578,7 +1578,7 @@ function loadGame(){
  }catch(e){}
 }
 function clearSave(){try{localStorage.removeItem(CFG.SAVE_KEY)}catch(e){}}
-function autoSave(dt){saveT+=dt;if(saveT>=CFG.SAVE_EVERY){saveT=0;saveGame()}posT+=dt;if(posT>=3){posT=0;savePos()}}
+function autoSave(dt){saveT+=dt;if(saveT>=CFG.SAVE_EVERY){saveT=0;saveGame()}posT+=dt;if(posT>=1){posT=0;savePos()}}
 addEventListener('beforeunload',()=>{saveGame();savePos(1)});addEventListener('pagehide',()=>{saveGame();savePos(1)});addEventListener('visibilitychange',()=>{if(document.hidden){saveGame();savePos(1)}});
 ['keydown','keyup'].forEach(ev=>addEventListener(ev,e=>{if(e.key==='Shift')keys['shift']=ev==='keydown'?1:0}));
 addEventListener('blur',()=>{for(const k in keys)keys[k]=0});
@@ -3252,7 +3252,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(!m.part)for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
 conn();
-addEventListener('pagehide',()=>{window.__KICKED=1;try{ws&&ws.close()}catch(e){}});
+addEventListener('pagehide',()=>{try{window.ACCX&&ACCX.flush&&ACCX.flush()}catch(e){} /* manda a posição/progresso final antes de fechar a conexão (depois do close o envio era descartado) */window.__KICKED=1;try{ws&&ws.close()}catch(e){}});
 window.MPNET={send:o=>{try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}catch(e){}},live:()=>!!(ws&&ws.readyState===1),
  players:()=>[...RP.values()].map(r=>({id:r.id,nm:r.nm||'?',r:r.r|0})),myId:()=>myId,
  note:t=>{MSG.push({id:null,nm:'🛡',x:String(t),t:performance.now()});if(MSG.length>30)MSG.shift()}};
@@ -3266,6 +3266,8 @@ setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.dash>0?'Jump_'+dn:P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
  ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0}))}catch(e){}},50);
+/* dentro de casa o 'u' não é enviado (os outros não veem o interior); então manda só a posição do interior, leve, para o servidor poder gravá-la se a conexão cair */
+setInterval(()=>{try{if(!on||!ws||ws.readyState!==1||!P||ED||P.dead||!(window.INT&&INT.loc==='i'))return;const r=INT.ret;ws.send(JSON.stringify({t:'ip',x:Math.round(P.x),y:Math.round(P.y),f:P.face,r:r&&Number.isFinite(r.x)&&Number.isFinite(r.y)?{x:Math.round(r.x),y:Math.round(r.y)}:null}))}catch(e){}},500);
 /* desenho do personagem remoto com a mesma engine de skin */
 function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm[1])?+mm[1]:{Up:0,Left:1,Down:2,Right:3}[mm[1]],kn0=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':mm[0]==='Jump'?'jump':'idle';
  const riding=!!(r.mt&&window.MOUNT);let ob=riding?0:(r.cy|0);if(ob>=10){try{if(!CPP.get(ob))ob=1}catch(e){ob=1}} /* peça do editor que este cliente não tem: mostra como arbusto */
@@ -6110,7 +6112,7 @@ if(/[?&]logout=1/.test(location.search)){try{history.replaceState(null,'',locati
 if(location.protocol!=='file:')fetch('/api/me',{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&j.on){ui(j.user);if(j.user)setTimeout(()=>{if(!ready)setSt('⚠ conta não chegou ao jogo','#ff9a9a')},10000)}}).catch(()=>{});
 try{if(/[?&]login=erro/.test(location.search)){history.replaceState(null,'',location.pathname);setTimeout(()=>{try{MPNET.note('Não consegui entrar com o Discord. Tente de novo.')}catch(e){}},1500)}}catch(e){}
 /* servidor mandou a conta: na 1ª vez da página, o que está salvo na conta vence o que está no navegador */
-window.ACCX={net(m){
+window.ACCX={flush(){try{sync()}catch(e){}},net(m){
  if(m.pid){pidEl.textContent=m.pid;pidEl.style.display=''}
  if(!m.guest)ui({name:m.name,av:m.av});
  if(!applied){applied=1;if(window.__ACC_PRE===String(m.id)){ready=1;setSt('☁ conectado','#9aff9a');sync();return}const d=m.data||{};let diff=0;
