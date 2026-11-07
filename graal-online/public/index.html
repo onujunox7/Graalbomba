@@ -38,7 +38,71 @@ if(TOK){
  /* primeira vez: sobe o que já existe só neste navegador e ainda não está no servidor; e reenvia o que ficou pendente */
  for(var k2 in KM)if(dirty[k2]||(!have[k2]&&G(KM[k2])!=null))push(k2)}
 })();</script>
-<title>Graal Classic – Mapa completo [fix-mato v2]</title>
+<title>Aetheria Online</title>
+<!-- AETHERIA / Android: primeira tela ANTES de mostrar a interface de jogo. -->
+<script>
+(function(){
+  var params = new URLSearchParams(location.search);
+  try {
+    if (params.has('logout') || params.get('login') === 'erro') sessionStorage.removeItem('ae_entry_ok');
+  } catch(e) {}
+  var android = /Android/i.test(navigator.userAgent) || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  window.__aeAndroid = android;
+  var preview = params.has('aetheriaPreview');
+  var entered = false;
+  try { entered = sessionStorage.getItem('ae_entry_ok') === '1'; } catch(e) {}
+  window.__aeEntryRequired = (android || preview) && !entered;
+  if (window.__aeEntryRequired) document.documentElement.classList.add('ae-entry-pending');
+  else if(android) document.documentElement.classList.add('ae-game-booting');
+})();
+</script>
+<style>
+/* Tela de entrada: aparece só no Android, ou com ?aetheriaPreview=1 para testar no PC. */
+#aeEntry { position:fixed; inset:0; width:100%; height:100%; z-index:2147483000;
+ display:none; justify-content:center; align-items:center; box-sizing:border-box;
+ overflow:auto; padding:18px max(18px,env(safe-area-inset-right)) 18px max(18px,env(safe-area-inset-left));
+ background:rgba(8,13,8,.52); -webkit-user-select:none; user-select:none;
+ font-family:Arial,system-ui,sans-serif; text-align:center; }
+html.ae-entry-pending #aeEntry{ display:flex !important; }
+html.ae-entry-pending #app { pointer-events:none !important; }
+html.ae-entry-pending #pad,html.ae-entry-pending #sys { visibility:hidden !important; }
+#aeEntry .ae-panel { position:relative; display:flex;flex-direction:column;align-items:center;
+ gap:10px;width:min(304px,calc(100vw - 46px));max-width:100%;box-sizing:border-box; margin:auto;
+ padding:22px 20px 24px;
+ border:2px solid rgba(78,47,19,.72); border-radius:12px;
+ background:linear-gradient(180deg,rgba(27,31,27,.63),rgba(15,14,11,.80));
+ box-shadow:0 8px 24px #0009, inset 0 0 0 1px #d5b76344; }
+#aeEntry .ae-title { font:1000 clamp(25px,5vw,36px)/.98 Georgia,serif;
+ letter-spacing:.07em;color:#ffe67d;text-shadow:2px 3px 0 #7a470d,-1px -1px 0 #382a16,0 5px 12px #000;white-space:nowrap;margin:0; }
+#aeEntry .ae-subtitle {font:900 12px/1.2 Georgia,serif;letter-spacing:.5em;color:#fff5cd;
+ text-shadow:1px 2px 3px #000;margin:0 0 2px; padding-left:.5em;}
+#aeEntry .ae-form { display:flex; flex-direction:column; gap:9px;align-items:stretch;width:100%;max-width:245px; }
+#aeEntry button { touch-action:manipulation; cursor:pointer; box-sizing:border-box; min-height:38px;
+ border-radius:8px;font:800 13px Arial,system-ui,sans-serif;box-shadow:0 3px 0 #0008,0 3px 9px #0007; }
+#aeEntry button:active{transform:translateY(2px);box-shadow:0 1px 0 #0008;}
+#aeEntry .ae-discord { color:#fff; border:2px solid #2b39b4;
+ background:linear-gradient(#607cff,#3e4ee3); display:flex;align-items:center;justify-content:center;gap:8px; }
+#aeEntry .ae-discord svg{width:21px;height:17px;fill:currentColor;flex:none;}
+#aeEntry .ae-or { display:flex;align-items:center;gap:9px;color:#ddd1ae;font:900 10px Georgia,serif; }
+#aeEntry .ae-or:before,#aeEntry .ae-or:after {content:''; height:1px;flex:1;background:#e1d0a859;}
+#aeEntry input { box-sizing:border-box;width:100%;height:34px;border:2px solid #a56724;
+ border-radius:7px;text-align:center;background:#fff6de;color:#27150d;
+ font:15px Georgia,serif;-webkit-user-select:text;user-select:text; outline:none; }
+#aeEntry input:focus {border-color:#ffe57d;box-shadow:0 0 0 2px #ffda7099;}
+#aeEntry .ae-guest { color:#382000; border:2px solid #a96109;
+ background:linear-gradient(#ffce61,#e99113);text-shadow:0 1px 0 #ffe6aa; }
+#aeEntry .ae-error {color:#ffd3a9;font:700 11px Arial,sans-serif;min-height:11px;}
+@media (max-height:380px) { #aeEntry .ae-panel {padding:12px 16px;gap:5px;} #aeEntry .ae-title{font-size:25px;} #aeEntry .ae-form{gap:5px;} #aeEntry button{min-height:32px;} }
+html.ae-game-booting #app { visibility:hidden !important; }
+#aeBoot {display:none; position:fixed;inset:0;z-index:2147482999;
+ background:#14161c;color:#f5e2a8;align-items:center;justify-content:center;flex-direction:column;gap:12px;
+ font:900 20px Arial,sans-serif;text-align:center;}
+html.ae-game-booting #aeBoot{display:flex;}
+#aeBoot small{font:13px Arial,sans-serif;color:#d5c5a2;}
+#aeBoot button{display:none;padding:10px 16px;border-radius:8px;background:#e5a736;border:2px solid #7a4c12;cursor:pointer;}
+#aeBoot.ae-slow button{display:block;}
+</style>
+
 <style>
 :root{--bg:#f3efe2;--fg:#2b2b2b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161c;--fg:#eee}}
@@ -181,7 +245,60 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
 #edtoast.on{opacity:1;transform:translate(-50%,0)}
 #hud .msg,#hud .msg b,#gch-l,#gch-l b,#gch-l small,#gch-f input,#mpchat input{font-family:'Lilita One',Fredoka,Verdana,Arial,sans-serif!important;font-weight:400!important;letter-spacing:.02em}
 </style><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><script>window.__FF='Verdana,Arial,sans-serif';window.__FN='"Lilita One",Fredoka,Verdana,Arial,sans-serif';window.fnt=function(px){return px+'px '+(window.__FNOK?window.__FN:'Fredoka,Verdana,Arial,sans-serif')}; /* fonte de nickname e chat: Lilita One (só tem peso normal, então sem "bold") */try{var __lf=function(){try{if(document.fonts.check("8px 'Lilita One'")&&document.fonts.check("20px 'Lilita One'",'Aa'))window.__FNOK=1}catch(e){}};document.fonts.load("8px 'Lilita One'").then(__lf).catch(function(){});document.fonts.ready.then(__lf).catch(function(){})}catch(e){} /* __FNOK=1 só quando a fonte REALMENTE carregou: o texto desenhado antes (cache do Pixi/rótulos) ficava preso na fonte reserva */try{Promise.all([document.fonts.load("700 8px Fredoka"),document.fonts.load("600 15px Fredoka")]).then(function(){if(document.fonts.check("700 8px Fredoka"))window.__FF='Fredoka,"Baloo 2",Nunito,"Trebuchet MS",Verdana,sans-serif'}).catch(function(){})}catch(e){}</script>
-<script>try{if('serviceWorker' in navigator&&location.protocol==='https:')addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}catch(e){}</script></head><body><div id="app"><div id="main">
+<script>try{if('serviceWorker' in navigator&&location.protocol==='https:')addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}catch(e){}</script></head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
+  <section class="ae-panel">
+    <h1 id="aeEntryTitle" class="ae-title">AETHERIA</h1>
+    <div class="ae-subtitle">ONLINE</div>
+    <form id="aeEntryForm" class="ae-form" autocomplete="off">
+      <button type="button" class="ae-discord" id="aeEntryDiscord">
+        <svg viewBox="0 0 127.14 96.36" aria-hidden="true"><path d="M104.4 8.4A102 102 0 0 0 79.1.6a72 72 0 0 0-3.2 6.7 95 95 0 0 0-25.6 0A72 72 0 0 0 47.1.6a102 102 0 0 0-25.3 7.8C5.8 32-2.5 54.6.5 76.9a101 101 0 0 0 31.1 15.7 75 75 0 0 0 6.6-10.9c-3.6-1.3-7.1-3-10.3-5 1-.7 1.7-1.4 2.5-2.1 19.9 9.3 46.2 9.3 65.9 0 1 .8 1.8 1.5 2.6 2.1-3.3 2-6.7 3.7-10.4 5a75 75 0 0 0 6.6 10.9 101 101 0 0 0 31.1-15.7C129.5 51.1 121.2 28.6 104.4 8.4ZM42.5 63.2c-6 0-10.9-5.5-10.9-12.2 0-6.7 4.8-12.2 10.9-12.2s11 5.5 10.9 12.2c0 6.7-4.8 12.2-10.9 12.2Zm42.1 0c-6 0-10.9-5.5-10.9-12.2 0-6.7 4.8-12.2 10.9-12.2s11 5.5 10.9 12.2c0 6.7-4.8 12.2-10.9 12.2Z"/></svg>
+        Entrar com Discord
+      </button>
+      <div class="ae-or">ou</div>
+      <input id="aeEntryNick" name="nick" type="text" maxlength="12" placeholder="Seu nome" aria-label="Nome do convidado" spellcheck="false"/>
+      <button type="submit" class="ae-guest" id="aeEntryGuest">Jogar como convidado</button>
+      <div id="aeEntryErr" class="ae-error" aria-live="polite"></div>
+    </form>
+  </section>
+</div>
+<script>
+/* Login visual para o APK. Recarrega só depois de registrar o nome, antes de iniciar o multiplayer. */
+(function(){
+  var el=document.getElementById('aeEntry');
+  if (!window.__aeEntryRequired) {el.remove();return;}
+  var input=document.getElementById('aeEntryNick'), err=document.getElementById('aeEntryErr');
+  try{input.value=(localStorage.getItem('graal_nick')||'').slice(0,12);}catch(e){}
+  function unlock(){ try{sessionStorage.setItem('ae_entry_ok','1');}catch(e){} }
+  function reroute(){ var u=new URL(location.href);u.searchParams.delete('login');u.searchParams.delete('logout');u.searchParams.delete('aetheriaPreview');location.replace(u.pathname+u.search+u.hash); }
+  document.getElementById('aeEntryForm').addEventListener('submit',function(ev){
+    ev.preventDefault();ev.stopPropagation();
+    var nick=input.value.replace(/[\x00-\x1f<>]/g,'').trim().slice(0,12);
+    if(!nick){err.textContent='Digite um nome para jogar.';input.focus();return;}
+    try {localStorage.setItem('graal_nick',nick);}catch(e){err.textContent='Não foi possível salvar o nome.';return;}
+    unlock();reroute();
+  });
+  document.getElementById('aeEntryDiscord').addEventListener('click',function(ev){
+    ev.preventDefault();ev.stopPropagation();
+    unlock();location.assign('/auth/discord');
+  });
+  // Não deixa o teclado da tela de entrada controlar a personagem ao fundo.
+  ['keydown','keyup','keypress'].forEach(function(name){el.addEventListener(name,function(e){e.stopPropagation();},true)});
+  if(new URLSearchParams(location.search).get('login')==='erro')err.textContent='Não foi possível entrar com Discord.';
+})();
+</script>
+<div id="aeBoot" role="status" aria-live="polite"><div>AETHERIA ONLINE</div><small id="aeBootText">Entrando no mundo...</small><button type="button" onclick="location.reload()">Tentar novamente</button></div>
+<script>
+window.__aeBootFrames=0;
+window.__aeBootReady=function(){
+ document.documentElement.classList.remove('ae-game-booting');
+ var b=document.getElementById('aeBoot');if(b)b.remove();
+};
+setTimeout(function(){
+ if(!document.documentElement.classList.contains('ae-game-booting'))return;
+ var b=document.getElementById('aeBoot');if(b){b.classList.add('ae-slow');
+ var t=document.getElementById('aeBootText');if(t)t.textContent='Verifique sua conexão. O jogo ainda não terminou de carregar.'}
+},30000);
+</script><div id="app"><div id="main">
 <div id="cw"><canvas id="c" width="384" height="288"></canvas></div>
 <p>Setas/WASD: andar · Espaço/J: atacar · Shift/K: esquivar · Q: poção · E: loja/baú · M: minimapa · N ou clique no minimapa: mapa em tela cheia · R: reiniciar · T: editor de mapa · G: ampliar tela · Z: zoom (100% → 75% → 50%)</p>
 <button id="edbtn" style="display:none" onclick="edToggle()">🛠 Editor de mapa</button>
@@ -1826,7 +1943,13 @@ function tsInit(){
 function start(){try{fit();buildWorld();reset();loadGame()}catch(e){g.setTransform(RS,0,0,RS,0,0);g.fillStyle='#14161c';g.fillRect(0,0,VW,VH);g.fillStyle='#ff5a5a';g.font='10px sans-serif';g.textAlign='center';g.fillText('Erro: '+e.message,VW/2,VH/2);return}last=performance.now();requestAnimationFrame(loop)}
 let LG=0,LC=12,LGAP=15;var GFPS={gap:null}; /* gap: null=automático (LGAP), 0=sem limite, >0=ms entre quadros */
 var GSCHED=function(f){requestAnimationFrame(f)}; /* trocado pelo painel de configurações (VSync desligado usa outro agendador) */
-function loop(n){const gp=ED&&!(GFPS.gap>=8)?8:(GFPS.gap==null?LGAP:GFPS.gap),el=n-LG; /* PERF v22: no editor o FPS ilimitado/VSync off ficava girando a milhares de quadros/s e travava o mouse; limite de ~125 */ if(gp>0&&el<gp-Math.min(2,gp*.15)){GSCHED(loop,gp-el);return}LG=(gp>0&&el<gp*2)?n-Math.min(Math.max(el-gp,0),gp/2):n;const t0=performance.now();const dt=Math.max(0,Math.min(.1,(n-last)/1000));last=n;if(keys['r']){keys['r']=0;clearSave();P=null;reset()}if(keys['m']){keys['m']=0;showMap=!showMap}if(keys['t']){keys['t']=0;edToggle()}const _pa=performance.now();if(ED)edUpdate(dt);else update(dt);const _pb=performance.now();draw();drawUI();if(ED)drawEd();if(window.__PROF)window.__PROF.f(_pb-_pa,performance.now()-_pb);LC=LC*.9+(performance.now()-t0)*.1;GSCHED(loop,gp>0?gp-(performance.now()-LG):0)} /* FPS travado em 60: LGAP fica fixo em 15 ms (antes caía para 30 fps quando o quadro demorava) */
+function loop(n){const gp=ED&&!(GFPS.gap>=8)?8:(GFPS.gap==null?LGAP:GFPS.gap),el=n-LG; /* PERF v22: no editor o FPS ilimitado/VSync off ficava girando a milhares de quadros/s e travava o mouse; limite de ~125 */ if(gp>0&&el<gp-Math.min(2,gp*.15)){GSCHED(loop,gp-el);return}LG=(gp>0&&el<gp*2)?n-Math.min(Math.max(el-gp,0),gp/2):n;const t0=performance.now();const dt=Math.max(0,Math.min(.1,(n-last)/1000));last=n;if(keys['r']){keys['r']=0;clearSave();P=null;reset()}if(keys['m']){keys['m']=0;showMap=!showMap}if(keys['t']){keys['t']=0;edToggle()}const _pa=performance.now();if(ED)edUpdate(dt);else update(dt);const _pb=performance.now();draw();drawUI();if(ED)drawEd();
+if(document.documentElement.classList.contains('ae-game-booting')&&!ED){
+ window.__aeBootFrames=(window.__aeBootFrames||0)+1;
+ if(window.__aeBootFrames>=3&&(document.body.classList.contains('hud-on')||window.__aeBootFrames>=90)){
+  if(typeof window.__aeBootReady==='function')window.__aeBootReady();
+ }
+}if(window.__PROF)window.__PROF.f(_pb-_pa,performance.now()-_pb);LC=LC*.9+(performance.now()-t0)*.1;GSCHED(loop,gp>0?gp-(performance.now()-LG):0)} /* FPS travado em 60: LGAP fica fixo em 15 ms (antes caía para 30 fps quando o quadro demorava) */
 
 /* ===================== ADD-ON ESTILO ZELDA: arbustos, bombas, arco, drops ===================== */
 (()=>{
