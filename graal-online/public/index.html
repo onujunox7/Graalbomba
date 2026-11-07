@@ -49,9 +49,15 @@ if(TOK){
   var android = /Android/i.test(navigator.userAgent) || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   window.__aeAndroid = android;
   var preview = params.has('aetheriaPreview');
+  // O APK usa ?login=1 em cada abertura: o login deve aparecer mesmo que
+  // o Android tenha preservado o sessionStorage de uma execucao anterior.
+  var forceLogin = params.get('login') === '1';
   var entered = false;
-  try { entered = sessionStorage.getItem('ae_entry_ok') === '1'; } catch(e) {}
-  window.__aeEntryRequired = (android || preview) && !entered;
+  try {
+    if (forceLogin) sessionStorage.removeItem('ae_entry_ok');
+    else entered = sessionStorage.getItem('ae_entry_ok') === '1';
+  } catch(e) {}
+  window.__aeEntryRequired = (android || preview || forceLogin) && !entered;
   if (window.__aeEntryRequired) document.documentElement.classList.add('ae-entry-pending');
   else if(android) document.documentElement.classList.add('ae-game-booting');
 })();
