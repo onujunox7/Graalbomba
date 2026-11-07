@@ -20,7 +20,7 @@ var have={};
 try{var x=new XMLHttpRequest();x.open('GET','graal-config.json?'+Date.now(),false);x.send();
  if(x.status===200){window.__MPSRV=1;var t=x.responseText,o=JSON.parse(t),h=x.getResponseHeader('ETag')||(t.length+':'+t.slice(0,64));
   if(o&&typeof o==='object'){var fresh=G('graal_cfg_rev')!==h;
-   for(var k in KM){if(!(k in o))continue;have[k]=1;if(!fresh||(TOK&&dirty[k]))continue; /* edição ainda não enviada vale mais que a do servidor */
+   for(var k in KM){if(!(k in o))continue;have[k]=1;if(!fresh||dirty[k])continue; /* edição ainda não enviada vale mais que a do servidor */
     var v=o[k];if(v==null)R(KM[k]);else S(KM[k],typeof v==='string'?v:JSON.stringify(v))}
    S('graal_cfg_rev',h)}}}catch(e){}
 /* 2) admin: envia ao servidor, com aviso na tela */
@@ -29,14 +29,18 @@ var toast=function(msg,bad){var go=function(){var e=document.getElementById('cfg
   if(document.body)go();else addEventListener('DOMContentLoaded',go)};
 var timers={};
 function push(k){clearTimeout(timers[k]);dirty[k]=1;saveDirty();timers[k]=setTimeout(function(){
- fetch('api/config/'+k,{method:'PUT',headers:{'Content-Type':'application/json','X-Admin-Token':TOK},body:JSON.stringify({v:G(KM[k])})})
+ fetch('api/config/'+k,{method:'PUT',headers:(function(){var H={'Content-Type':'application/json'};if(TOK)H['X-Admin-Token']=TOK;else if(window.__CFGTK)H['X-Admin-Ticket']=window.__CFGTK;return H})(),body:JSON.stringify({v:G(KM[k])})})
  .then(function(r){if(!r.ok)throw r.status;delete dirty[k];saveDirty();toast('☁ Salvo no servidor')})
  .catch(function(e){toast(e===403?'⚠ Token de admin inválido: não salvou no servidor':'⚠ Falha ao salvar no servidor (tentando de novo na próxima edição)',1)})},700)}
-if(TOK){
+var hooked=0;
+function hook(){if(hooked)return;hooked=1;
  SP.setItem=function(k,v){var r=si.apply(this,arguments);if(this===LS)for(var n in KM)if(KM[n]===k)push(n);return r};
  SP.removeItem=function(k){var r=ri.apply(this,arguments);if(this===LS)for(var n in KM)if(KM[n]===k)push(n);return r};
  /* primeira vez: sobe o que já existe só neste navegador e ainda não está no servidor; e reenvia o que ficou pendente */
- for(var k2 in KM)if(dirty[k2]||(!have[k2]&&G(KM[k2])!=null))push(k2)}
+ for(var k2 in KM)if(dirty[k2]||(TOK&&!have[k2]&&G(KM[k2])!=null))push(k2)}
+if(TOK)hook();
+/* ADMIN com cargo (sem o token do dono): o servidor manda um ticket pelo WebSocket e o editor passa a salvar no servidor também */
+window.__cfgTkReady=hook;
 })();</script>
 <link rel="preload" as="image" href="/assets/aetheria-login-background.webp">
 <title>Aetheria Online</title>
@@ -3153,7 +3157,8 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='id'){myId=m.id;srvV=m.v||1;if(m.v!==3)MSG.push({id:null,nm:'⚠',x:'servidor desatualizado: troque o server.js no GitHub',t:performance.now()+25000});return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs),c:(SKN.get(m.id)||{}).c||null});return}
   if(m.t==='kc'){const o=SKN.get(m.id)||{};o.c=window.MPX?window.MPX.fixCols(m.c):null;SKN.set(m.id,o);return}
-  if(m.t==='cfg'){if(!localStorage.getItem('graal_admin_token')&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
+  if(m.t==='cfgtk'){window.__CFGTK=m.k;if(window.__cfgTkReady)window.__cfgTkReady();return}
+  if(m.t==='cfg'){if(!localStorage.getItem('graal_admin_token')&&!window.__CFGTK&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
   if(m.t==='out'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}location.replace('/?logout=1');return}
   if(m.t==='dup'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}return}
   if(m.t==='role'||m.t==='cmd'||m.t==='kick'||m.t==='adm'||m.t==='pfimg'||m.t==='pfs'){if(m.t==='kick')window.__KICKED=1;if(window.ADM)window.ADM(m);return}

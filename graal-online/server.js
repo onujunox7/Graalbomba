@@ -404,6 +404,8 @@ function pfHttp(req, res, url) { // devolve true se a rota era desta função
 /* ---------------- HTTP ---------------- */
 const isLoop = r => { const a = r.socket.remoteAddress || ''; return (a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1') && !r.headers['x-forwarded-for'] };
 function isAdmin(req) {
+  const tk = String(req.headers['x-admin-ticket'] || ''); // admin (cargo dado pelo dono): ticket recebido pelo WebSocket
+  if (tk.length >= 32) { for (const o of P.values()) if (o.role >= 1 && o.cfgTk && o.cfgTk.length === tk.length && crypto.timingSafeEqual(Buffer.from(o.cfgTk), Buffer.from(tk))) return true }
   const t = String(req.headers['x-admin-token'] || '');
   if (!ADMIN) return isLoop(req); // sem ADMIN_TOKEN só aceita escrita de localhost
   const a = Buffer.from(t), b = Buffer.from(ADMIN);
@@ -609,7 +611,7 @@ wss.on('connection', (ws, req) => {
 
   const hiT = setTimeout(() => { if (!p.uh && ws.readyState === 1) { sendTo(ws, { t: 'kick', r: 'Recarregue a página (F5) para entrar no jogo.' }); setTimeout(() => ws.close(), 100) } }, 8000);
   ws.on('close', () => clearTimeout(hiT));
-  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }); if (r >= 1) sendTo(ws, { t: 'adm', pfn: pfCount(), cfg: punCfg() }) };
+  const setRole = r => { p.role = r; sendTo(ws, { t: 'role', r }); if (r >= 1) { sendTo(ws, { t: 'adm', pfn: pfCount(), cfg: punCfg() }); if (!p.cfgTk) p.cfgTk = crypto.randomBytes(24).toString('hex'); sendTo(ws, { t: 'cfgtk', k: p.cfgTk }) } else p.cfgTk = null /* ticket de salvar mapa/tilesets: só quem tem cargo, vale enquanto conectado */ };
   const note = x => sendTo(ws, { t: 'adm', note: x });
   const lists = () => sendTo(ws, { t: 'adm',
     admins: Object.entries(AD.admins).map(([k, v]) => ({ k, nm: v.nm })),
