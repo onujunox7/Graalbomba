@@ -478,6 +478,15 @@ const srv = http.createServer((req, res) => {
     });
   }
 
+  // Pagina do portal enviada pelo criador. A rota nao deve cair no index.html do jogo.
+  if ((req.method === 'GET' || req.method === 'HEAD') && url === '/pagina-jogo.html') {
+    return fs.readFile(path.join(__dirname, 'public', 'pagina-jogo.html'), (err, data) => {
+      if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Pagina nao encontrada'); }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(req.method === 'HEAD' ? undefined : data);
+    });
+  }
+
   fs.stat(INDEX, (e0, st) => {
     if (e0) { res.writeHead(500); return res.end('erro') }
     const send = () => {
