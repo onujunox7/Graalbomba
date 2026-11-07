@@ -38,6 +38,7 @@ if(TOK){
  /* primeira vez: sobe o que já existe só neste navegador e ainda não está no servidor; e reenvia o que ficou pendente */
  for(var k2 in KM)if(dirty[k2]||(!have[k2]&&G(KM[k2])!=null))push(k2)}
 })();</script>
+<link rel="preload" as="image" href="/assets/aetheria-login-background.webp">
 <title>Aetheria Online</title>
 <!-- AETHERIA / Android: primeira tela ANTES de mostrar a interface de jogo. -->
 <script>
@@ -338,7 +339,7 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
 html.ae-entry-pending, html.ae-entry-pending body { background: #172717 !important; }
 html.ae-entry-pending #app { visibility: hidden !important; transform:none !important; filter:none !important; }
 html.ae-entry-pending #aeEntry {
-  background-image: linear-gradient(rgba(0,0,0,.08), rgba(0,0,0,.17)), url('/assets/aetheria-login-background.png') !important;
+  background-image: linear-gradient(rgba(0,0,0,.08), rgba(0,0,0,.17)), url('/assets/aetheria-login-background.webp') !important;
   background-color:#1d3920 !important;
   background-position:center center !important;
   background-repeat:no-repeat !important;
@@ -362,7 +363,7 @@ html.ae-entry-pending #aeEntry .ae-subtitle { filter: drop-shadow(0 2px 3px #000
 <style id="ae-loading-image-background">
 html.ae-game-booting #aeBoot {
   background-color: #192d1c !important;
-  background-image: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.24)), url('/assets/aetheria-login-background.png') !important;
+  background-image: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.24)), url('/assets/aetheria-login-background.webp') !important;
   background-position: center center !important;
   background-size: cover !important;
   background-repeat: no-repeat !important;
@@ -393,6 +394,26 @@ html.ae-portal #c {display:block; box-sizing:border-box;width:100% !important;he
 html.ae-portal #main > p { display:none !important; }
 html.ae-portal #sys {position:fixed !important;z-index:10;right:8px;top:8px;}
 html.ae-portal #pad {position:fixed !important;z-index:10;bottom:8px;left:8px;}
+</style>
+
+<!-- Aetheria Android — editor de controles personalizáveis -->
+<style id="ae-touch-settings-style">
+@media (pointer:coarse) {
+ body.ae-mobile-custom #pad { position:fixed !important; inset:0 !important; width:100vw !important; height:100dvh !important; display:block !important; margin:0 !important; padding:0 !important; background:transparent !important; z-index:20 !important; pointer-events:none !important; }
+ body.ae-mobile-custom #stick, body.ae-mobile-custom #act { position:absolute !important; margin:0 !important; left:0; top:0; bottom:auto !important; right:auto !important; transform:scale(var(--ae-touch-scale,1)); transform-origin:top left; opacity:var(--ae-touch-opacity,.86) !important; pointer-events:auto !important; touch-action:none !important; }
+ body.ae-touch-edit #stick, body.ae-touch-edit #act { outline:3px dashed #ffdd65 !important; outline-offset:5px; opacity:1 !important; }
+ body.ae-touch-edit #stick::after, body.ae-touch-edit #act::after { content:'ARRASTE'; position:absolute; left:50%; top:-26px; transform:translateX(-50%); padding:2px 7px; border-radius:5px; background:#ffde78; color:#291c09; font:800 11px Arial,sans-serif; white-space:nowrap; pointer-events:none; }
+}
+#aeTouchConfig { position:fixed; z-index:2147482000; right:max(12px,env(safe-area-inset-right)); top:max(56px,env(safe-area-inset-top)); width:min(310px,90vw); max-height:calc(100dvh - 70px); overflow:auto; box-sizing:border-box; background:#171d29f5; color:#fff6dc; border:1px solid #d7a649; border-radius:14px; box-shadow:0 8px 26px #0009; padding:14px; font:13px/1.4 Arial,sans-serif; display:none; }
+#aeTouchConfig.ae-visible{display:block}
+#aeTouchConfig h3 {font:800 17px Arial,sans-serif; margin:0 0 6px; color:#ffe09e}
+#aeTouchConfig p {text-align:left; margin:0 0 12px; font:12px/1.4 Arial,sans-serif; padding:0}
+#aeTouchConfig label {display:block; margin:8px 0; font:600 12px Arial,sans-serif}
+#aeTouchConfig input[type=range] {display:block; width:100%; margin:7px 0; accent-color:#ffbc42}
+#aeTouchConfig .ae-buttons {display:flex; flex-wrap:wrap; gap:6px; margin-top:12px}
+#aeTouchConfig button {flex:1; min-height:38px; border-radius:8px; border:1px solid #aa762d; background:#f6cb73; color:#392408; font:800 12px Arial,sans-serif; padding:7px; cursor:pointer}
+#aeTouchConfig #aeTouchClose {background:#a3d5bb; border-color:#467963}
+#aeTouchOpen {min-width:40px !important}
 </style>
 </head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
   <section class="ae-panel">
@@ -961,7 +982,7 @@ b.addEventListener('pointerdown',e=>{e.preventDefault();if(k===' '&&!keys[k])atk
 ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=0))});
 const IM={};let loaded=0;
 const NI=Object.keys(IMGS).length;let started=0,loadErr=0;
-const AE_LOAD_BG=(function(){const img=new Image();img.src='/assets/aetheria-login-background.png';return img})();
+const AE_LOAD_BG=(function(){const img=new Image();img.src='/assets/aetheria-login-background.webp';return img})();
 function loadScr(){if(loadErr)return;g.setTransform(RS,0,0,RS,0,0);g.clearRect(0,0,VW,VH);if(AE_LOAD_BG.complete&&AE_LOAD_BG.naturalWidth){const iw=AE_LOAD_BG.naturalWidth,ih=AE_LOAD_BG.naturalHeight,sc=Math.max(VW/iw,VH/ih),dw=iw*sc,dh=ih*sc,dx=(VW-dw)/2,dy=(VH-dh)/2;g.drawImage(AE_LOAD_BG,dx,dy,dw,dh);g.fillStyle='rgba(8,12,10,.36)';g.fillRect(0,0,VW,VH)}else{g.fillStyle='#172717';g.fillRect(0,0,VW,VH);const grad=g.createLinearGradient(0,0,0,VH);grad.addColorStop(0,'rgba(0,0,0,.08)');grad.addColorStop(1,'rgba(0,0,0,.28)');g.fillStyle=grad;g.fillRect(0,0,VW,VH)}g.textAlign='center';g.fillStyle='#ffe27b';g.font='bold 21px Georgia';g.fillText('Aetheria Online',VW/2,VH/2-28);g.fillStyle='#fff1c6';g.font='11px Arial';g.fillText('Entrando no mundo…',VW/2,VH/2-10);g.fillStyle='rgba(20,18,12,.68)';g.fillRect(VW/2-74,VH/2+10,148,10);g.fillStyle='#f4cf62';g.fillRect(VW/2-72,VH/2+12,144*(loaded/NI),6);g.strokeStyle='rgba(126,78,22,.95)';g.lineWidth=2;g.strokeRect(VW/2-74,VH/2+10,148,10);g.fillStyle='#fff4d5';g.font='10px Arial';g.fillText('Carregando… '+loaded+'/'+NI,VW/2,VH/2+34)}
 const done=()=>{loaded++;loadScr();if(loaded===NI&&!started){started=1;(window.GWP||Promise.resolve()).then(start,start)}};
 for(const k in IMGS){const i=new Image();i.onload=done;i.onerror=()=>{loadErr=1;g.setTransform(RS,0,0,RS,0,0);g.fillStyle='#14161c';g.fillRect(0,0,VW,VH);g.fillStyle='#ff5a5a';g.font='12px sans-serif';g.textAlign='center';g.fillText('Erro ao carregar: '+k,VW/2,VH/2)};i.src=IMGS[k];IM[k]=i}
@@ -7528,5 +7549,55 @@ update=function(dt){const M=window.MOUNT;
   if(open){if(k==='Escape'||k==='n'||k==='N'){e.preventDefault();e.stopPropagation();hide()}else if(k==='+'||k==='='){e.preventDefault();zoomAt(ww/2,wh/2,1.4);changed()}else if(k==='-'||k==='_'){e.preventDefault();zoomAt(ww/2,wh/2,1/1.4);changed()}else if(PANK[k]){e.preventDefault();e.stopPropagation();panSet[PANK[k]]=1;panFast=e.shiftKey;panStart()}else if(k==='0'){e.preventDefault();e.stopPropagation();resetV()}else if(k==='l'||k==='L'){e.preventDefault();e.stopPropagation();toggleF('lv')}return}
   if(!e.repeat&&(k==='n'||k==='N')&&!(typeof ED!=='undefined'&&ED)){e.preventDefault();show()}},true);
 }catch(err){console.error('bigmap',err)}})();
+</script>
+
+<!-- Aetheria Android — ajuste independente de direcional e ações, sem alterar o motor do jogo -->
+<script id="ae-touch-settings-script">
+(function(){
+ 'use strict';
+ const isTouch=window.matchMedia&&matchMedia('(pointer:coarse)').matches;
+ if(!isTouch)return;
+ const pad=document.getElementById('pad'),stick=document.getElementById('stick'),act=document.getElementById('act'),sys=document.getElementById('sys');
+ if(!pad||!stick||!act||!sys)return;
+ const KEY='ae_touch_layout_v1';
+ const base={stick:{x:0.018,y:0.73},act:{x:0.76,y:0.61},scale:1,opacity:.86};
+ let cfg=JSON.parse(JSON.stringify(base));
+ try{const stored=JSON.parse(localStorage.getItem(KEY)||'null');if(stored&&stored.stick&&stored.act){cfg={...cfg,...stored,stick:{...cfg.stick,...stored.stick},act:{...cfg.act,...stored.act}}}}catch(e){}
+ const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+ let editing=false,active=null;
+ document.body.classList.add('ae-mobile-custom');
+ const panel=document.createElement('section');panel.id='aeTouchConfig';panel.setAttribute('aria-label','Configurar controles mobile');
+ panel.innerHTML='<h3>🎮 Controles do celular</h3><p>Toque em <b>Editar posições</b> e arraste o direcional ou os botões. Depois salve. As posições são guardadas neste aparelho.</p><label>Tamanho: <output id="aeTouchSizeLabel">100%</output><input id="aeTouchSize" type="range" min="65" max="155" step="5" value="100"></label><label>Transparência: <output id="aeTouchAlphaLabel">86%</output><input id="aeTouchAlpha" type="range" min="35" max="100" step="5" value="85"></label><div class="ae-buttons"><button id="aeTouchEdit" type="button">✥ Editar posições</button><button id="aeTouchReset" type="button">↺ Restaurar</button><button id="aeTouchClose" type="button">✓ Salvar e fechar</button></div>';
+ document.body.appendChild(panel);
+ const btn=document.createElement('button');btn.type='button';btn.id='aeTouchOpen';btn.textContent='🎮';btn.title='Personalizar controles';btn.setAttribute('aria-label','Personalizar controles do celular');
+ sys.appendChild(btn);
+ const sizeInput=panel.querySelector('#aeTouchSize'),alphaInput=panel.querySelector('#aeTouchAlpha');
+ const valid=el=>el===stick?'stick':'act';
+ function dims(){return {w:window.innerWidth||360,h:window.innerHeight||640}}
+ function place(el,key){const {w,h}=dims(),scale=cfg.scale;const rW=el.offsetWidth*scale,rH=el.offsetHeight*scale;const x=clamp((cfg[key].x||0)*w,0,Math.max(0,w-rW)),y=clamp((cfg[key].y||0)*h,0,Math.max(0,h-rH));el.style.left=x+'px';el.style.top=y+'px';}
+ function apply(){cfg.scale=clamp(Number(cfg.scale)||1,.65,1.55);cfg.opacity=clamp(Number(cfg.opacity)||.86,.35,1);document.body.style.setProperty('--ae-touch-scale',cfg.scale);document.body.style.setProperty('--ae-touch-opacity',cfg.opacity);place(stick,'stick');place(act,'act');sizeInput.value=Math.round(cfg.scale*100);alphaInput.value=Math.round(cfg.opacity*100);panel.querySelector('#aeTouchSizeLabel').textContent=Math.round(cfg.scale*100)+'%';panel.querySelector('#aeTouchAlphaLabel').textContent=Math.round(cfg.opacity*100)+'%';}
+ function persist(){try{localStorage.setItem(KEY,JSON.stringify(cfg))}catch(e){}}
+ function toggleEdit(on){editing=!!on;document.body.classList.toggle('ae-touch-edit',editing);panel.querySelector('#aeTouchEdit').textContent=editing?'✓ Terminar ajuste':'✥ Editar posições'}
+ function show(){panel.classList.add('ae-visible')}
+ function hide(){toggleEdit(false);persist();panel.classList.remove('ae-visible')}
+ btn.addEventListener('click',e=>{e.stopPropagation();panel.classList.contains('ae-visible')?hide():show()});
+ panel.querySelector('#aeTouchClose').addEventListener('click',hide);
+ panel.querySelector('#aeTouchEdit').addEventListener('click',()=>toggleEdit(!editing));
+ panel.querySelector('#aeTouchReset').addEventListener('click',()=>{cfg=JSON.parse(JSON.stringify(base));apply();persist()});
+ sizeInput.addEventListener('input',()=>{cfg.scale=+sizeInput.value/100;apply();persist()});
+ alphaInput.addEventListener('input',()=>{cfg.opacity=+alphaInput.value/100;apply();persist()});
+ function startDrag(e){if(!editing)return;const el=e.currentTarget;active={el,key:valid(el),id:e.pointerId,px:e.clientX,py:e.clientY,l:parseFloat(el.style.left)||0,t:parseFloat(el.style.top)||0};e.preventDefault();e.stopImmediatePropagation();}
+ function moveDrag(e){if(!active||!editing)return;if(e.pointerId!==active.id)return;const {w,h}=dims(),el=active.el,limX=Math.max(0,w-el.offsetWidth*cfg.scale),limY=Math.max(0,h-el.offsetHeight*cfg.scale);const left=clamp(active.l+(e.clientX-active.px),0,limX),top=clamp(active.t+(e.clientY-active.py),0,limY);cfg[active.key].x=left/w;cfg[active.key].y=top/h;apply();e.preventDefault();e.stopImmediatePropagation()}
+ function endDrag(e){if(!active||e.pointerId!==active.id)return;active=null;persist();e.preventDefault();e.stopImmediatePropagation()}
+ [stick,act].forEach(el=>el.addEventListener('pointerdown',startDrag,true));
+ document.addEventListener('pointermove',moveDrag,true);
+ document.addEventListener('pointerup',endDrag,true);
+ document.addEventListener('pointercancel',endDrag,true);
+ // Bloqueia ataques/movimentação acidentais durante a edição dos controles.
+ pad.addEventListener('click',e=>{if(editing){e.preventDefault();e.stopImmediatePropagation()}},true);
+ addEventListener('resize',apply);
+ if(window.visualViewport)window.visualViewport.addEventListener('resize',apply);
+ apply();
+})();
 </script>
 </body></html>
