@@ -2288,7 +2288,7 @@ const FBX=.62,FHB=64*FBX,FTS=.52,FHT=FCH*FTS/2,FBUP=12,FMOUTH=10,FBOMBS=3; /* FB
 const inFire=(e,px,py,m)=>{const dx=Math.abs(px-e.x),dy=Math.abs(py-(e.y-FBUP));return(dx<=FHB+m&&dy<=FHT+m)||(dy<=FHB+m&&dx<=FHT+m)};
 /* bomba no chão é sólida (depois que quem a colocou sai de cima dela) */
 /* caixa da bomba: meia-largura BBX, de y+BBT a y+BBB — agora cobre o corpo inteiro dela */
-const BBX=12,BBT=-11,BBB=10; /* cobre o sprite todo da bomba (corpo ~24x22 px ao redor do ponto x,y) */
+const BBX=10,BBT=-9,BBB=9; /* cobre o sprite todo da bomba (corpo ~24x22 px ao redor do ponto x,y) */
 const bombOverP=b=>P.x+7>b.x-BBX&&P.x-7<b.x+BBX&&P.y+3>b.y+BBT&&P.y-4<b.y+BBB;
 const _sa=solidAt;solidAt=function(x,y){if(_sa(x,y))return true;for(const b of BO)if(b.hard&&x>b.x-BBX&&x<b.x+BBX&&y>b.y+BBT&&y<b.y+BBB)return true;return false};
 function boom(x,y){
@@ -2316,20 +2316,20 @@ function fireLine(x,y,dx,dy){const e={x,y,dx,dy};EX.push({x,y,t:FDUR,ln:1,dx,dy}
 function actTick(dt){
  if(!ACT)return;if(P.dead||shop){ACT=null;return}
  ACT.t+=dt;const{dx,dy}=ACT;
- if(ACT.k==='p'&&!ACT.done&&ACT.t>=.12){ACT.done=1;if(ZL.b>0){ZL.b--;let bx=P.x+dx*14,by=P.y+dy*14;if(solidAt(bx,by-3)){bx=P.x;by=P.y}bpush({x:bx,y:by,sx:bx,sy:by,tx:bx,ty:by,fl:0,z:0,t:1.8});zSave()}}
+ if(ACT.k==='p'&&!ACT.done&&ACT.t>=.08){ACT.done=1;if(ZL.b>0){ZL.b--;let bx=P.x+dx*14,by=P.y+dy*14;if(solidAt(bx,by-3)){bx=P.x;by=P.y}bpush({x:bx,y:by,sx:bx,sy:by,tx:bx,ty:by,fl:0,z:0,t:1.8});zSave()}}
  if(!ACT.done&&ACT.t>=.16&&(ACT.k==='f'||ACT.k==='b')){ACT.done=1;
   if(ACT.k==='f')apush({x:P.x+dx*8,y:P.y-8+dy*8,vx:dx*240,vy:dy*240,t:.8});
   else{let tx=P.x,ty=P.y;for(let i=1;i<=5;i++){const nx=P.x+dx*i*9,ny=P.y+dy*i*9;if(solidAt(nx,ny-3))break;tx=nx;ty=ny}bpush({x:P.x,y:P.y,sx:P.x,sy:P.y,tx,ty,fl:.3,z:0,t:1.8})}}
  if(ACT.t>=ACT.len){if(ACT.k==='l')CARRY=ACT.b?2:(ACT.g||1);ACT=null}
 }
-function drawAct(cx,cy){if(!ACT||ACT.k!=='b'||ACT.t>=.16)return;const x=P.x-cx,y=P.y-cy-(36*GS+6)+ACT.t/.16*6*GS;drawBomb(x,y,0,.7)}
+function drawAct(cx,cy){if(!ACT||ACT.k!=='b'||ACT.t>=.16)return;const x=P.x-cx,y=P.y-cy-(36*GS+6)+ACT.t/.16*6*GS;drawBomb(x,y,0,.6)}
 const _u=update;update=function(dt){
  if(ACT){const sv={};MV.forEach(k=>{sv[k]=keys[k];keys[k]=0});atkPress=0;_u(dt);MV.forEach(k=>keys[k]=sv[k])}else _u(dt);
  if(!ready)return;actTick(dt);respTick(dt);
  const[dx,dy]=DIR[P.face]||[0,1];bowCd=Math.max(0,bowCd-dt);
  if(P.atk>0&&!prevAtk)cutFront(dx,dy);
  prevAtk=P.atk>0?1:0;
- if(keys['b']){keys['b']=0;if(!P.dead&&!shop&&!ACT&&!CARRY&&!(P.atk>0)){if(window.MOUNT&&MOUNT.on)say(P.x,P.y-20,'Desmonte pra usar bomba','#ffb05a');else if(ZL.b>0){ACT={k:'p',t:0,len:.3,dx,dy,done:0}}else say(P.x,P.y-20,'Sem bombas','#ffb05a')}}
+ if(keys['b']){keys['b']=0;if(!P.dead&&!shop&&!ACT&&!CARRY&&!(P.atk>0)){if(window.MOUNT&&MOUNT.on)say(P.x,P.y-20,'Desmonte pra usar bomba','#ffb05a');else if(ZL.b>0){ACT={k:'p',t:0,len:.2,dx,dy,done:0}}else say(P.x,P.y-20,'Sem bombas','#ffb05a')}}
  if(keys['f']){keys['f']=0;if(!P.dead&&!shop&&!ACT&&!CARRY&&!(P.atk>0)){if(window.MOUNT&&MOUNT.on)say(P.x,P.y-20,'Desmonte pra usar o arco','#ffb05a');else if(ZL.a>0){ZL.a--;ACT={k:'f',t:0,len:.3,dx,dy,done:0};zSave()}else say(P.x,P.y-20,'Sem flechas','#ffb05a')}}
  for(let i=BO.length-1;i>=0;i--){const b=BO[i];b.t-=dt;if(b.fl>0)b.hard=0;else if(!b.hard&&!bombOverP(b))b.hard=1;else if(b.hard&&bombOverP(b))b.hard=0;if(b.fl>0){b.fl=Math.max(0,b.fl-dt);const u=1-b.fl/.3;b.x=b.sx+(b.tx-b.sx)*u;b.y=b.sy+(b.ty-b.sy)*u;b.z=Math.sin(Math.PI*u)*16}else b.z=0;if(b.t<=0){BO.splice(i,1);if(b.rm)EX.push({x:b.x,y:b.y,t:FDUR});else boom(b.x,b.y)}}
  for(let i=AR.length-1;i>=0;i--){const a=AR[i];a.t-=dt;a.x+=a.vx*dt;a.y+=a.vy*dt;let hit=a.t<=0||solidAt(a.x,a.y);
@@ -2346,12 +2346,12 @@ const _u=update;update=function(dt){
  CH.forEach(c=>{if(!c.open)c._z=0;else if(!c._z){c._z=1;const b=ri(1,3),a=ri(3,8);ZL.b=Math.min(CAP_B(P),ZL.b+b);ZL.a=Math.min(CAP_A(P),ZL.a+a);say(c.x,c.y-34,'+'+b+' bombas +'+a+' flechas','#9ad8ff');zSave()}});
 };
 const _k=killSk;killSk=function(s){_k(s);if(!ready)return;const r=Math.random(),e=s.el?2:1,k=r<.22*e?'h':r<.38*e?'a':r<.48*e?'b':0;if(k)ppush({x:s.x,y:s.y,k,t:20})};
-window.BOE=function(){return BO.map(b=>({y:b.y-.01,f:()=>{const x=Math.round(b.x-cam.x),y=Math.round(b.y-cam.y);if(b.z>0){g.fillStyle='rgba(0,0,0,.3)';g.beginPath();g.ellipse(x,y,4,2,0,0,6.3);g.fill()}drawBomb(x,y-4-(b.z||0),b.t<1?(Math.floor(b.t*8)%2?1:2):0,.7)}}))};
+window.BOE=function(){return BO.map(b=>({y:b.y-.01,f:()=>{const x=Math.round(b.x-cam.x),y=Math.round(b.y-cam.y);if(b.z>0){g.fillStyle='rgba(0,0,0,.3)';g.beginPath();g.ellipse(x,y,4,2,0,0,6.3);g.fill()}drawBomb(x,y-4-(b.z||0),b.t<1?(Math.floor(b.t*8)%2?1:2):0,.6)}}))};
 const _d=draw;draw=function(){
  _d();if(!ready||ED)return;const cx=cam.x,cy=cam.y;g.textAlign='center';
  PK.forEach(p=>{if(p.t<4&&Math.floor(p.t*8)%2)return;const x=Math.round(p.x-cx),y=Math.round(p.y-cy-4+Math.sin(T*6+p.x)*1.5);
   if(p.k==='h'){g.fillStyle='#e8344a';g.font='bold 11px sans-serif';g.fillText('♥',x,y)}
-  else if(p.k==='b'){drawBomb(x,y-2,0,.55)}
+  else if(p.k==='b'){drawBomb(x,y-2,0,.47)}
   else{g.strokeStyle='#d8c99a';g.lineWidth=1.5;g.beginPath();g.moveTo(x-4,y+2);g.lineTo(x+4,y-4);g.stroke();g.fillStyle='#fff';g.fillRect(x+3,y-5,2,2)}});
  /* bombas entram na ordenação por Y (window.BOE), como no Zelda ALttP */
  AR.forEach(a=>{const x=a.x-cx,y=a.y-cy,l=Math.hypot(a.vx,a.vy)||1;g.strokeStyle='#e8dcb0';g.lineWidth=1.5;g.beginPath();g.moveTo(x-a.vx/l*8,y-a.vy/l*8);g.lineTo(x,y);g.stroke();g.fillStyle='#fff';g.fillRect(x-1,y-1,3,3)});
@@ -3216,7 +3216,7 @@ function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm
   while(T.length&&tn-T[0].t>300)T.shift();
   if(T.length&&!riding){const eqv=EQX.of(r.id,r.sw);for(const q of T){const k=1-(tn-q.t)/300;if(k>0)X.ghost(g,q.d,BI,bo,HI,ho,eqv,Math.round(q.x-cam.x),Math.round(q.y-cam.y),sc,k)}}}
  X.compose(fr.d[dr===undefined?2:dr],BI,bo,HI,ho,EQX.of(r.id,r.sw),ob);
- {const hk=kn+'|'+dr+'|'+sc,tn=performance.now();if(r.hk!==hk||!(tn-(r.hT||0)<2000)){const y0=X.hy();r.hk=hk;r.hT=tn;if(y0>=0)r.hoff=(y0-X.GM-39)*sc}}
+ {const hk=kn+'|'+dr+'|'+sc+'|'+(riding?r.mt:0),tn=performance.now();if(r.hk!==hk||!(tn-(r.hT||0)<2000)){const y0=X.hy();r.hk=hk;r.hT=tn;if(y0>=0)r.hoff=(oy-y)+(y0-X.GM)*sc}} /* cabeça = topo do sprite JÁ com a altura da montaria (oy real); antes assumia a pose a pé e o balão/nome ficava baixo em quem está montado */
  X.blit(g,ox,oy,sc);
  X.held(g,ox,oy,sc); /* arbusto na mão (o arbusto padrão é desenhado fora do boneco) */
  {const el=performance.now()-(r.flT||-1e9);if(el<260&&Math.floor(el/55)%2===0&&!riding)X.flash(g,ox,oy,sc)} /* piscar branco ao levar dano */
@@ -3256,8 +3256,15 @@ box.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();sendC()
 ['keydown','keyup','keypress'].forEach(ev=>inp.addEventListener(ev,e=>{e.stopPropagation();
  if(ev==='keydown'){if(e.key==='Enter'||e.keyCode===13){e.preventDefault();sendC()}else if(e.key==='Escape')closeC()}}));
 window.addEventListener('keydown',e=>{if(e.key==='Enter'&&box.style.display==='none'&&!ED&&!/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||'')){e.preventDefault();openC()}},true);
+/* Tab: abre a janela de chat (só abre, não envia) e, com ela aberta, Tab fecha de novo. Listener em captura: vale mesmo com o cursor dentro do campo de texto. */
+window.addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.altKey||e.metaKey||e.shiftKey)return;
+ if(window.GCH&&GCH.shown&&GCH.shown()){e.preventDefault();e.stopPropagation();GCH.close();return}
+ if(box.style.display!=='none'){e.preventDefault();e.stopPropagation();closeC();return}
+ if(ED||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||''))return;
+ e.preventDefault();e.stopPropagation();if(window.GCH&&GCH.view)GCH.view();else openC()},true);
 const sys=document.getElementById('sys');if(sys){const b=document.createElement('button');b.textContent='💬';b.setAttribute('aria-label','Chat');
- ['click','pointerdown'].forEach(ev=>b.addEventListener(ev,e=>{e.stopPropagation();if(ev==='click')openC()}));sys.appendChild(b)}
+ ['click','pointerdown'].forEach(ev=>b.addEventListener(ev,e=>{e.stopPropagation();if(ev==='click'){if(window.GCH&&GCH.view&&window.matchMedia&&matchMedia('(pointer:coarse)').matches)GCH.view();else openC()}})); /* celular: o botão só abre a janela; o teclado só aparece quando tocar no campo */
+sys.appendChild(b)}
 /* ===== PERFIL + NICKNAME ===== */
 window.__NICK=nick;
 let pt=0;try{pt=+localStorage.getItem('graal_playtime')||0}catch(e){}
@@ -5671,16 +5678,23 @@ const mkOne=a=>{const L=Math.max(1,Math.min(MON_MAXLV,a.lv|0||1));
  if(a.k==='sk'||a.k==='skE'){const el=a.k==='skE'?1:0;return mkSk(a.x,a.y,[[a.x-45,a.y-5],[a.x+45,a.y+5]],el,L)}
  if(!MT[a.k])return null;return mkMon(a.k,a.x,a.y,L)};
 
+/* ORDEM CANÔNICA: o anfitrião e os outros jogadores sincronizam os monstros pelo ÍNDICE em SK. Se a ordem for diferente entre dois navegadores
+   (ex.: depois de adicionar/remover/restaurar), o estado de um monstro cai em outro (some, fica "morto" ou teleporta = invisível).
+   Regra igual para todos: monstros do mapa na ordem original (oi), depois os adicionados por admins na ordem do id. */
+const ordK=s=>s.cu?1e9+((s.ca&&s.ca.id)||0):(s.oi===undefined?1e8:s.oi);
+const tagOi=()=>{if(typeof SK==='undefined'||!SK)return;SK.forEach((m,i)=>{if(!m.cu&&m.oi===undefined)m.oi=i})};
+const sortSK=()=>{if(typeof SK==='undefined'||!SK)return;SK.sort((a,b)=>ordK(a)-ordK(b))};
 /* ---- aplica no jogo (usado pelo servidor e pelo modo local) ---- */
 function apply(){ /* reconstrói os monstros personalizados a partir do DB (idempotente) */
  if(typeof SK==='undefined'||!SK)return;
+ tagOi();
  for(let i=SK.length-1;i>=0;i--)if(SK[i].cu)SK.splice(i,1);
  if(DB.rem.length){const set=new Set(DB.rem);for(let i=SK.length-1;i>=0;i--)if(!SK[i].cu&&set.has(key(SK[i])))SK.splice(i,1)}
  DB.add.forEach(a=>{const m=mkOne(a);if(m){m.cu=1;m.ca=a;SK.push(m)}});
- info()}
+ sortSK();info()}
 function applyAdd(a){
  if(DB.add.some(x=>x.id===a.id))return;DB.add.push(a);
- if(typeof SK==='undefined'||!SK)return;const m=mkOne(a);if(m){m.cu=1;m.ca=a;SK.push(m)}}
+ if(typeof SK==='undefined'||!SK)return;const m=mkOne(a);if(m){m.cu=1;m.ca=a;SK.push(m);sortSK()}}
 function applyDel(id){
  const i=DB.add.findIndex(a=>a.id===id);if(i>=0)DB.add.splice(i,1);
  if(typeof SK!=='undefined'&&SK)for(let j=SK.length-1;j>=0;j--)if(SK[j].cu&&SK[j].ca&&SK[j].ca.id===id)SK.splice(j,1)}
@@ -5692,8 +5706,8 @@ function applyReset(){
  if(typeof SK==='undefined'||!SK)return;
  for(let i=SK.length-1;i>=0;i--)if(SK[i].cu)SK.splice(i,1);
  const keep=SK; /* gera de novo os monstros do mapa (as posições são fixas) e traz de volta os que tinham sido removidos */
- try{SK=window.NOMON?[]:[mkSk(D.skelp[0],D.skelp[1],D.wps)];spreadMonsters();const fresh=SK;SK=keep;fresh.forEach(m=>{if(rem.has(key(m)))SK.push(m)})}catch(e){SK=keep}}
-const _reset=reset;reset=function(){const r=_reset.apply(this,arguments);try{apply()}catch(e){}return r};
+ try{SK=window.NOMON?[]:[mkSk(D.skelp[0],D.skelp[1],D.wps)];spreadMonsters();const fresh=SK;SK=keep;fresh.forEach((m,i)=>{m.oi=i;if(rem.has(key(m)))SK.push(m)});sortSK()}catch(e){SK=keep}}
+const _reset=reset;reset=function(){const r=_reset.apply(this,arguments);try{SK.forEach((m,i)=>{if(!m.cu)m.oi=i})}catch(e){}try{apply()}catch(e){}return r};
 try{apply()}catch(e){}
 
 /* ---- mensagens do servidor ---- */
@@ -5880,6 +5894,7 @@ updateSk=function(s,dt){
   if(s.sh===undefined)s.sh=s.hp;
   if(s.hp<s.sh){const d=s.sh-s.hp;s.sh=s.hp;s.lm=t;MPNET.send({t:'mh',i:idx(s),d:Math.round(d),kx:Math.round((s.hkx||0)*100)/100,ky:Math.round((s.hky||0)*100)/100});s.hkx=s.hky=0} /* dano que eu causei: o anfitrião aplica */
   if(t-(s.ls||0)<1500){ /* seguindo o anfitrião */
+   if(s.imm>0)s.imm-=dt;if(s.fl>0)s.fl-=dt; /* kbTick não roda aqui: sem isto a imunidade pós-golpe nunca acabava e bomba/espada só acertavam 1 vez */
    if(s.dead)return;
    s.hurt=Math.max(0,(s.hurt||0)-dt);
    if(s.nb&&s.nb.length)snapSample(s,t,MON_DELAY);else if(s.tx!==undefined){const k=1-Math.exp(-dt*14);s.x+=(s.tx-s.x)*k;s.y+=(s.ty-s.y)*k}
@@ -5938,7 +5953,7 @@ if(window.__MSQ){const q=window.__MSQ;window.__MSQ=null;q.forEach(window.MSY.net
 <script>
 /* ===== CHAT GLOBAL: botão 💬, histórico rolável, não lidas. Tudo que se escreve vai para todos os jogadores online. ===== */
 (()=>{
-const LOG=[],MAX=100,seen=new Set();let isOpen=0,unread=0;
+const LOG=[],MAX=100,seen=new Set();let isOpen=0,unread=0,view=0; /* view=1: janela aberta só para ler (Tab), sem cursor no campo e sem aparecer "digitando" */
 const css=document.createElement('style');css.textContent=
 '#gch-b{position:fixed;left:8px;top:calc(env(safe-area-inset-top,0px) + 92px);z-index:9998;width:40px;height:40px;border-radius:50%;border:2px solid #5a4020;background:rgba(30,22,12,.85);color:#fff;font-size:19px;line-height:1;cursor:pointer;display:none;padding:0}'+
 'body.hud-on #gch-b{display:block}body.hud-on.gch-open #gch-b{display:none}'+
@@ -5972,11 +5987,11 @@ function add(m){
  if(LOG.length>MAX){LOG.shift();if(L.firstChild)L.removeChild(L.firstChild)}
  if(isOpen){if(near)scrollEnd()}else if(!m.hist&&!(m.id!=null&&window.MPNET&&m.id===MPNET.myId())){unread++;badge()}
 }
-function tell(){try{if(window.MPNET&&MPNET.live())MPNET.send({t:'ty',v:isOpen?1:0})}catch(e){}}
+function tell(){try{if(window.MPNET&&MPNET.live())MPNET.send({t:'ty',v:isOpen&&!view?1:0})}catch(e){}}
 setInterval(tell,3000);
-function open(){isOpen=1;tell();pn.style.display='flex';document.body.classList.add('gch-open');unread=0;badge();scrollEnd();try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}setTimeout(()=>I.focus(),30)}
-function close(){isOpen=0;tell();pn.style.display='none';document.body.classList.remove('gch-open');I.blur()}
-b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();open()});
+function open(v){isOpen=1;view=v===1?1:0;tell();pn.style.display='flex';try{if(window.__gchPos)window.__gchPos()}catch(e){}document.body.classList.add('gch-open');unread=0;badge();scrollEnd();try{if(typeof keys==='object')for(const k in keys)keys[k]=0}catch(e){}if(!view)setTimeout(()=>I.focus(),30)}
+function close(){isOpen=0;view=0;tell();pn.style.display='none';document.body.classList.remove('gch-open');I.blur()}
+b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();open(window.matchMedia&&matchMedia('(pointer:coarse)').matches?1:0)});
 pn.querySelector('#gch-x').addEventListener('click',e=>{e.preventDefault();close()});
 F.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();
  const v=I.value.trim();if(!v)return;
@@ -5985,7 +6000,19 @@ F.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();
  I.focus()});
 ['keydown','keyup','keypress'].forEach(ev=>I.addEventListener(ev,e=>{e.stopPropagation();if(ev==='keydown'&&e.key==='Escape')close()}));
 ['pointerdown','touchstart'].forEach(ev=>pn.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
-window.GCH={add,open,close,typing:()=>isOpen};
+I.addEventListener('focus',()=>{if(view){view=0;tell()}}); /* clicou no campo: passou a digitar */
+window.GCH={add,open,close,typing:()=>isOpen&&!view,shown:()=>isOpen,view:()=>open(1)};
+/* janela de chat MÓVEL: arraste pelo título (mouse ou dedo); a posição fica salva neste navegador e sempre volta para dentro da tela */
+(()=>{const H=pn.querySelector('header'),KP='graal_chat_pos_v1';H.style.cursor='move';H.style.touchAction='none';H.style.userSelect='none';H.style.webkitUserSelect='none';H.title='Arraste para mover';
+ const put=(x,y)=>{const r=pn.getBoundingClientRect(),vw=innerWidth,vh=innerHeight;x=Math.max(0,Math.min(vw-r.width,x));y=Math.max(0,Math.min(vh-r.height,y));pn.style.left=x+'px';pn.style.top=y+'px';pn.style.bottom='auto'};
+ window.__gchPos=()=>{try{const o=JSON.parse(localStorage.getItem(KP)||'null');if(o&&isFinite(o.x)&&isFinite(o.y))put(o.x,o.y)}catch(e){}};
+ let d=null;
+ H.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;const r=pn.getBoundingClientRect();d={dx:e.clientX-r.left,dy:e.clientY-r.top,id:e.pointerId};try{H.setPointerCapture(e.pointerId)}catch(_){}e.preventDefault()});
+ H.addEventListener('pointermove',e=>{if(d&&e.pointerId===d.id)put(e.clientX-d.dx,e.clientY-d.dy)});
+ const end=()=>{if(!d)return;d=null;try{const r=pn.getBoundingClientRect();localStorage.setItem(KP,JSON.stringify({x:Math.round(r.left),y:Math.round(r.top)}))}catch(_){}};
+ H.addEventListener('pointerup',end);H.addEventListener('pointercancel',end);
+ addEventListener('resize',()=>{if(pn.style.top&&pn.style.display!=='none'){const r=pn.getBoundingClientRect();put(r.left,r.top)}});
+})();
 if(window.__GCHQ){const q=window.__GCHQ;window.__GCHQ=null;q.forEach(add)}
 })();
 </script>
