@@ -81,21 +81,21 @@ body{
 
 /* área do jogo */
 .tela{
-  position:relative; background:#000;
+  position:relative; background:#172717;
   aspect-ratio:4/3; width:100%;
 }
-.tela iframe{position:absolute; inset:0; width:100%; height:100%; border:0; background:#000; display:block}
+.tela iframe{position:absolute; inset:0; width:100%; height:100%; border:0; background:#172717; display:block}
 
 /* loading */
 #splash{
-  position:absolute; inset:0; background:#000; z-index:5;
+  position:absolute; inset:0; background:#172717 url('/assets/aetheria-login-background.png') center / cover no-repeat; z-index:5;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px;
   transition:opacity .6s;
 }
 #splash.fim{opacity:0; pointer-events:none}
 .logo{
   font:900 64px/1 "Trebuchet MS",Georgia,serif; letter-spacing:2px;
-  background:linear-gradient(#fff 0,#c9ccd1 35%,#6d7178 60%,#d9dce0 100%);
+  background:linear-gradient(#fff9c2 0,#f7d76d 35%,#ba7725 60%,#ffe49b 100%);
   -webkit-background-clip:text; background-clip:text; color:transparent;
   filter:drop-shadow(0 2px 2px #000) drop-shadow(0 0 12px #5a6a8a66);
   text-align:center;
@@ -272,7 +272,7 @@ body{
 
     <div class="tela" id="tela">
       <div id="splash">
-        <div class="logo">GRAAL<small>BOMBA</small></div>
+        <div class="logo">AETHERIA<small>ONLINE</small></div>
         <div class="prog"><i></i></div>
       </div>
       <iframe id="jogo" title="Jogo" allow="fullscreen; autoplay; gamepad" allowfullscreen></iframe>
@@ -338,7 +338,7 @@ body{
   var src = getComputedStyle(document.documentElement).getPropertyValue('--jogo-src').trim().replace(/^["']|["']$/g,'') || 'index.html';
   var fr = document.getElementById('jogo'), sp = document.getElementById('splash');
   fr.addEventListener('load', function(){ setTimeout(function(){ sp.classList.add('fim'); }, 400); });
-  fr.src = src;
+  fr.src = src + (src.indexOf('?') === -1 ? '?' : '&') + 'login=1&portal=1';
 
   // abas
   var tabs = document.querySelectorAll('.tab[data-p]');

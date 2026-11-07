@@ -48,6 +48,7 @@ if(TOK){
   } catch(e) {}
   var android = /Android/i.test(navigator.userAgent) || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   window.__aeAndroid = android;
+  if (params.get('portal') === '1') document.documentElement.classList.add('ae-portal');
   var preview = params.has('aetheriaPreview');
   // O APK usa ?login=1 em cada abertura: o login deve aparecer mesmo que
   // o Android tenha preservado o sessionStorage de uma execucao anterior.
@@ -327,7 +328,8 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
 #edtoast.on{opacity:1;transform:translate(-50%,0)}
 #hud .msg,#hud .msg b,#gch-l,#gch-l b,#gch-l small,#gch-f input,#mpchat input{font-family:'Lilita One',Fredoka,Verdana,Arial,sans-serif!important;font-weight:400!important;letter-spacing:.02em}
 </style><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><script>window.__FF='Verdana,Arial,sans-serif';window.__FN='"Lilita One",Fredoka,Verdana,Arial,sans-serif';window.fnt=function(px){return px+'px '+(window.__FNOK?window.__FN:'Fredoka,Verdana,Arial,sans-serif')}; /* fonte de nickname e chat: Lilita One (só tem peso normal, então sem "bold") */try{var __lf=function(){try{if(document.fonts.check("8px 'Lilita One'")&&document.fonts.check("20px 'Lilita One'",'Aa'))window.__FNOK=1}catch(e){}};document.fonts.load("8px 'Lilita One'").then(__lf).catch(function(){});document.fonts.ready.then(__lf).catch(function(){})}catch(e){} /* __FNOK=1 só quando a fonte REALMENTE carregou: o texto desenhado antes (cache do Pixi/rótulos) ficava preso na fonte reserva */try{Promise.all([document.fonts.load("700 8px Fredoka"),document.fonts.load("600 15px Fredoka")]).then(function(){if(document.fonts.check("700 8px Fredoka"))window.__FF='Fredoka,"Baloo 2",Nunito,"Trebuchet MS",Verdana,sans-serif'}).catch(function(){})}catch(e){}</script>
-<script>try{if('serviceWorker' in navigator&&location.protocol==='https:')addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}catch(e){}</script>\n<!-- Aetheria Android: imagem de entrada fornecida pelo criador. Mapa escondido antes do login. -->
+<script>try{if('serviceWorker' in navigator&&location.protocol==='https:')addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}catch(e){}</script>
+<!-- Aetheria Android: imagem de entrada fornecida pelo criador. Mapa escondido antes do login. -->
 <style id="ae-fixed-login-background-v2">
 html.ae-entry-pending, html.ae-entry-pending body { background: #172717 !important; }
 html.ae-entry-pending #app { visibility: hidden !important; transform:none !important; filter:none !important; }
@@ -374,6 +376,19 @@ html.ae-game-booting #aeBoot > small {
   color: #fff4d5;
   text-shadow: 0 2px 8px #000, 0 1px 3px #000;
 }
+</style>
+
+<!-- Aetheria: canvas do jogo encaixado no quadro do portal de PC, sem bordas pretas -->
+<style id="ae-portal-viewport">
+html.ae-portal, html.ae-portal body { margin:0 !important; width:100%; height:100%; overflow:hidden; }
+html.ae-portal body {display:block !important; background:#172717 !important;}
+html.ae-portal #app {width:100% !important;height:100% !important;min-height:0;}
+html.ae-portal #main {width:100% !important;height:100% !important;gap:0 !important;}
+html.ae-portal #cw {width:100% !important;height:100% !important;overflow:hidden;}
+html.ae-portal #c {display:block; box-sizing:border-box;width:100% !important;height:100% !important;aspect-ratio:auto !important;border:0 !important;border-radius:0 !important;}
+html.ae-portal #main > p { display:none !important; }
+html.ae-portal #sys {position:fixed !important;z-index:10;right:8px;top:8px;}
+html.ae-portal #pad {position:fixed !important;z-index:10;bottom:8px;left:8px;}
 </style>
 </head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
   <section class="ae-panel">
