@@ -110,6 +110,57 @@ function saveSP() { // grava no banco (assíncrono, sem travar o jogo) e mantém
   spDirty = true; spFlush().catch(e => console.error(e));
   try { const t = SP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(SP)); fs.renameSync(t, SP_FILE) } catch (e) { }
 }
+/* ---------------- NPCs vendedores (menu 🧙): compartilhados e persistentes ----------------
+ * Só admin/dono edita (checado em 'npc'). A lista inteira vai e volta; o oficial fica no PostgreSQL (graal_kv, chave 'npcs'), com cópia em arquivo. */
+const NP_FILE = path.join(DATA_DIR, 'graal-npcs.json'), NP_MAX = 200, NP_BYTES = 600000; // cabe no limite de 700 KB por mensagem do WebSocket
+let NP = { a: [], saved: false }; // saved=false: ninguém salvou ainda (o 1º admin que entrar com NPCs no navegador migra a lista dele)
+const npNum = (v, lo, hi, d) => { v = Math.round(+v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d };
+const npLines = (a, m) => (Array.isArray(a) ? a : []).map(x => String(x || '').replace(/[\u0000-\u001f\u007f<>]/g, ' ').trim().slice(0, 100)).filter(Boolean).slice(0, m);
+const npTx = (v, n, d) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n) || d;
+function npCleanOne(n) {
+  if (!n || typeof n !== 'object' || !Number.isFinite(+n.x) || !Number.isFinite(+n.y)) return null;
+  const x = Math.round(+n.x), y = Math.round(+n.y); if (x < 0 || y < 0 || x > 200000 || y > 200000) return null;
+  const it = [];
+  for (const i of (Array.isArray(n.it) ? n.it : [])) {
+    if (!i || typeof i !== 'object' || it.length >= 24) continue;
+    if (i.t === 'x') { if (typeof i.e === 'string' && /^[a-z]{1,8}$/.test(i.e)) it.push({ t: 'x', ic: String(i.ic || '🎁').slice(0, 4), nm: npTx(i.nm, 22, 'Item'), c: npNum(i.c, 0, 99999, 10), e: i.e, v: npNum(i.v, 1, 9999, 1) }) }
+    else if (typeof i.t === 'string' && /^[a-z]{1,12}$/.test(i.t)) it.push({ t: i.t, c: npNum(i.c, 0, 99999, 10), q: npNum(i.q, 1, 99, 1) });
+  }
+  const sk = n.sk && Number.isFinite(+n.sk.b) && Number.isFinite(+n.sk.h) ? { b: npNum(n.sk.b, 0, 9999, 0), h: npNum(n.sk.h, 0, 9999, 0) } : null;
+  const eqv = (v, d) => typeof v === 'number' ? (Number.isInteger(v) && v >= 0 && v <= 6 ? v : d) : (typeof v === 'string' && v.length < 90000 && /^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(v) ? v : d); // chapéu/escudo: 0 original · 1-5 cores · 6 nenhum · ou PNG enviado
+  return { x, y, nm: npTx(n.nm, 18, 'Vendedor'), hue: npNum(n.hue, 0, 359, 160), it, fl: npLines(n.fl, 8), fb: npLines(n.fb, 5), eq: { h: eqv(n.eq && n.eq.h, 0), d: eqv(n.eq && n.eq.d, 6) }, sk };
+}
+function npClean(a) { // lista limpa ou null se for inválida/grande demais
+  if (!Array.isArray(a) || a.length > NP_MAX) return null;
+  const r = a.map(npCleanOne).filter(Boolean);
+  return JSON.stringify(r).length > NP_BYTES ? null : r;
+}
+try { const o = JSON.parse(fs.readFileSync(NP_FILE, 'utf8')); const a = npClean(o && o.a); if (a) NP = { a, saved: !!o.saved } } catch (e) { } // cópia local (reserva)
+let npDirty = false, npBusy = false;
+async function npFlush() {
+  if (npBusy) return; npBusy = true;
+  try {
+    while (npDirty) {
+      npDirty = false;
+      try { await pgPool.query(`INSERT INTO graal_kv (k, v, updated_at) VALUES ('npcs', $1::jsonb, $2)
+        ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = EXCLUDED.updated_at`, [JSON.stringify(NP.a), Date.now()]) }
+      catch (e) { console.error('Falha ao gravar NPCs no PostgreSQL:', e.message); npDirty = true; await new Promise(r => setTimeout(r, 3000)) }
+    }
+  } finally { npBusy = false }
+}
+async function initNpcsDB() {
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_kv (k TEXT PRIMARY KEY, v JSONB NOT NULL, updated_at BIGINT NOT NULL)`);
+  const r = await pgPool.query(`SELECT v FROM graal_kv WHERE k = 'npcs'`), a = r.rowCount ? npClean(r.rows[0].v) : null;
+  if (a) { NP = { a, saved: true }; console.log('NPCs carregados do PostgreSQL:', a.length) }
+  else if (NP.saved) { console.log('NPCs migrados do arquivo para o PostgreSQL'); npDirty = true; await npFlush() }
+  else console.log('NPCs: nenhum salvo ainda');
+}
+function saveNP() { // grava no banco (assíncrono) e mantém cópia em arquivo
+  npDirty = true; npFlush().catch(e => console.error(e));
+  try { const t = NP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(NP)); fs.renameSync(t, NP_FILE) } catch (e) { }
+}
+const npAll = () => ({ t: 'npall', a: NP.a, init: NP.saved ? 1 : 0 });
+
 const spAll = () => ({ t: 'spall', add: SP.add, rem: SP.rem });
 const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c => sendTo(c, s)) };
 
@@ -127,6 +178,19 @@ const ACC_MAX = 600000, SES_DAYS = 30;
  * O progresso fica no PostgreSQL igual ao da conta Discord. Visitantes sem uso há GUEST_KEEP_DAYS dias são apagados. */
 const GID_RE = /^g[a-f0-9]{32}$/, GUEST_DAYS = 365, GUEST_KEEP_DAYS = 90;
 const newGid = () => 'g' + crypto.randomBytes(16).toString('hex');
+/* ID PÚBLICO DA CONTA: número sequencial permanente (nunca reaproveitado), mostrado no formato padrão AE-000123.
+ * Para mudar o modelo basta editar PID_PREFIX / PID_DIGITS. Vale para contas Discord e de visitante. */
+const PID_PREFIX = 'AE', PID_DIGITS = 6;
+const fmtPid = n => PID_PREFIX + '-' + String(n).padStart(PID_DIGITS, '0');
+let PID_SEQ = 0;
+const savePidSeq = () => pgPool.query(`INSERT INTO graal_kv (k,v,updated_at) VALUES ('pid_seq',$1::jsonb,$2) ON CONFLICT (k) DO UPDATE SET v=to_jsonb(GREATEST((graal_kv.v #>> '{}')::bigint,(EXCLUDED.v #>> '{}')::bigint)), updated_at=EXCLUDED.updated_at`, [JSON.stringify(PID_SEQ), Date.now()]).catch(e => console.error('pid_seq:', e.message));
+/* O ID (número + código no modelo padrão) nasce UMA vez, é gravado no PostgreSQL (colunas pid e pid_code) e nunca mais é recalculado:
+ * mesmo que PID_PREFIX / PID_DIGITS mudem no futuro, as contas existentes mantêm o código que já receberam. */
+const ensurePid = a => { if (!a) return a;
+  if (!a.pid) { a.pid = ++PID_SEQ; savePidSeq(); a.code = fmtPid(a.pid); saveACC(a.id) }
+  else if (!a.code) { a.code = fmtPid(a.pid); saveACC(a.id) } // conta antiga (só tinha o número): congela o código agora
+  return a };
+const pidOf = a => ensurePid(a).code;
 const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 if (!DATABASE_URL) throw new Error('DATABASE_URL não configurada no Render; contas Discord precisam do PostgreSQL.');
 const pgPool = new Pool({ connectionString: DATABASE_URL, ssl: /render\.com|neon\.tech|supabase\.co/i.test(DATABASE_URL) ? { rejectUnauthorized: false } : undefined, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
@@ -136,9 +200,23 @@ async function initAccountsDB() {
     discord_id TEXT PRIMARY KEY, name TEXT NOT NULL, avatar TEXT, created_at BIGINT NOT NULL,
     last_seen BIGINT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb
   )`);
+  await pgPool.query(`ALTER TABLE graal_accounts ADD COLUMN IF NOT EXISTS pid INTEGER`);
+  await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS graal_accounts_pid_uq ON graal_accounts(pid)`);
+  await pgPool.query(`ALTER TABLE graal_accounts ADD COLUMN IF NOT EXISTS pid_code TEXT`);
+  await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS graal_accounts_pidcode_uq ON graal_accounts(pid_code)`);
+  /* trava no banco: depois de gravados, pid e pid_code não podem ser alterados por nenhum UPDATE */
+  await pgPool.query(`CREATE OR REPLACE FUNCTION graal_pid_lock() RETURNS trigger AS $$ BEGIN
+    IF OLD.pid IS NOT NULL THEN NEW.pid := OLD.pid; END IF;
+    IF OLD.pid_code IS NOT NULL THEN NEW.pid_code := OLD.pid_code; END IF;
+    RETURN NEW; END $$ LANGUAGE plpgsql`);
+  await pgPool.query(`DROP TRIGGER IF EXISTS graal_pid_lock_t ON graal_accounts`);
+  await pgPool.query(`CREATE TRIGGER graal_pid_lock_t BEFORE UPDATE ON graal_accounts FOR EACH ROW EXECUTE FUNCTION graal_pid_lock()`);
   await pgPool.query(`DELETE FROM graal_accounts WHERE discord_id LIKE 'g%' AND last_seen < $1`, [Date.now() - GUEST_KEEP_DAYS * 864e5]);
-  const r = await pgPool.query('SELECT discord_id, name, avatar, created_at, last_seen, data FROM graal_accounts');
-  for (const row of r.rows) ACC[row.discord_id] = { guest: GID_RE.test(row.discord_id), id: row.discord_id, name: row.name, av: row.avatar, at: Number(row.created_at), last: Number(row.last_seen), data: row.data || {} };
+  const r = await pgPool.query('SELECT discord_id, name, avatar, created_at, last_seen, data, pid, pid_code FROM graal_accounts ORDER BY created_at, discord_id');
+  const sq = await pgPool.query(`SELECT v #>> '{}' AS v FROM graal_kv WHERE k='pid_seq'`);
+  PID_SEQ = Math.max(+(sq.rows[0] && sq.rows[0].v) || 0, ...r.rows.map(x => x.pid | 0), 0);
+  for (const row of r.rows) ACC[row.discord_id] = { guest: GID_RE.test(row.discord_id), id: row.discord_id, name: row.name, av: row.avatar, at: Number(row.created_at), last: Number(row.last_seen), data: row.data || {}, pid: row.pid | 0, code: row.pid_code || '' };
+  for (const row of r.rows) ensurePid(ACC[row.discord_id]); // contas antigas ganham ID em ordem de criação
   console.log('PostgreSQL: contas carregadas (Discord + visitantes):', r.rowCount);
 }
 async function flushACC() {
@@ -146,10 +224,10 @@ async function flushACC() {
   const ids = [...accDirty]; accDirty.clear();
   for (const id of ids) {
     const a = ACC[id]; if (!a) continue;
-    try { await pgPool.query(`INSERT INTO graal_accounts (discord_id,name,avatar,created_at,last_seen,data)
-      VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (discord_id) DO UPDATE SET
-      name=EXCLUDED.name, avatar=EXCLUDED.avatar, last_seen=EXCLUDED.last_seen, data=EXCLUDED.data`,
-      [a.id, a.name, a.av, a.at, a.last, JSON.stringify(a.data || {})]);
+    try { await pgPool.query(`INSERT INTO graal_accounts (discord_id,name,avatar,created_at,last_seen,data,pid,pid_code)
+      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8) ON CONFLICT (discord_id) DO UPDATE SET
+      name=EXCLUDED.name, avatar=EXCLUDED.avatar, last_seen=EXCLUDED.last_seen, data=EXCLUDED.data, pid=COALESCE(graal_accounts.pid, EXCLUDED.pid), pid_code=COALESCE(graal_accounts.pid_code, EXCLUDED.pid_code)`,
+      [a.id, a.name, a.av, a.at, a.last, JSON.stringify(a.data || {}), ensurePid(a).pid, a.code]);
       const pl = ACTIVE_ACC.get(id); if (pl) sendTo(pl.ws, { t: 'svok', at: Date.now() }); }
     catch (e) { console.error('Falha ao salvar conta no PostgreSQL:', e.message); accDirty.add(id);
       const pl = ACTIVE_ACC.get(id); if (pl) sendTo(pl.ws, { t: 'sverr', m: String(e.message).slice(0, 140) }); }
@@ -173,10 +251,10 @@ function sessionOf(req) { // id da conta se o cookie de sessão for válido e as
   try { const o = JSON.parse(Buffer.from(p, 'base64url').toString()); return o && o.exp > Date.now() && ACC[o.id] ? o.id : null } catch (e) { return null }
 }
 const guestOf = req => { const v = readCookie(req, 'ggid'); return GID_RE.test(v) ? v : null };
-const ensureGuest = id => ACC[id] || (ACC[id] = { id, guest: true, name: 'Visitante', av: null, at: Date.now(), last: Date.now(), data: {} });
+const ensureGuest = id => ensurePid(ACC[id] || (ACC[id] = { id, guest: true, name: 'Visitante', av: null, at: Date.now(), last: Date.now(), data: {} }));
 const avatarOf = a => a.guest ? 'https://cdn.discordapp.com/embed/avatars/0.png' : a.av ? 'https://cdn.discordapp.com/avatars/' + a.id + '/' + a.av + '.png?size=64' : 'https://cdn.discordapp.com/embed/avatars/' + Number((BigInt(a.id) >> 22n) % 6n) + '.png';
 const nickOf = n => String(n).replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12) || 'Jogador';
-const accMsg = a => ({ t: 'acc', guest: !!a.guest, id: a.id, name: a.name, av: avatarOf(a), data: a.data || {} });
+const accMsg = a => ({ t: 'acc', guest: !!a.guest, pid: pidOf(a), id: a.id, name: a.name, av: avatarOf(a), data: a.data || {} });
 async function discordCallback(req, res) {
   const fail = why => { console.error('Login Discord falhou:', why); res.writeHead(302, { Location: '/?login=erro' }); res.end() };
   try {
@@ -192,7 +270,7 @@ async function discordCallback(req, res) {
     const u = await ur.json();
     if (!/^\d{5,25}$/.test(String(u.id))) return fail('id inválido');
     const name = String(u.global_name || u.username || 'Jogador').slice(0, 32);
-    const a = ACC[u.id] || (ACC[u.id] = { id: String(u.id), at: Date.now(), data: {} });
+    const a = ensurePid(ACC[u.id] || (ACC[u.id] = { id: String(u.id), at: Date.now(), data: {} }));
     a.name = name; a.av = u.avatar && /^[A-Za-z0-9_]+$/.test(u.avatar) ? u.avatar : null; a.last = Date.now();
     if (!a.data.graal_nick) a.data.graal_nick = nickOf(name); // conta nova: o nick inicial é o nome do Discord
     saveACC(a.id);
@@ -219,8 +297,8 @@ function flush() {
   } catch (e) { console.error('Falha ao gravar config:', e.message) }
 }
 const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
-process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await pgPool.end(); process.exit(0) });
-process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await pgPool.end(); process.exit(0) });
+process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); await pgPool.end(); process.exit(0) });
+process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); await pgPool.end(); process.exit(0) });
 
 /* ---------------- fotos de fundo do perfil (com moderação) ----------------
  *  O jogador envia a foto (JPEG reduzido pelo navegador, ou GIF original) por POST /api/pfbg.
@@ -347,7 +425,7 @@ const srv = http.createServer((req, res) => {
   if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { if (pl.svTm) clearTimeout(pl.svTm); if (pl.svD) { applySv(pl, pl.svD); pl.svD = null } ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
   if (url === '/api/acc' && req.method === 'GET') { // progresso da conta entregue ANTES do jogo começar (o navegador aplica antes de carregar o jogo)
     const id = sessionOf(req), a = id && ACC[id];
-    if (a) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ on: true, id: a.id, data: a.data || {} })) }
+    if (a) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ on: true, id: a.id, pid: pidOf(a), data: a.data || {} })) }
     const g = guestOf(req) || newGid(), ga = ACC[g]; // sem Discord: conta de visitante (o cookie é renovado a cada visita)
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Set-Cookie': ck(req, 'ggid', g, GUEST_DAYS * 86400) });
     return res.end(JSON.stringify({ on: true, id: g, guest: true, data: (ga && ga.data) || {} }));
@@ -355,7 +433,7 @@ const srv = http.createServer((req, res) => {
   if (url === '/api/me' && req.method === 'GET') {
     const id = sessionOf(req), a = id && ACC[id];
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ on: AUTH_ON, user: a ? { id: a.id, name: a.name, av: avatarOf(a) } : null }));
+    return res.end(JSON.stringify({ on: AUTH_ON, user: a ? { id: a.id, pid: pidOf(a), name: a.name, av: avatarOf(a) } : null }));
   }
 
   if (url.startsWith('/api/pfbg') && pfHttp(req, res, url)) return;
@@ -495,6 +573,7 @@ wss.on('connection', (ws, req) => {
   sendTo(ws, { t: 'id', id, v: 3 });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
+  sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
   if (DROPS.size) { const now = Date.now(); sendTo(ws, { t: 'dall', a: [...DROPS.values()].map(a => [a[0], a[1], a[2], a[3], a[4] || 0, a[5] ? Math.max(0, a[5] - now) : 0]) }) }
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
@@ -638,6 +717,12 @@ wss.on('connection', (ws, req) => {
       }
       return;
     }
+    if (m.t === 'npc') { // lista de NPCs vendedores: só admin/dono; valida, grava no PostgreSQL e avisa os outros
+      if (p.role < 1) return;
+      const now = Date.now(); if (now - (p.npT || 0) < 300) return; p.npT = now;
+      const a = npClean(m.a); if (!a) return note('Lista de NPCs inválida ou grande demais.');
+      NP.a = a; NP.saved = true; saveNP(); others(id, npAll()); return;
+    }
     if (m.t === 'sv') { // salva o progresso na conta; se vier rápido demais guarda o último e grava logo depois (não descarta)
       if (!p.acc || ACTIVE_ACC.get(p.acc) !== p || !m.d || typeof m.d !== 'object') return;
       const now = Date.now();
@@ -661,10 +746,12 @@ wss.on('connection', (ws, req) => {
       if (DROPS.size > 300) { const k = DROPS.keys().next().value; DROPS.delete(k); wss.clients.forEach(c => sendTo(c, { t: 'dp', id: k })) }
       others(id, { t: 'dr', id: m.id, x, y, v, pop, k }); return;
     }
-    if (m.t === 'bo' || m.t === 'ar') { // bomba colocada / flecha atirada: só efeito visual para os outros
+    if (m.t === 'bo' || m.t === 'ar' || m.t === 'fl' || m.t === 'th') { // bomba colocada/jogada, flecha atirada, fogo do cavalo: só efeito visual para os outros
       if (p.hid) return; // invisível não deixa rastro
       const now = Date.now(); if (now - (p.evW || 0) > 1000) { p.evW = now; p.evN = 0 } if (++p.evN > 30) return;
-      if (m.t === 'bo') others(id, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1) });
+      if (m.t === 'bo') others(id, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1), bt: num(m.bt, 0, 5) }); // bt = tempo de pavio que falta (o outro lado explode junto)
+      else if (m.t === 'fl') others(id, { t: 'fl', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), dx: Math.max(-1, Math.min(1, Math.round(+m.dx || 0))), dy: Math.max(-1, Math.min(1, Math.round(+m.dy || 0))) });
+      else if (m.t === 'th') others(id, { t: 'th', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), g: num(m.g, 0, 99999) | 0 }); // arbusto arremessado: só visual
       else others(id, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
       return;
     }
@@ -678,19 +765,22 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'mh') { // golpe em monstro de quem não é anfitrião: vai só para o anfitrião
       const now = Date.now(); if (now - (p.mhW || 0) > 1000) { p.mhW = now; p.mhN = 0 } if (++p.mhN > 60) return;
-      const h = HOST && HOST !== p.id && P.get(HOST); if (h) sendTo(h.ws, { t: 'mh', i: m.i | 0, d: num(m.d, 0, 2000) }); return;
+      const h = HOST && HOST !== p.id && P.get(HOST); if (h) sendTo(h.ws, { t: 'mh', i: m.i | 0, d: num(m.d, 0, 2000), kx: num(m.kx, -1, 1), ky: num(m.ky, -1, 1) }); return;
     }
     if (m.t === 'mp') { // monstro bateu em jogador remoto: vai só para a vítima
       if (p.id !== HOST) return;
       const now = Date.now(); if (now - (p.mpW || 0) > 1000) { p.mpW = now; p.mpN = 0 } if (++p.mpN > 120) return;
       const v = P.get(m.pid | 0); if (v && v !== p) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20) }); return;
     }
-    if (m.t === 'pi') { // perfil público: título, status, contadores e opção de sparring (muda de vez em quando)
-      if (d.length > 600) return;
+    if (m.t === 'pi') { // perfil público: título, status, contadores, sparring, gênero, aniversário, idioma, país e sequências (muda de vez em quando)
+      if (d.length > 1200) return;
       const now = Date.now(); if (now - (p.piT || 0) < 700) return; p.piT = now;
       const tx = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n);
       const n = v => Math.max(0, Math.min(1e9, +v || 0)) | 0;
-      p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, th: /^[a-z]{3,10}$/.test(m.th) ? m.th : 'preto', pt: n(m.pt) };
+      const bdOk = /^(\d\d)-(\d\d)$/.exec(m.bd), bd = bdOk && +bdOk[1] >= 1 && +bdOk[1] <= 12 && +bdOk[2] >= 1 && +bdOk[2] <= 31 ? m.bd : ''; // aniversário "MM-DD"
+      p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, th: /^[a-z]{3,10}$/.test(m.th) ? m.th : 'preto', pt: n(m.pt),
+        gn: m.gn === 'f' || m.gn === 'm' ? m.gn : '', bd, lg: /^[a-z]{2}$/.test(m.lg) ? m.lg : '', co: /^[A-Z]{2}$/.test(m.co) ? m.co : '', // gênero, aniversário, idioma, país
+        ks: n(m.ks), kb: n(m.kb), ss: n(m.ss), sb: n(m.sb) }; // sequência de abates / melhor, sequência no sparring / melhor
       if (!p.hid) others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
     }
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
@@ -708,7 +798,7 @@ wss.on('connection', (ws, req) => {
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = num(m.s, 0, 999) | 0; p.sw = m.sw ? 1 : 0; p.mt = m.mt ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = m.mt ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
@@ -740,7 +830,7 @@ function normAn(a) {
   return m[1] + '_' + (/^[0-3]$/.test(m[2]) ? AN_DIR[+m[2]] : m[2]);
 }
 
-const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt ? 1 : 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl });
+const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt ? 1 : 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0 });
 setInterval(() => {
   const a = [...P.values()].filter(p => p.ok && !p.hid).map(pstate);
   if (!a.length) return;
@@ -748,7 +838,7 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initAccountsDB(), initSpawnsDB(), initPfDB()]).then(() => {
+Promise.all([initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB()]).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
