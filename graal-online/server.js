@@ -821,7 +821,7 @@ wss.on('connection', (ws, req) => {
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = m.mt ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = m.mt ? 1 : 0; p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
@@ -848,12 +848,12 @@ wss.on('connection', (ws, req) => {
    que é o que todos os clientes (antigos e novos) sabem desenhar. Antes, o nome era descartado e virava Idle_2: o amigo deslizava parado. */
 const AN_DIR = ['Up', 'Left', 'Down', 'Right'];
 function normAn(a) {
-  const m = /^(Idle|Run|Attack)_([0-3]|Up|Left|Down|Right)$/.exec(a);
+  const m = /^(Idle|Run|Attack|Jump)_([0-3]|Up|Left|Down|Right)$/.exec(a);
   if (!m) return 'Idle_Down';
   return m[1] + '_' + (/^[0-3]$/.test(m[2]) ? AN_DIR[+m[2]] : m[2]);
 }
 
-const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt ? 1 : 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0 });
+const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt ? 1 : 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0, fl: p.fl | 0 });
 setInterval(() => {
   const a = [...P.values()].filter(p => p.ok && !p.hid).map(pstate);
   if (!a.length) return;
