@@ -351,6 +351,30 @@ html.ae-entry-pending #aeEntry .ae-subtitle { filter: drop-shadow(0 2px 3px #000
   html.ae-entry-pending #aeEntry { background-attachment:scroll !important; }
 }
 </style>
+
+<!-- Aetheria: usa a imagem original também durante o carregamento inicial. -->
+<style id="ae-loading-image-background">
+html.ae-game-booting #aeBoot {
+  background-color: #192d1c !important;
+  background-image: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.24)), url('/assets/aetheria-login-background.png') !important;
+  background-position: center center !important;
+  background-size: cover !important;
+  background-repeat: no-repeat !important;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  box-sizing: border-box;
+}
+html.ae-game-booting #aeBoot > div {
+  font: 900 clamp(30px, 5vw, 54px)/1 Georgia, serif;
+  color: #ffe27b;
+  letter-spacing: .08em;
+  text-shadow: 2px 3px 0 #6c3d0b, 0 4px 12px rgba(0,0,0,.85);
+}
+html.ae-game-booting #aeBoot > small {
+  font: 700 clamp(12px, 1.6vw, 16px)/1.3 Arial, sans-serif;
+  color: #fff4d5;
+  text-shadow: 0 2px 8px #000, 0 1px 3px #000;
+}
+</style>
 </head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
   <section class="ae-panel">
     <h1 id="aeEntryTitle" class="ae-title">AETHERIA</h1>
