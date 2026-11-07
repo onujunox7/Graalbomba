@@ -1044,7 +1044,11 @@ const NUDGE_MAX=3; /* px: ate onde o personagem procura uma abertura ao lado par
 function move(e,dx,dy){if(e===P&&window.ADMX&&(ADMX.nc||ADMX.spec)){e.x=Math.max(0,Math.min(WP,e.x+dx));e.y=Math.max(0,Math.min(HPX,e.y+dy));return} /* modo admin: atravessa tudo */
  let hb=e===P?(P.face!=='Up'&&!blocked(e.x,e.y,HB_PS)?HB_PS:HB_P):HB_E; /* de lado usa a caixa maior, menos se ela já estiver dentro de uma parede (evita 'pulo' ao virar) */
  if(e===P&&window.MOUNT&&MOUNT.on){const ex=HB_M[P.face];if(ex&&!blocked(e.x,e.y,ex))hb=ex} /* montado: caixa se estende ~6px pra frente em qualquer direção (o cavalo é comprido e ficava em cima do mato) */
- if(blocked(e.x,e.y,hb)){for(let k=1;k<=10;k++)for(const[ox,oy]of[[k,0],[-k,0],[0,k],[0,-k]])if(!blocked(e.x+ox,e.y+oy,hb)){e.x+=ox;e.y+=oy;return}e.x+=dx;e.y+=dy;return}
+ if(blocked(e.x,e.y,hb)){for(let k=1;k<=10;k++)for(const[ox,oy]of[[k,0],[-k,0],[0,k],[0,-k]])if(!blocked(e.x+ox,e.y+oy,hb)){e.x+=ox;e.y+=oy;return}
+  /* v27: bicho (não o player) preso dentro de um objeto grande (árvore/casa posta em cima dele, nascer/renascer dentro): antes só procurava saída até 10px e, se não achava, ANDAVA LIVRE
+     e atravessava tudo atrás do player. Agora é empurrado pro ponto livre mais próximo (até 90px) e, se não houver nenhum, fica parado. */
+  if(e!==P){for(let k=11;k<=90;k+=2)for(const[ox,oy]of[[k,0],[-k,0],[0,k],[0,-k],[k,k],[-k,k],[k,-k],[-k,-k]])if(!blocked(e.x+ox,e.y+oy,hb)){e.x+=ox;e.y+=oy;return}return}
+  e.x+=dx;e.y+=dy;return}
  /* anda em passos de <=2.5px (não atravessa nada mesmo com FPS baixo). Se um eixo bate na parede, o outro anda só a sua parte (deslizar NUNCA fica mais rápido que andar livre) */
  const L=Math.hypot(dx,dy),n=Math.max(1,Math.ceil(L/2.5)),sx0=dx/n,sy0=dy/n,sl=L/n;
  for(let i=0;i<n;i++){
@@ -1420,6 +1424,10 @@ class WCanvas{
  drawImage(s,x,y,w,h){const W=w||s.width,H=h||s.height;this.each(x,y,W,H,(q,ox,oy)=>w?q.drawImage(s,x-ox,y-oy,w,h):q.drawImage(s,x-ox,y-oy))}
  fillRect(x,y,w,h){this.each(x,y,w,h,(q,ox,oy,l)=>{const t=GWD.tiles,o=l*4096,x0=Math.max(x,ox)>>3,x1=Math.min(x+w,ox+512)>>3,y0=Math.max(y,oy)>>3,y1=Math.min(y+h,oy+512)>>3;
   const GT=gtSrc();for(let Y=y0;Y<y1;Y++)for(let X=x0;X<x1;X++){const id=t[o+((Y&63)<<6)+(X&63)];q.drawImage(GT,(id%16)*16+(id>>9)*256,((id>>4)&31)*16,16,16,(X&63)*8,(Y&63)*8,8,8)}})}
+ /* v27: Apagar no mapa convertido: antes fillRect() só REDESENHAVA o tile original (árvores/objetos feitos de tiles nunca saíam). eraseRect pinta GRAMA LISA (tile 2047) por cima. */
+ eraseRect(x,y,w,h){this.each(x,y,w,h,(q,ox,oy)=>{const x0=Math.max(x,ox)>>3,x1=Math.min(x+w,ox+512)>>3,y0=Math.max(y,oy)>>3,y1=Math.min(y+h,oy+512)>>3,GT=gtSrc(),id=2047;
+  for(let Y=y0;Y<y1;Y++)for(let X=x0;X<x1;X++)q.drawImage(GT,(id%16)*16+(id>>9)*256,((id>>4)&31)*16,16,16,(X&63)*8,(Y&63)*8,8,8)})}
+ clearRect(x,y,w,h){this.each(x,y,w,h,(q,ox,oy)=>q.clearRect(x-ox,y-oy,w,h))} /* v27: ferramenta Vazio do editor (apaga o visual; o fundo do jogo é preto) */
  reset(){if(window.__PIXI_FORGET)for(const o of this.c.values())window.__PIXI_FORGET(o);this.c.clear();this.dirty.clear()}
  draw(g,cx,cy,w,h){const _sm=window.__TF==='l';if(_sm)g.imageSmoothingEnabled=true;try{this.draw0(g,cx,cy,w,h)}finally{if(_sm)g.imageSmoothingEnabled=false}}
  draw0(g,cx,cy,w,h){for(let ly=Math.floor(cy/512);ly<=Math.floor((cy+h-1)/512);ly++)for(let lx=Math.floor(cx/512);lx<=Math.floor((cx+w-1)/512);lx++){if(lx<0||ly<0||lx>=GNX||ly>=GNY)continue;
@@ -1775,14 +1783,30 @@ function edSaveCustom(){try{localStorage.setItem('graal_tilesets_v1',JSON.string
 const edImg=id=>id==='ts'?IM.ts:id==='tl'?IM.tl:(EDC.sets[+id.slice(1)]||{}).img;
 
 /* recorta uma peça [x,y,w,h] de um tileset, remove as cores-chave e calcula a colisão (sol: 0 nenhuma, 1 total, 2 só base) */
+/* COR TRANSPARENTE (v27): d.edge=0 (padrão antigo) apaga a cor em TODA a peça; d.edge=1 apaga só o fundo: a partir das bordas da peça, espalha pelos pixels vizinhos
+   que batem com alguma cor-chave (dentro da tolerância). Assim o verde da grama de trás some, mas o verde da copa da árvore (que fica por dentro) é preservado. */
+function edKeyOut(p,W,H,keys,tl,edge){
+ if(!keys||!keys.length)return;
+ const m=i=>{for(const k of keys)if(Math.abs(p[i]-k[0])+Math.abs(p[i+1]-k[1])+Math.abs(p[i+2]-k[2])<=tl)return true;return false};
+ if(!edge){for(let i=0;i<p.length;i+=4)if(m(i))p[i+3]=0;return}
+ const seen=new Uint8Array(W*H),st=[];
+ const add=(x,y)=>{if(x<0||y<0||x>=W||y>=H)return;const n=y*W+x;if(seen[n])return;seen[n]=1;if(p[n*4+3]===0||m(n*4))st.push(n)};
+ for(let x=0;x<W;x++){add(x,0);add(x,H-1)}for(let y=0;y<H;y++){add(0,y);add(W-1,y)}
+ while(st.length){const n=st.pop(),x=n%W,y=(n/W)|0;p[n*4+3]=0;add(x+1,y);add(x-1,y);add(x,y+1);add(x,y-1)}}
+/* fundo automático: pega as cores mais comuns da borda da seleção */
+function edAutoKeys(im,r){const c=document.createElement('canvas');c.width=r[2];c.height=r[3];const q=c.getContext('2d');q.drawImage(im,r[0],r[1],r[2],r[3],0,0,r[2],r[3]);
+ const d=q.getImageData(0,0,r[2],r[3]).data,W=r[2],H=r[3],cnt=new Map();let tot=0;
+ const at=(x,y)=>{const i=(y*W+x)*4;if(d[i+3]<128)return;const k=d[i]+','+d[i+1]+','+d[i+2];cnt.set(k,(cnt.get(k)||0)+1);tot++};
+ for(let x=0;x<W;x++){at(x,0);at(x,H-1)}for(let y=1;y<H-1;y++){at(0,y);at(W-1,y)}
+ return[...cnt.entries()].sort((a,b)=>b[1]-a[1]).filter(e=>e[1]>=Math.max(2,tot*.04)).slice(0,6).map(e=>e[0].split(',').map(Number))}
 function edBuildObj(d,imO){
  const[x,y,w0,h0]=d.rect,sc=d.sc||1,w=Math.floor(w0/sc),h=Math.floor(h0/sc),tw=w>>3,th=h>>3,c=document.createElement('canvas'),s=[],IMG=imO||edImg(d.set);c.width=w;c.height=h;let HC=null;
  const cx=c.getContext('2d');cx.imageSmoothingEnabled=false;
  try{cx.drawImage(IMG,x,y,w0,h0,0,0,w,h);const id=cx.getImageData(0,0,w,h),p=id.data,tl=(d.tol||0)*3;
-  if(d.keys&&d.keys.length)for(let i=0;i<p.length;i+=4)for(const k of d.keys)if(Math.abs(p[i]-k[0])+Math.abs(p[i+1]-k[1])+Math.abs(p[i+2]-k[2])<=tl){p[i+3]=0;break}
+  edKeyOut(p,w,h,d.keys,tl,d.edge);
   cx.putImageData(id,0,0);
   {const hc=document.createElement('canvas');hc.width=w*2;hc.height=h*2;const hx=hc.getContext('2d');hx.imageSmoothingEnabled=sc>2;hx.imageSmoothingQuality='high';hx.drawImage(IMG,x,y,w*sc,h*sc,0,0,w*2,h*2);
-   if(d.keys&&d.keys.length){const hi=hx.getImageData(0,0,w*2,h*2),hp=hi.data;for(let i=0;i<hp.length;i+=4)for(const k of d.keys)if(Math.abs(hp[i]-k[0])+Math.abs(hp[i+1]-k[1])+Math.abs(hp[i+2]-k[2])<=tl){hp[i+3]=0;break}hx.putImageData(hi,0,0)}
+   if(d.keys&&d.keys.length){const hi=hx.getImageData(0,0,w*2,h*2),hp=hi.data;edKeyOut(hp,w*2,h*2,d.keys,tl,d.edge);hx.putImageData(hi,0,0)}
    HC=hc}
   if(d.sb){for(let i=0;i<tw*th;i++)s.push(+d.sb[i]||0)}
   else for(let j=0;j<th;j++)for(let i=0;i<tw;i++){let any=0;for(let yy=0;yy<8&&!any;yy++)for(let xx=0;xx<8;xx++)if(p[((j*8+yy)*w+i*8+xx)*4+3]){any=1;break}
@@ -1820,11 +1844,29 @@ function edBushHook(x,y,w,h,isB,o){const BU=window.__BUSH,W=D.W;
   const G={x,y,tw:w,th:h,o,keys:[]};
   for(const j of ys)for(const i of xs){const k=(y+j)*W+x+i,v=[x+i,y+j,G];G.keys.push(k);EDGONE.delete(k);EDBU.set(k,v);if(BU)BU.set(k,v)}}}
 window.__edBushMerge=BU=>{EDGONE.forEach(k=>BU.delete(k));EDBU.forEach((v,k)=>BU.set(k,v))};
+/* ORDEM POR Y (v27): antes cada peça era carimbada na imagem do mapa na ordem em que foi colocada, então a última sempre ficava por cima.
+   Agora, em cada sequência de peças colocadas (carimbo/pincel/preenchimento) a ordem de desenho é pela borda de baixo (y + altura): quem está mais embaixo
+   cobre quem está mais em cima (árvores, casas...). Empate = ordem em que foi colocada. Borracha/colisão/recorte quebram a sequência (mantêm a ordem). */
+var EDYSORT=true;try{EDYSORT=localStorage.getItem('graal_ed_ysort')!=='0'}catch(e){}
+function edBox(e){if(e.k!=='o'&&e.k!=='f')return null;const t=EDT[e.i];if(!t||!t.o)return null;return e.k==='f'?[e.x,e.y,e.cols*t.o.tw,e.rows*t.o.th]:[e.x,e.y,t.o.tw,t.o.th]}
+function edOrder(L){if(!EDYSORT)return L;const R=[];let run=[];
+ const fl=()=>{if(run.length>1)run.sort((a,b)=>a.b-b.b||a.i-b.i);for(const r of run)R.push(r.e);run=[]};
+ L.forEach((e,i)=>{const bx=edBox(e);if(bx)run.push({e,i,b:bx[1]+bx[3]});else{fl();R.push(e)}});fl();return R}
+/* a peça nova (já no fim de EDITS) encosta em uma peça anterior da mesma sequência que fica MAIS embaixo? Então ela não pode só ser carimbada por cima: refaz o mapa na ordem certa */
+function edNeedsResort(e){if(!EDYSORT)return false;const nb=edBox(e);if(!nb)return false;const nB=nb[1]+nb[3];
+ for(let k=EDITS.length-2;k>=0;k--){const o=EDITS[k],ob=edBox(o);if(!ob)break;
+  if(ob[1]+ob[3]>nB&&ob[0]<nb[0]+nb[2]&&nb[0]<ob[0]+ob[2]&&ob[1]<nb[1]+nb[3]&&nb[1]<ob[1]+ob[3])return true}
+ return false}
+function edCommit(e){if(edNeedsResort(e))edRebuild();else{edApply(e);edMMn();edSave()}}
+function edToggleYSort(){EDYSORT=!EDYSORT;try{localStorage.setItem('graal_ed_ysort',EDYSORT?'1':'0')}catch(err){}edRebuild();edRefresh();edMsg(EDYSORT?'Ordem por Y ligada: o que está mais embaixo fica por cima.':'Ordem por Y desligada: a última peça colocada fica por cima.')}
+
 function edApply(e){
  const b=IM.below.getContext('2d'),W2=D.W,H2=D.H;
  const setS=(x,y,w,h,f)=>{for(let j=0;j<h;j++)for(let i=0;i<w;i++){const X=x+i,Y=y+j;if(X>=0&&Y>=0&&X<W2&&Y<H2)SO[Y*W2+X]=f(i,j,X,Y)}};
  const put=(t,x,y,fx,fy)=>{const o=t.chest?t.o:edFlip(t.o,fx,fy);if(t.chest)CH.push({x:(x+1)*8,y:(y+2)*8,open:0});else if(o.hc&&IM.below.chunked)b.drawImage(o.hc,x*8,y*8,o.c.width,o.c.height);else b.drawImage(o.c,x*8,y*8);try{edBushHook(x,y,o.tw,o.th,edIsBush(t),o)}catch(err){}setS(x,y,o.tw,o.th,(i,j,X,Y)=>{const v=o.s[j*o.tw+i];return o.rep?v:v?1:SO[Y*W2+X]})};
- if(e.k==='e'){b.fillStyle='#409740';b.fillRect(e.x*8,e.y*8,e.w*8,e.h*8);try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>0);
+ if(e.k==='e'){b.fillStyle='#409740';if(e.g&&b.eraseRect)b.eraseRect(e.x*8,e.y*8,e.w*8,e.h*8);else b.fillRect(e.x*8,e.y*8,e.w*8,e.h*8);try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>0);
+  CH=CH.filter(c=>{const cx=c.x/8-1,cy=c.y/8-2;return!(cx>=e.x&&cx<e.x+e.w&&cy>=e.y&&cy<e.y+e.h)})}
+ else if(e.k==='v'){b.clearRect(e.x*8,e.y*8,e.w*8,e.h*8);try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>1);
   CH=CH.filter(c=>{const cx=c.x/8-1,cy=c.y/8-2;return!(cx>=e.x&&cx<e.x+e.w&&cy>=e.y&&cy<e.y+e.h)})}
  else if(e.k==='s')setS(e.x,e.y,e.w,e.h,()=>e.v);
  else{const t=EDT[e.i];if(!t)return;if(e.k==='f'){for(let r=0;r<e.rows;r++)for(let c=0;c<e.cols;c++)put(t,e.x+c*t.o.tw,e.y+r*t.o.th,e.fx,e.fy)}else put(t,e.x,e.y,e.fx,e.fy)}
@@ -1832,23 +1874,23 @@ function edApply(e){
 function edInit(){
  const B=IM.below,c=document.createElement('canvas');if(!B.chunked){c.width=B.width;c.height=B.height;c.getContext('2d').drawImage(B,0,0)}
  BASEC=c;BASES=SO.slice();BASECH=CH.map(o=>({...o}));EDB=EDT.length;edLoadCustom();
- const fin=()=>{EDC.objs.forEach(d=>EDT.push(edBuildObj(d)));EDITS.forEach(edApply);MM=null;edUI()};
+ const fin=()=>{EDC.objs.forEach(d=>EDT.push(edBuildObj(d)));edOrder(EDITS).forEach(edApply);MM=null;edUI()};
  const pend=EDC.sets.map(st=>new Promise(r=>{const im=new Image();im.onload=()=>{st.img=im;r()};im.onerror=()=>r();im.src=st.url}));
  if(pend.length)Promise.all(pend).then(fin);else fin();
 }
-function edRebuild(){if(IM.below.chunked)IM.below.reset();else IM.below.getContext('2d').drawImage(BASEC,0,0);SO.set(BASES);CH=BASECH.map(o=>({...o}));EDBU.clear();EDGONE.clear();EDITS.forEach(edApply);try{if(IM.below.chunked&&window.__bushScan)window.__bushScan()}catch(err){}if(typeof GW_FRESTAS!=='undefined'&&typeof GTW!=='undefined'&&D.W===GTW&&SO)for(const f of GW_FRESTAS)for(let y=f[2];y<=f[3];y++)for(let x=f[0];x<=f[1];x++)SO[y*GTW+x]=0; /* v26.42: edições salvas no navegador não fecham mais as frestas */MM=null;edSave()}
+function edRebuild(){if(IM.below.chunked)IM.below.reset();else IM.below.getContext('2d').drawImage(BASEC,0,0);SO.set(BASES);CH=BASECH.map(o=>({...o}));EDBU.clear();EDGONE.clear();edOrder(EDITS).forEach(edApply);try{if(IM.below.chunked&&window.__bushScan)window.__bushScan()}catch(err){}if(typeof GW_FRESTAS!=='undefined'&&typeof GTW!=='undefined'&&D.W===GTW&&SO)for(const f of GW_FRESTAS)for(let y=f[2];y<=f[3];y++)for(let x=f[0];x<=f[1];x++)SO[y*GTW+x]=0; /* v26.42: edições salvas no navegador não fecham mais as frestas */MM=null;edSave()}
 function edAdd(e){
  const t=e.i!=null?EDT[e.i]:null,w=e.k==='f'?e.cols*t.o.tw:t?t.o.tw:e.w,h=e.k==='f'?e.rows*t.o.th:t?t.o.th:e.h;
  if(e.x<0||e.y<0||e.x+w>D.W||e.y+h>D.H)return;
- EDITS.push(e);EDREDO=[];edApply(e);edMMn();edSave();
+ EDITS.push(e);EDREDO=[];edCommit(e);
 }
 function edUndo(){if(EDITS.length){EDREDO.push(EDITS.pop());edRebuild()}}
-function edRedo(){if(EDREDO.length){const e=EDREDO.pop();EDITS.push(e);edApply(e);edMMn();edSave()}}
+function edRedo(){if(EDREDO.length){const e=EDREDO.pop();EDITS.push(e);edCommit(e)}}
 function edToggle(){if(!ED&&!edAllowed()){edDeny();return}ED=!ED;shop=0;for(const k in keys)keys[k]=0;document.body.classList.toggle('edon',!!ED);fit();
  $e('edbtn').textContent=ED?'▶ Voltar ao jogo':'🛠 Editor de mapa';fit();cam.x=Math.round(cam.x);cam.y=Math.round(cam.y);tsShow()}
 /* ===== EDITOR v2: ferramentas, UI, acesso só para admin ===== */
-const EDTOOLS=[['stamp','🖌','Carimbo','1','Coloca a peça com um clique'],['brush','🖍','Pincel','2','Arraste para repetir a peça, alinhada à grade'],['rect','▭','Retângulo','3','Arraste para preencher uma área com a peça'],['erase','🧽','Apagar','4','Restaura o terreno original (o botão direito também apaga)'],['solid','⛔','Bloquear','5','Só adiciona colisão'],['free','✅','Liberar','6','Só remove a colisão'],['copy','📋','Copiar','7','Arraste sobre o mapa: copia o visual e a colisão da região'],['cut','✂️','Recortar','8','Como copiar, mas apaga a região original'],['pick','💧','Conta-gotas','9','Clique: pega 1 tile (16×16) do mapa e já pinta com ele']];
-const EDCOL={stamp:'#ffd84a',brush:'#ffd84a',rect:'#ffd84a',erase:'#ff6b6b',solid:'#ffa43a',free:'#5be37d',copy:'#5ad1ff',cut:'#ff7ad9',pick:'#5ad1ff'};
+const EDTOOLS=[['stamp','🖌','Carimbo','1','Coloca a peça com um clique'],['brush','🖍','Pincel','2','Arraste para repetir a peça, alinhada à grade'],['rect','▭','Retângulo','3','Arraste para preencher uma área com a peça'],['erase','🧽','Apagar','4','Apaga o que estiver no mapa e deixa grama lisa (o botão direito também apaga; Z desfaz)'],['solid','⛔','Bloquear','5','Só adiciona colisão'],['free','✅','Liberar','6','Só remove a colisão'],['copy','📋','Copiar','7','Arraste sobre o mapa: copia o visual e a colisão da região'],['cut','✂️','Recortar','8','Como copiar, mas apaga a região original'],['pick','💧','Conta-gotas','9','Clique: pega 1 tile (16×16) do mapa e já pinta com ele'],['void','🕳','Vazio','0','Apaga o visual (fica invisível/preto) E bloqueia a passagem. Para desfazer: Apagar restaura o terreno']];
+const EDCOL={stamp:'#ffd84a',brush:'#ffd84a',rect:'#ffd84a',erase:'#ff6b6b',solid:'#ffa43a',free:'#5be37d',copy:'#5ad1ff',cut:'#ff7ad9',pick:'#5ad1ff',void:'#b48cff'};
 const EDgc={},edEsc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),inInt=()=>typeof INT!=='undefined'&&INT&&INT.view==='i';
 /* ---- acesso: só admin/dono (ou jogo local sem servidor) ---- */
 const edTok=()=>{try{return localStorage.getItem('graal_admin_token')||''}catch(e){return''}};
@@ -1887,7 +1929,7 @@ function edCopyRegion(x,y,w,h,cut){
  if(x<0||y<0||x+w>D.W||y+h>D.H){edMsg('A seleção passa do limite do mapa.');return}
  if(w>40||h>40){edMsg('Região grande demais (máximo 40×40 tiles).');return}
  try{CLIP=edClipMake(x,y,w,h)}catch(e){edMsg('Não foi possível copiar: '+e.message);return}
- if(cut)edAdd({k:'e',x,y,w,h});
+ if(cut)edAdd({k:'e',x,y,w,h,g:1});
  EDsel=-3;EDmode='stamp';edRefresh();edClipThumb();edMsg((cut?'Recortado ':'Copiado ')+w+'×'+h+' tiles — clique no mapa para colar (F/V espelham).')}
 function edPick(){
  const x=Math.max(0,Math.min(D.W-2,snp(ms.tx,2))),y=Math.max(0,Math.min(D.H-2,snp(ms.ty,2)));
@@ -1912,6 +1954,7 @@ function edRefresh(){
  q('#ed [data-id="col"]').forEach(b=>b.classList.toggle('sel',!!EDcol));
  q('#ed [data-id="fx"]').forEach(b=>b.classList.toggle('sel',!!EDfx));
  q('#ed [data-id="fy"]').forEach(b=>b.classList.toggle('sel',!!EDfy));
+ q('#ed [data-id="ys"]').forEach(b=>b.classList.toggle('sel',!!EDYSORT));
  q('#ed [data-bs]').forEach(b=>b.classList.toggle('sel',+b.dataset.bs===EDbs));
  edInfo()}
 function edRename(){const t=EDT[EDsel];if(!t||!t.cu||EDsel<EDB){edMsg('Só peças personalizadas podem ser renomeadas.');return}
@@ -1940,9 +1983,10 @@ function edUI(){
  [1,2,4,8,16].forEach(n=>btn(pl,n+'×'+n,()=>{EDbs=n;edRefresh()},'Tamanho em tiles',{bs:n}));
  const p2=el('div','pills','',s2);
  btn(p2,'# Grade <kbd>G</kbd>',()=>{EDgrid=!EDgrid;edRefresh()},'Mostrar grade',{id:'grid'});
- btn(p2,'🟥 Colisão <kbd>C</kbd>',()=>{EDcol=!EDcol;edRefresh()},'Mostrar onde bloqueia',{id:'col'});
+ btn(p2,'🟥 Colisão <kbd>C</kbd>',()=>{EDcol=edColNext();edRefresh();edColMsg()},'Mostrar onde bloqueia: clique de novo para só o contorno, e de novo para desligar',{id:'col'});
  btn(p2,'↔ Espelhar <kbd>F</kbd>',()=>{EDfx=!EDfx;edRefresh()},'Espelha a peça na horizontal',{id:'fx'});
  btn(p2,'↕ Inverter <kbd>V</kbd>',()=>{EDfy=!EDfy;edRefresh()},'Vira a peça de cabeça para baixo',{id:'fy'});
+ btn(p2,'↕ Ordem por Y',edToggleYSort,'Ligado: a peça que está mais embaixo no mapa fica por cima das de cima (árvores, casas). Desligado: a última colocada fica por cima.',{id:'ys'});
  const s3=sec('cur','Peça selecionada'),cb=el('div','curbox','',s3),pv=el('canvas','','',cb);pv.id='edprev';pv.width=pv.height=96;el('div','curinfo','',cb).id='edcur';
  const ca=el('div','pills','',s3);btn(ca,'✏ Renomear',edRename,'Só peças personalizadas');btn(ca,'🙈 Ocultar',edHideCur,'Tira da paleta (dá para mostrar de novo)');btn(ca,'🌿 Cortável',edToggleBush,'Marca/desmarca a peça (2×2) como arbusto que dá para cortar com espada, bomba e cavalo');
  const s4=sec('pal','Paleta'),lv=el('div','pal','',s4);
@@ -1972,7 +2016,7 @@ function edUpdate(dt){
  const k=keys,v=220*dt*(k['shift']?3:1);
  cam.x+=((k['arrowright']||k['d']?1:0)-(k['arrowleft']||k['a']?1:0))*v;cam.y+=((k['arrowdown']||k['s']?1:0)-(k['arrowup']||k['w']?1:0))*v;edClamp();
  if(k['z']){k['z']=0;edUndo()}if(k['y']){k['y']=0;edRedo()}
- if(k['g']){k['g']=0;EDgrid=!EDgrid;edRefresh()}if(k['c']){k['c']=0;EDcol=!EDcol;edRefresh()}
+ if(k['g']){k['g']=0;EDgrid=!EDgrid;edRefresh()}if(k['c']){k['c']=0;EDcol=edColNext();edRefresh();edColMsg()}
 }
 /* atalhos do editor (no keydown, para não perder toques rápidos) */
 addEventListener('keydown',e=>{if(!ED||e.repeat||e.ctrlKey||e.metaKey||e.altKey||inInt())return;if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
@@ -1989,14 +2033,14 @@ function edIdx(){ /* registra a seleção ao vivo (recorte ou cópia do mapa) na
  if(EDsel===-3&&CLIP){const C=CLIP;EDC.sets.push({n:C.n,url:C.url,img:C.img});const d=Object.assign({},C.d,{set:'c'+(EDC.sets.length-1)});
   EDC.objs.push(d);EDT.push(edBuildObj(d));EDsel=EDB+EDC.objs.length-1;CLIP=null;edSaveCustom();if(TS)tsFill();edUI();return EDsel}
  if(EDsel!==-2)return EDsel;
- const d=tsDef(),kf=o=>JSON.stringify([o.set,o.rect,o.keys,o.tol,o.sol,o.sc||1]),key=kf(d);
+ const d=tsDef(),kf=o=>JSON.stringify([o.set,o.rect,o.keys,o.tol,o.sol,o.sc||1,o.edge?1:0]),key=kf(d);
  let k=EDC.objs.findIndex(o=>!o.cp&&kf(o)===key);
  if(k<0){d.n='Peça '+(EDC.objs.length+1);EDC.objs.push(d);EDT.push(edBuildObj(d));k=EDC.objs.length-1;edSaveCustom();edUI()}
  else if(EDC.objs[k].hidden){EDC.objs[k].hidden=0;EDT[EDB+k].hidden=0;edUI()}
  return EDB+k;
 }
 function edBrush(){const o=edCur().o,x=snp(ms.tx,o.tw),y=snp(ms.ty,o.th);if(x===ms.lx&&y===ms.ly)return;ms.lx=x;ms.ly=y;edAdd({k:'o',i:edIdx(),x,y,fx:EDfx?1:0,fy:EDfy?1:0})}
-function edArea(m){const bs=EDbs,x=ms.tx-(bs>>1),y=ms.ty-(bs>>1);if(x===ms.lx&&y===ms.ly)return;ms.lx=x;ms.ly=y;edAdd({k:m==='erase'?'e':'s',x,y,w:bs,h:bs,v:m==='solid'?1:0})}
+function edArea(m){const bs=EDbs,x=ms.tx-(bs>>1),y=ms.ty-(bs>>1);if(x===ms.lx&&y===ms.ly)return;ms.lx=x;ms.ly=y;edAdd({k:m==='erase'?'e':m==='void'?'v':'s',x,y,w:bs,h:bs,v:m==='solid'?1:0,g:m==='erase'?1:0})}
 function edStart(){
  const m=edMode();ms.lx=ms.ly=-1e9;
  if(m==='copy'||m==='cut'){ms.ax=ms.bx=ms.tx;ms.ay=ms.by=ms.ty;return}
@@ -2032,9 +2076,23 @@ cv.addEventListener('pointercancel',()=>{ms.down=0;EDpan=null});
 cv.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('wheel',e=>{if(!ED)return;e.preventDefault();const d=Math.sign(e.deltaY)*32;if(e.shiftKey)cam.x+=d;else cam.y+=d;edClamp()},{passive:false});
 ['keydown','keyup'].forEach(ev=>addEventListener(ev,e=>{if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)&&!(e.target.closest&&e.target.closest('#mpchat')))e.stopImmediatePropagation()},true));
+/* VISÃO DA COLISÃO (v27): C / botão alterna 3 modos: 1 = preenchido + contorno, 2 = só contorno (dá para ver o desenho por baixo), 0 = desligado.
+   Células vizinhas bloqueadas viram uma mancha só, e o contorno marca onde o bloqueio acaba (antes era um vermelho fraco por tile que sumia na grama). */
+function edColNext(){return EDcol===1||EDcol===true?2:EDcol===2?0:1}
+function edColMsg(){edMsg(EDcol===1||EDcol===true?'Colisão: preenchida + contorno (vermelho = bloqueia)':EDcol===2?'Colisão: só contorno':'Colisão: desligada')}
+function edDrawCol(cx0,cy0){
+ const W2=D.W,H2=D.H,nx=(VW>>3)+2,ny=(VH>>3)+2,fill=EDcol!==2,th=fill?1:2,
+  S=(X,Y)=>X>=0&&Y>=0&&X<W2&&Y<H2&&SO[Y*W2+X]?1:0;
+ for(let j=0;j<ny;j++){const Y=cy0+j;if(Y<0||Y>=H2)continue;const py=Y*8-cam.y;
+  if(fill){g.fillStyle='rgba(255,40,60,.42)';let s=-1;for(let i=0;i<=nx;i++){const on=i<nx&&S(cx0+i,Y);if(on&&s<0)s=i;else if(!on&&s>=0){g.fillRect((cx0+s)*8-cam.x,py,(i-s)*8,8);s=-1}}}
+  g.fillStyle='rgba(255,60,70,1)';
+  for(const dy of[-1,1]){let s=-1;for(let i=0;i<=nx;i++){const X=cx0+i,on=i<nx&&S(X,Y)&&!S(X,Y+dy);if(on&&s<0)s=i;else if(!on&&s>=0){g.fillRect((cx0+s)*8-cam.x,dy<0?py:py+8-th,(i-s)*8,th);s=-1}}}
+  for(let i=0;i<nx;i++){const X=cx0+i;if(!S(X,Y))continue;const px=X*8-cam.x;if(!S(X-1,Y))g.fillRect(px,py,th,8);if(!S(X+1,Y))g.fillRect(px+8-th,py,th,8)}}
+ const FF=window.__FF||'sans-serif',tx=fill?'Colisão: vermelho = bloqueia':'Colisão: só contorno';g.font='bold 8px '+FF;g.textAlign='left';
+ const w=g.measureText(tx).width+10;g.fillStyle='rgba(12,14,20,.85)';g.fillRect(4,4,w,12);g.fillStyle='rgba(255,60,70,1)';g.fillRect(4,4,3,12);g.fillStyle='#fff';g.fillText(tx,10,13)}
 function drawEd(){
  const cx0=Math.floor(cam.x/8),cy0=Math.floor(cam.y/8),W2=D.W,m=edMode(),FF=window.__FF||'sans-serif',cm=EDCOL[m]||'#fff';
- if(EDcol){g.fillStyle='rgba(255,0,0,.28)';for(let j=0;j<(VH>>3)+1;j++)for(let i=0;i<(VW>>3)+1;i++){const X=cx0+i,Y=cy0+j;if(X<W2&&Y<D.H&&SO[Y*W2+X])g.fillRect(X*8-cam.x,Y*8-cam.y,8,8)}}
+ if(EDcol)edDrawCol(cx0,cy0);
  if(EDgrid){g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=1;g.beginPath();for(let i=0;i<=(VW>>3)+1;i++){const x=(cx0+i)*8-cam.x+.5;g.moveTo(x,0);g.lineTo(x,VH)}for(let j=0;j<=(VH>>3)+1;j++){const y=(cy0+j)*8-cam.y+.5;g.moveTo(0,y);g.lineTo(VW,y)}g.stroke()}
  g.textAlign='left';g.lineWidth=1;
  const cu=edCur();
@@ -2054,7 +2112,7 @@ function drawEd(){
    }else{g.globalAlpha=.65;g.drawImage(o.c,x*8-cam.x,y*8-cam.y);g.globalAlpha=1;g.strokeStyle='#fff8';g.strokeRect(x*8-cam.x+.5,y*8-cam.y+.5,o.tw*8,o.th*8)}
   }else if(!STAMP.includes(m)){
    const bs=EDbs,x=ms.tx-(bs>>1),y=ms.ty-(bs>>1);
-   g.fillStyle=m==='erase'?'rgba(255,60,60,.4)':m==='solid'?'rgba(255,160,0,.5)':'rgba(60,255,60,.4)';g.fillRect(x*8-cam.x,y*8-cam.y,bs*8,bs*8);
+   g.fillStyle=m==='erase'?'rgba(255,60,60,.4)':m==='void'?'rgba(180,140,255,.55)':m==='solid'?'rgba(255,160,0,.5)':'rgba(60,255,60,.4)';g.fillRect(x*8-cam.x,y*8-cam.y,bs*8,bs*8);
   }
  }
  const bh=14,by=VH-bh,nm=(EDTOOLS.find(t=>t[0]===m)||[0,0,m])[2];
@@ -2069,7 +2127,7 @@ function tsFill(){const sel=$e('tsSel');sel.innerHTML='';[{id:'ts',n:'Tileset or
 function tsOff(){if(TS.offSet!==TS.set){const im=edImg(TS.set),c=document.createElement('canvas');c.width=im.width;c.height=im.height;c.getContext('2d').drawImage(im,0,0);TS.off=c;TS.offSet=TS.set}return TS.off}
 function tsDefaults(){TS.sel=null;TS.sc=TS.set[0]==='c'?2:1;{const e=document.getElementById('tsSc');if(e)e.value=String(TS.sc)}TS.keys=[];TS.pick=0;if(TS.set[0]==='c'&&edImg(TS.set)){const d=tsOff().getContext('2d').getImageData(0,0,1,1).data;if(d[3]===255)TS.keys.push([d[0],d[1],d[2]])}tsKeysUI();tsPrev()}
 function tsKeysUI(){const k=$e('tsKeys');k.innerHTML='';TS.keys.forEach((c,i)=>{const s=document.createElement('span');s.className='sw';s.style.background='rgb('+c+')';s.title='Clique para remover';s.onclick=()=>{TS.keys.splice(i,1);tsKeysUI();tsPrev()};k.appendChild(s)})}
-function tsDef(){return{n:'',set:TS.set,rect:TS.sel,keys:TS.keys.map(k=>k.slice()),tol:+$e('tsTol').value,sol:+$e('tsSol').value,sc:TS.sc}}
+function tsDef(){return{n:'',set:TS.set,rect:TS.sel,keys:TS.keys.map(k=>k.slice()),tol:+$e('tsTol').value,sol:+$e('tsSol').value,sc:TS.sc,edge:$e('tsEdge')&&$e('tsEdge').checked?1:0}}
 function tsThumb(){const c=$e('liveThumb');if(!c)return;const x=c.getContext('2d');x.clearRect(0,0,16,16);
  if(TS&&TS.live){const o=TS.live.o,k=Math.min(16/o.c.width,16/o.c.height);x.imageSmoothingEnabled=false;x.drawImage(o.c,0,0,o.c.width*k,o.c.height*k)}}
 function tsPrev(){
@@ -2094,14 +2152,16 @@ function tsSelect(p){
 }
 function tsInit(){
  TS={sc:1,set:'ts',z:Math.max(1,Math.min(4,Math.round((cv.clientWidth||768)/VW))),g:8,sel:null,keys:[],pick:0,a:null,off:null,offSet:'',zz:2};
- $e('ts').innerHTML='<div class="row"><select id="tsSel"></select><button id="tsAdd">➕ Adicionar imagem de tileset</button><input type="file" id="tsFile" accept="image/*" hidden><select id="tsZ"><option value="1">1x</option><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select><select id="tsG"><option value="8">grade 8px</option><option value="16">grade 16px</option></select><select id="tsSc"><option value="2">Tamanho no mapa: metade (igual ao mundo)</option><option value="1">Tamanho no mapa: original</option></select></div><div id="tsWrap"><canvas id="tsv"></canvas></div><div class="row"><select id="tsSol"><option value="1">Colisão total</option><option value="2">Colisão só na base</option><option value="0">Sem colisão</option></select><label>Tolerância <input type="range" id="tsTol" min="0" max="60" value="0"></label><button id="tsPick">🎯 Cor transparente</button><span id="tsKeys"></span></div><div class="row"><canvas id="tsPrev" width="64" height="64"></canvas><span id="tsInfo">Arraste sobre a imagem: a peça selecionada já fica ativa para colocar no mapa (e é guardada na paleta ao usar).</span></div>';
+ $e('ts').innerHTML='<div class="row"><select id="tsSel"></select><button id="tsAdd">➕ Adicionar imagem de tileset</button><input type="file" id="tsFile" accept="image/*" hidden><select id="tsZ"><option value="1">1x</option><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select><select id="tsG"><option value="8">grade 8px</option><option value="16">grade 16px</option></select><select id="tsSc"><option value="2">Tamanho no mapa: metade (igual ao mundo)</option><option value="1">Tamanho no mapa: original</option></select></div><div id="tsWrap"><canvas id="tsv"></canvas></div><div class="row"><select id="tsSol"><option value="1">Colisão total</option><option value="2">Colisão só na base</option><option value="0">Sem colisão</option></select><label>Tolerância <input type="range" id="tsTol" min="0" max="60" value="0"></label><button id="tsPick">🎯 Cor transparente</button><button id="tsAuto" title="Pega sozinho as cores da borda da peça selecionada (o fundo)">🪄 Fundo automático</button><label title="Ligado: só apaga a cor que está ligada à borda da peça (o fundo). Desligado: apaga essa cor em toda a peça, inclusive por dentro."><input type="checkbox" id="tsEdge" checked> só o fundo (ligado às bordas)</label><button id="tsClr">✖ Limpar cores</button><span id="tsKeys"></span></div><div class="row"><canvas id="tsPrev" width="64" height="64"></canvas><span id="tsInfo">Arraste sobre a imagem: a peça selecionada já fica ativa para colocar no mapa (e é guardada na paleta ao usar).</span></div>';
  tsFill();
  $e('tsSel').onchange=e=>{TS.set=e.target.value;tsDefaults();tsDraw()};
  $e('tsZ').onchange=e=>{TS.z=+e.target.value;tsDraw()};
  $e('tsSc').onchange=e=>{TS.sc=+e.target.value;TS.sel=null;tsDraw();tsPrev()};
  $e('tsG').onchange=e=>{TS.g=+e.target.value;TS.sel=null;tsDraw();tsPrev()};
  $e('tsZ').value=String(TS.z);
- $e('tsTol').oninput=tsPrev;$e('tsSol').onchange=tsPrev;
+ $e('tsTol').oninput=tsPrev;$e('tsSol').onchange=tsPrev;$e('tsEdge').onchange=tsPrev;
+ $e('tsClr').onclick=()=>{TS.keys=[];tsKeysUI();tsPrev()};
+ $e('tsAuto').onclick=()=>{if(!TS.sel){$e('tsInfo').textContent='Selecione uma peça primeiro (arraste sobre a imagem).';return}const im=tsOff(),ks=edAutoKeys(im,TS.sel);let n=0;ks.forEach(c=>{if(!TS.keys.some(k=>k[0]===c[0]&&k[1]===c[1]&&k[2]===c[2])){TS.keys.push(c);n++}});$e('tsEdge').checked=true;if(+$e('tsTol').value<12)$e('tsTol').value=12;tsKeysUI();tsPrev();$e('tsInfo').textContent=n?('Fundo detectado: '+n+' cor(es) da borda viraram transparentes (só o que liga às bordas). Ajuste a tolerância se sobrar grama.'):'Nenhuma cor nova na borda.'};
  $e('tsPick').onclick=()=>{TS.pick=1;$e('tsInfo').textContent='Clique na imagem na cor que deve virar transparente.'};
  $e('tsAdd').onclick=()=>$e('tsFile').click();
  $e('tsFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
