@@ -415,6 +415,29 @@ let IDX = null; // index.html em memória (bruto + gzip)
 const srv = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
 
+  // SITE PC: / mostra o portal completo. /pagina-jogo.html é a página real.
+  // APK/Android: continua carregando o index.html normalmente, inclusive ?login=1.
+  // /index.html serve o jogo bruto para o iframe do portal, sem redirecionamento.
+  if ((req.method === 'GET' || req.method === 'HEAD') && url === '/pagina-jogo.html') {
+    const portal = path.join(__dirname, 'public', 'pagina-jogo.html');
+    return fs.readFile(portal, (err, body) => {
+      if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Página do jogo não encontrada') }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    });
+  }
+  if ((req.method === 'GET' || req.method === 'HEAD') && url === '/') {
+    const ua = String(req.headers['user-agent'] || '');
+    const androidOrPhone = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    const query = new URL(req.url || '/', 'http://localhost').searchParams;
+    // Deixa links de login/logout/admin e o Capacitor ?login=1 entrarem direto no jogo.
+    const gameQuery = ['login', 'logout', 'admin', 'code', 'state'].some(k => query.has(k));
+    if (!androidOrPhone && !gameQuery) {
+      res.writeHead(302, { Location: '/pagina-jogo.html', 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+  }
+
   if (url === '/auth/discord' && req.method === 'GET') {
     if (!AUTH_ON) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Login com Discord não configurado no servidor.') }
     const st = crypto.randomBytes(16).toString('hex');
