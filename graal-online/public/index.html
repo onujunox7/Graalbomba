@@ -48,7 +48,9 @@ if(TOK){
   } catch(e) {}
   var android = /Android/i.test(navigator.userAgent) || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   window.__aeAndroid = android;
-  if (params.get('portal') === '1') document.documentElement.classList.add('ae-portal');
+  var portal = params.get('portal') === '1';
+  window.__aePortal = portal;
+  if (portal) document.documentElement.classList.add('ae-portal');
   var preview = params.has('aetheriaPreview');
   // O APK usa ?login=1 em cada abertura: o login deve aparecer mesmo que
   // o Android tenha preservado o sessionStorage de uma execucao anterior.
@@ -60,7 +62,7 @@ if(TOK){
   } catch(e) {}
   window.__aeEntryRequired = (android || preview || forceLogin) && !entered;
   if (window.__aeEntryRequired) document.documentElement.classList.add('ae-entry-pending');
-  else if(android) document.documentElement.classList.add('ae-game-booting');
+  if (android || portal) document.documentElement.classList.add('ae-game-booting');
 })();
 </script>
 <style>
@@ -73,6 +75,8 @@ if(TOK){
 html.ae-entry-pending #aeEntry{ display:flex !important; }
 html.ae-entry-pending #app { pointer-events:none !important; }
 html.ae-entry-pending #pad,html.ae-entry-pending #sys { visibility:hidden !important; }
+html.ae-game-booting #app { pointer-events:none !important; }
+html.ae-game-booting #pad,html.ae-game-booting #sys { visibility:hidden !important; }
 #aeEntry .ae-panel { position:relative; display:flex;flex-direction:column;align-items:center;
  gap:10px;width:min(304px,calc(100vw - 46px));max-width:100%;box-sizing:border-box; margin:auto;
  padding:22px 20px 24px;
@@ -957,7 +961,8 @@ b.addEventListener('pointerdown',e=>{e.preventDefault();if(k===' '&&!keys[k])atk
 ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=0))});
 const IM={};let loaded=0;
 const NI=Object.keys(IMGS).length;let started=0,loadErr=0;
-function loadScr(){if(loadErr)return;g.setTransform(RS,0,0,RS,0,0);g.fillStyle='#14161c';g.fillRect(0,0,VW,VH);g.fillStyle='#d8c99a';g.font='bold 16px Georgia';g.textAlign='center';g.fillText('Graal Classic',VW/2,VH/2-14);g.fillStyle='#3a3a3a';g.fillRect(VW/2-60,VH/2,120,8);g.fillStyle='#d8c99a';g.fillRect(VW/2-60,VH/2,120*loaded/NI,8);g.font='10px sans-serif';g.fillText('Carregando… '+loaded+'/'+NI,VW/2,VH/2+24)}
+const AE_LOAD_BG=(function(){const img=new Image();img.src='/assets/aetheria-login-background.png';return img})();
+function loadScr(){if(loadErr)return;g.setTransform(RS,0,0,RS,0,0);g.clearRect(0,0,VW,VH);if(AE_LOAD_BG.complete&&AE_LOAD_BG.naturalWidth){const iw=AE_LOAD_BG.naturalWidth,ih=AE_LOAD_BG.naturalHeight,sc=Math.max(VW/iw,VH/ih),dw=iw*sc,dh=ih*sc,dx=(VW-dw)/2,dy=(VH-dh)/2;g.drawImage(AE_LOAD_BG,dx,dy,dw,dh);g.fillStyle='rgba(8,12,10,.36)';g.fillRect(0,0,VW,VH)}else{g.fillStyle='#172717';g.fillRect(0,0,VW,VH);const grad=g.createLinearGradient(0,0,0,VH);grad.addColorStop(0,'rgba(0,0,0,.08)');grad.addColorStop(1,'rgba(0,0,0,.28)');g.fillStyle=grad;g.fillRect(0,0,VW,VH)}g.textAlign='center';g.fillStyle='#ffe27b';g.font='bold 21px Georgia';g.fillText('Aetheria Online',VW/2,VH/2-28);g.fillStyle='#fff1c6';g.font='11px Arial';g.fillText('Entrando no mundo…',VW/2,VH/2-10);g.fillStyle='rgba(20,18,12,.68)';g.fillRect(VW/2-74,VH/2+10,148,10);g.fillStyle='#f4cf62';g.fillRect(VW/2-72,VH/2+12,144*(loaded/NI),6);g.strokeStyle='rgba(126,78,22,.95)';g.lineWidth=2;g.strokeRect(VW/2-74,VH/2+10,148,10);g.fillStyle='#fff4d5';g.font='10px Arial';g.fillText('Carregando… '+loaded+'/'+NI,VW/2,VH/2+34)}
 const done=()=>{loaded++;loadScr();if(loaded===NI&&!started){started=1;(window.GWP||Promise.resolve()).then(start,start)}};
 for(const k in IMGS){const i=new Image();i.onload=done;i.onerror=()=>{loadErr=1;g.setTransform(RS,0,0,RS,0,0);g.fillStyle='#14161c';g.fillRect(0,0,VW,VH);g.fillStyle='#ff5a5a';g.font='12px sans-serif';g.textAlign='center';g.fillText('Erro ao carregar: '+k,VW/2,VH/2)};i.src=IMGS[k];IM[k]=i}
 fit();addEventListener('resize',fit);loadScr();
