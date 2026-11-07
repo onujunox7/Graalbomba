@@ -689,7 +689,7 @@ wss.on('connection', (ws, req) => {
       if (c === 'deop') {
         const k = m.k || (tg && tg.uh);
         if (!owner || !k || !AD.admins[k]) return; delete AD.admins[k]; saveAD();
-        for (const o of P.values()) if (o.uh === k && o.role === 1) { o.role = 0; if (o.hid) setHidden(o, 0, 0); sendTo(o.ws, { t: 'role', r: 0 }) }
+        for (const o of P.values()) if (o.uh === k && o.role === 1) { o.role = 0; o.cfgTk = null; if (o.hid) setHidden(o, 0, 0); sendTo(o.ws, { t: 'role', r: 0 }) }
         lists(); note('Cargo de admin removido.'); return }
       if (!tg) return note('Jogador não encontrado.');
       if (c === 'tp') { if (tg === p) return; sendTo(ws, { t: 'cmd', c: 'tp', x: tg.x, y: tg.y }); return }
@@ -700,7 +700,7 @@ wss.on('connection', (ws, req) => {
       if (c === 'op') {
         if (!owner || tg.role === 2) return;
         if (!tg.uh) return note('Esse jogador está com um cliente desatualizado (sem identidade). Peça para recarregar a página.');
-        AD.admins[tg.uh] = { nm: nameOf(tg), at: Date.now() }; saveAD(); tg.role = 1; sendTo(tg.ws, { t: 'role', r: 1 });
+        AD.admins[tg.uh] = { nm: nameOf(tg), at: Date.now() }; saveAD(); tg.role = 1; sendTo(tg.ws, { t: 'role', r: 1 }); if (!tg.cfgTk) tg.cfgTk = crypto.randomBytes(24).toString('hex'); sendTo(tg.ws, { t: 'cfgtk', k: tg.cfgTk }); // admin recém-promovido já pode salvar o mapa, sem reconectar
         sendTo(tg.ws, { t: 'adm', note: 'Você virou ADMIN.' }); note(nameOf(tg) + ' agora é admin.'); return }
       if (!can(tg)) return note('Você não pode fazer isso com esse jogador.');
       if (c === 'bringto') { sendTo(tg.ws, { t: 'cmd', c: 'tp', x: p.x, y: p.y }); return }
