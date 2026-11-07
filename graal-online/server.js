@@ -49,7 +49,34 @@ let cfg = {};
 const ADM_FILE = path.join(DATA_DIR, 'graal-admins.json');
 let AD = { admins: {}, bans: {}, owners: {}, cfg: {} }; // owners: contas Discord que já provaram ser o dono (token) e voltam como dono em qualquer navegador
 try { const o = JSON.parse(fs.readFileSync(ADM_FILE, 'utf8')); if (o && typeof o === 'object') AD = { admins: o.admins || {}, bans: o.bans || {}, owners: o.owners || {}, cfg: o.cfg && typeof o.cfg === 'object' ? o.cfg : {} } } catch (e) { }
-function saveAD() { try { const t = ADM_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(AD)); fs.renameSync(t, ADM_FILE) } catch (e) { console.error('Falha ao gravar admins:', e.message) } }
+/* O oficial fica no PostgreSQL (graal_kv, chave 'roles'), com cópia em arquivo: reiniciar o servidor NÃO apaga mais admins, donos, bans nem tempos de punição.
+   Só o dono remove um admin, manualmente, pelo painel. */
+let adDirty = false, adBusy = false;
+async function adFlush() {
+  if (adBusy) return; adBusy = true;
+  try {
+    while (adDirty) {
+      adDirty = false;
+      try { await pgPool.query(`INSERT INTO graal_kv (k, v, updated_at) VALUES ('roles', $1::jsonb, $2)
+        ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = EXCLUDED.updated_at`, [JSON.stringify(AD), Date.now()]) }
+      catch (e) { console.error('Falha ao gravar admins no PostgreSQL:', e.message); adDirty = true; await new Promise(r => setTimeout(r, 3000)) }
+    }
+  } finally { adBusy = false }
+}
+function saveAD() {
+  adDirty = true; adFlush().catch(e => console.error(e));
+  try { const t = ADM_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(AD)); fs.renameSync(t, ADM_FILE) } catch (e) { console.error('Falha ao gravar admins (arquivo):', e.message) }
+}
+async function initRolesDB() {
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_kv (k TEXT PRIMARY KEY, v JSONB NOT NULL, updated_at BIGINT NOT NULL)`);
+  const r = await pgPool.query(`SELECT v FROM graal_kv WHERE k = 'roles'`), o = r.rowCount ? r.rows[0].v : null;
+  if (o && typeof o === 'object') {
+    // junta com o que veio do arquivo local (se houver), sem perder ninguém; o banco manda em caso de conflito
+    AD = { admins: Object.assign({}, AD.admins, o.admins || {}), bans: Object.assign({}, AD.bans, o.bans || {}), owners: Object.assign({}, AD.owners, o.owners || {}), cfg: Object.assign({}, AD.cfg, o.cfg && typeof o.cfg === 'object' ? o.cfg : {}) };
+    console.log('Cargos carregados do PostgreSQL:', Object.keys(AD.admins).length, 'admins,', Object.keys(AD.owners).length, 'donos,', Object.keys(AD.bans).length, 'bans');
+  } else console.log('Cargos: nada no PostgreSQL ainda' + (Object.keys(AD.admins).length + Object.keys(AD.owners).length ? ' — migrando do arquivo' : ''));
+  adDirty = true; await adFlush();
+}
 const KICKED = new Map(); // uid -> até quando está bloqueado
 /* tempos de punição (em MINUTOS), editáveis no painel e salvos em graal-admins.json: expulsão (admin e dono) e ban (só o dono). Ban 0 = permanente. */
 const KICK_DEF = Math.max(0, +(process.env.KICK_MINUTES || 5)), PUN_MAX = 60 * 24 * 365 * 5; // máx. 5 anos
@@ -297,8 +324,8 @@ function flush() {
   } catch (e) { console.error('Falha ao gravar config:', e.message) }
 }
 const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
-process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); await pgPool.end(); process.exit(0) });
-process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); await pgPool.end(); process.exit(0) });
+process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); adDirty = true; await adFlush(); await pgPool.end(); process.exit(0) });
+process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); adDirty = true; await adFlush(); await pgPool.end(); process.exit(0) });
 
 /* ---------------- fotos de fundo do perfil (com moderação) ----------------
  *  O jogador envia a foto (JPEG reduzido pelo navegador, ou GIF original) por POST /api/pfbg.
@@ -863,7 +890,7 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB()]).then(() => {
+Promise.all([initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
