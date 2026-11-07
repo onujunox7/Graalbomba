@@ -469,21 +469,12 @@ const srv = http.createServer((req, res) => {
   }
 
   /* arquivos do PWA/APK (manifest, service worker, ícones e o assetlinks.json do Android) */
-  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url) || url === '/assets/bluechoco.png')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url) || url === '/assets/bluechoco.png' || url === '/assets/aetheria-login-background.png')) {
     const f = path.join(__dirname, 'public', url);
     const ct = url.endsWith('.png') ? 'image/png' : url.endsWith('.js') ? 'application/javascript; charset=utf-8' : url.endsWith('.json') ? 'application/json' : 'application/manifest+json; charset=utf-8';
     return fs.readFile(f, (e, d) => {
       if (e) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('não encontrado') }
       res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': url === '/sw.js' ? 'no-cache' : 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }); res.end(req.method === 'HEAD' ? undefined : d);
-    });
-  }
-
-  // Pagina do portal enviada pelo criador. A rota nao deve cair no index.html do jogo.
-  if ((req.method === 'GET' || req.method === 'HEAD') && url === '/pagina-jogo.html') {
-    return fs.readFile(path.join(__dirname, 'public', 'pagina-jogo.html'), (err, data) => {
-      if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Pagina nao encontrada'); }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-      return res.end(req.method === 'HEAD' ? undefined : data);
     });
   }
 

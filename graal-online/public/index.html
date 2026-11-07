@@ -107,6 +107,82 @@ html.ae-game-booting #aeBoot{display:flex;}
 #aeBoot small{font:13px Arial,sans-serif;color:#d5c5a2;}
 #aeBoot button{display:none;padding:10px 16px;border-radius:8px;background:#e5a736;border:2px solid #7a4c12;cursor:pointer;}
 #aeBoot.ae-slow button{display:block;}
+
+/* AETHERIA Android — visual fiel à tela de entrada original, sem painel flutuante */
+html.ae-entry-pending #aeEntry {
+  background:rgba(0,0,0,.22) !important;
+  align-items:center !important;
+  justify-content:center !important;
+  overflow:hidden !important;
+  padding: max(12px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left)) !important;
+}
+html.ae-entry-pending #app {
+  transform:scale(1.40) !important;
+  transform-origin:50% 50% !important;
+  filter:brightness(.82) !important;
+}
+html.ae-entry-pending #aeEntry .ae-panel {
+  width:min(410px, min(84vw, 115vh)) !important;
+  max-width:100% !important;
+  padding:0 !important;
+  margin:auto !important;
+  border:0 !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  gap:clamp(4px, 1.2vh, 9px) !important;
+}
+html.ae-entry-pending #aeEntry .ae-title {
+  font:1000 clamp(38px, 10vh, 70px)/.9 Georgia,serif !important;
+  letter-spacing:.035em !important;
+  color:#f5da72 !important;
+  -webkit-text-stroke:1px #64420d;
+  text-shadow:2px 3px 0 #70410a,0 5px 1px #241400,0 7px 11px #000b !important;
+  margin:0 !important;
+}
+html.ae-entry-pending #aeEntry .ae-subtitle {
+  font:900 clamp(10px, 2.5vh, 17px)/1 Georgia,serif !important;
+  letter-spacing:.55em !important;
+  margin:0 0 clamp(7px,2.2vh,16px) !important;
+  color:#f5e7bd !important;
+  text-shadow:1px 2px 3px black !important;
+}
+html.ae-entry-pending #aeEntry .ae-form {
+  width:100% !important;
+  max-width:min(360px,90vw) !important;
+  gap:clamp(5px,1.4vh,11px) !important;
+}
+html.ae-entry-pending #aeEntry button {
+  min-height:clamp(38px,8vh,57px) !important;
+  font-size:clamp(13px,2.6vh,17px) !important;
+  border-radius:9px !important;
+}
+html.ae-entry-pending #aeEntry .ae-discord {
+  background:linear-gradient(#6178ff,#394fe0) !important;
+  border:2px solid #2439b6 !important;
+}
+html.ae-entry-pending #aeEntry .ae-discord svg { width:24px !important;height:20px !important; }
+html.ae-entry-pending #aeEntry input {
+  height:clamp(38px,7.8vh,55px) !important;
+  font-size:clamp(15px,2.8vh,19px) !important;
+  background:#fff8df !important;
+}
+html.ae-entry-pending #aeEntry .ae-guest {
+  background:linear-gradient(#ffcf65,#e88f0e) !important;
+  border-color:#985809 !important;
+}
+html.ae-entry-pending #aeEntry .ae-or {
+  color:#fff !important;
+  font-size:clamp(10px,1.7vh,12px) !important;
+  text-shadow:0 2px 3px #000 !important;
+}
+html.ae-entry-pending #aeEntry .ae-or:before,
+html.ae-entry-pending #aeEntry .ae-or:after {background:linear-gradient(90deg,transparent,#fff9,transparent) !important;}
+html.ae-entry-pending #aeEntry .ae-error {min-height:0 !important;}
+@media (orientation:portrait) {
+  html.ae-entry-pending #app { transform:scale(1.15) !important; }
+  html.ae-entry-pending #aeEntry .ae-panel { width:min(380px,90vw) !important; }
+}
 </style>
 
 <style>
@@ -251,7 +327,31 @@ body.edon #c{width:min(calc(100vw - min(420px,44vw) - 28px),calc((100vh - 90px)*
 #edtoast.on{opacity:1;transform:translate(-50%,0)}
 #hud .msg,#hud .msg b,#gch-l,#gch-l b,#gch-l small,#gch-f input,#mpchat input{font-family:'Lilita One',Fredoka,Verdana,Arial,sans-serif!important;font-weight:400!important;letter-spacing:.02em}
 </style><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><script>window.__FF='Verdana,Arial,sans-serif';window.__FN='"Lilita One",Fredoka,Verdana,Arial,sans-serif';window.fnt=function(px){return px+'px '+(window.__FNOK?window.__FN:'Fredoka,Verdana,Arial,sans-serif')}; /* fonte de nickname e chat: Lilita One (só tem peso normal, então sem "bold") */try{var __lf=function(){try{if(document.fonts.check("8px 'Lilita One'")&&document.fonts.check("20px 'Lilita One'",'Aa'))window.__FNOK=1}catch(e){}};document.fonts.load("8px 'Lilita One'").then(__lf).catch(function(){});document.fonts.ready.then(__lf).catch(function(){})}catch(e){} /* __FNOK=1 só quando a fonte REALMENTE carregou: o texto desenhado antes (cache do Pixi/rótulos) ficava preso na fonte reserva */try{Promise.all([document.fonts.load("700 8px Fredoka"),document.fonts.load("600 15px Fredoka")]).then(function(){if(document.fonts.check("700 8px Fredoka"))window.__FF='Fredoka,"Baloo 2",Nunito,"Trebuchet MS",Verdana,sans-serif'}).catch(function(){})}catch(e){}</script>
-<script>try{if('serviceWorker' in navigator&&location.protocol==='https:')addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}catch(e){}</script></head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
+<script>try{if('serviceWorker' in navigator&&location.protocol==='https:')addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}catch(e){}</script>\n<!-- Aetheria Android: imagem de entrada fornecida pelo criador. Mapa escondido antes do login. -->
+<style id="ae-fixed-login-background-v2">
+html.ae-entry-pending, html.ae-entry-pending body { background: #172717 !important; }
+html.ae-entry-pending #app { visibility: hidden !important; transform:none !important; filter:none !important; }
+html.ae-entry-pending #aeEntry {
+  background-image: linear-gradient(rgba(0,0,0,.08), rgba(0,0,0,.17)), url('/assets/aetheria-login-background.png') !important;
+  background-color:#1d3920 !important;
+  background-position:center center !important;
+  background-repeat:no-repeat !important;
+  background-size:cover !important;
+  background-attachment:fixed !important;
+  display:flex !important;
+}
+html.ae-entry-pending #aeEntry .ae-panel {
+  background:transparent !important; border:0 !important; box-shadow:none !important;
+}
+/* mantém o formulário legível sobre a imagem sem criar moldura opaca */
+html.ae-entry-pending #aeEntry .ae-title,
+html.ae-entry-pending #aeEntry .ae-subtitle { filter: drop-shadow(0 2px 3px #000a); }
+/* O fundo é decorativo; os inputs e botões continuam clicáveis e acessíveis. */
+@media(max-width:680px){
+  html.ae-entry-pending #aeEntry { background-attachment:scroll !important; }
+}
+</style>
+</head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
   <section class="ae-panel">
     <h1 id="aeEntryTitle" class="ae-title">AETHERIA</h1>
     <div class="ae-subtitle">ONLINE</div>
