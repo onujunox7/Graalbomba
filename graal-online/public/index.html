@@ -4832,10 +4832,12 @@ function openPanel(){build();openP=1;olReq=0;renderOl();renderPn(1);folUi();show
 function close(){openP=0;if(pn)pn.style.display='none';clearInterval(tm)}
 function setRole(r){role=r;window.__ROLE=r;
  try{const M=window.MPX;if(M&&M.GSK)M.GS=r>0?Math.min(1,Math.max(.3,M.GSK.s||.6)):.6;szUi()}catch(e){} /* só admin/dono usa tamanho personalizado; os outros ficam no padrão */
+ if(btnEl&&!btnEl.isConnected)btnEl=null; /* o reiniciar/rebuild da interface pode ter apagado o botão 🛡 */
  if(r>0&&!btnEl){const sys=document.getElementById('sys');if(sys){btnEl=document.createElement('button');btnEl.textContent=pfn>0?'🛡'+pfn:'🛡';btnEl.title='Painel admin';btnEl.setAttribute('aria-label','Painel admin');
   ['click','pointerdown'].forEach(ev=>btnEl.addEventListener(ev,e=>{e.stopPropagation();if(ev==='click')openP?close():openPanel()}));sys.appendChild(btnEl)}}
  if(r===0){if(btnEl){btnEl.remove();btnEl=null}toolsReset();close()}
  else if(openP)openPanel()}
+setInterval(function(){try{if(role>0&&(!btnEl||!btnEl.isConnected))setRole(role)}catch(e){}},1200); /* recoloca o botão 🛡 se a interface for refeita (ex.: reiniciar o jogo) */
 /* comandos que o servidor mandou para ESTE jogador (só chegam se um admin autorizado pediu) */
 window.ADM=function(m){try{
  if(m.t==='role'){const antes=role;setRole(m.r|0);if((m.r|0)>0&&(X.inv||X.spec))setTimeout(syncHid,600); /* reconectou: o servidor esqueceu que você estava invisível */if(m.r>antes)window.MPNET.note(m.r===2?'👑 Cargo: DONO — painel no botão 🛡':'★ Cargo: ADMIN — painel no botão 🛡');return}
