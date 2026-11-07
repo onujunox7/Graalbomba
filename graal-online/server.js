@@ -460,7 +460,7 @@ const srv = http.createServer((req, res) => {
     const androidOrPhone = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
     const query = new URL(req.url || '/', 'http://localhost').searchParams;
     // Deixa links de login/logout/admin e o Capacitor ?login=1 entrarem direto no jogo.
-    const gameQuery = ['login', 'logout', 'admin', 'code', 'state'].some(k => query.has(k));
+    const gameQuery = ['login', 'logout', 'admin', 'sync', 'code', 'state'].some(k => query.has(k));
     if (!androidOrPhone && !gameQuery) {
       res.writeHead(302, { Location: '/pagina-jogo.html', 'Cache-Control': 'no-store' });
       return res.end();

@@ -13,6 +13,8 @@ var KM={doors:'graal_doors_v1',map:'graal_map_gw1',tilesets:'graal_tilesets_v1',
 var LS=window.localStorage,SP=Storage.prototype,gi=SP.getItem,si=SP.setItem,ri=SP.removeItem;
 var G=function(k){try{return gi.call(LS,k)}catch(e){return null}},S=function(k,v){try{si.call(LS,k,v)}catch(e){}},R=function(k){try{ri.call(LS,k)}catch(e){}};
 var TOK='';try{var q=new URLSearchParams(location.search);if(q.get('admin')){S('graal_admin_token',q.get('admin'));q.delete('admin');var qs=q.toString();history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+location.hash)}TOK=G('graal_admin_token')||''}catch(e){}
+/* ?sync=1: descarta as edições locais pendentes e volta a usar o mapa/tilesets/colisão do SERVIDOR (conserta o dono que vê o mapa diferente dos outros) */
+try{var q2=new URLSearchParams(location.search);if(q2.has('sync')){R('graal_cfg_dirty');R('graal_cfg_rev');q2.delete('sync');var qs2=q2.toString();history.replaceState(null,'',location.pathname+(qs2?'?'+qs2:'')+location.hash)}}catch(e){}
 var dirty={};try{(JSON.parse(G('graal_cfg_dirty')||'[]')||[]).forEach(function(k){if(KM[k])dirty[k]=1})}catch(e){}
 var saveDirty=function(){var a=Object.keys(dirty);if(a.length)S('graal_cfg_dirty',JSON.stringify(a));else R('graal_cfg_dirty')};
 var have={};
