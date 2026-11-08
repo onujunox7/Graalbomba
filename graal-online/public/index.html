@@ -1864,19 +1864,37 @@ function edOrder(L){if(!EDYSORT)return L;const R=[];let run=[];
  L.forEach((e,i)=>{const bx=edBox(e);if(bx)run.push({e,i,b:bx[1]+bx[3]});else{fl();R.push(e)}});fl();return R}
 /* a peça nova (já no fim de EDITS) encosta em uma peça anterior da mesma sequência que fica MAIS embaixo? Então ela não pode só ser carimbada por cima: refaz o mapa na ordem certa */
 function edNeedsResort(e){if(!EDYSORT)return false;const nb=edBox(e);if(!nb)return false;const nB=nb[1]+nb[3];
- for(let k=EDITS.length-2;k>=0;k--){const o=EDITS[k],ob=edBox(o);if(!ob)break;
+ for(let k=EDITS.length-2;k>=0;k--){const ob=edBox(EDITS[k]);if(!ob)continue; /* v27.1: apagar/colisão no meio NÃO quebram mais a ordem: vale para TODAS as peças já colocadas */
   if(ob[1]+ob[3]>nB&&ob[0]<nb[0]+nb[2]&&nb[0]<ob[0]+ob[2]&&ob[1]<nb[1]+nb[3]&&nb[1]<ob[1]+ob[3])return true}
  return false}
+var EDND=false;
+/* v27.1: desenho ordenado. 1) borracha/vazio entram no fundo; 2) TODAS as peças (de qualquer época) são desenhadas pela borda de baixo; cada peça só perde os pedaços
+   apagados DEPOIS dela. Colisão/arbustos/baús seguem na ordem de tempo (edApply com EDND). */
+function edDrawSorted(L){
+ const b=IM.below.getContext('2d'),ch=!!IM.below.chunked,ers=[],ps=[];
+ L.forEach((e,i)=>{if(e.k==='e'||e.k==='v')ers.push({i,e});const bx=edBox(e);if(bx)ps.push({e,i,b:bx[1]+bx[3]})});
+ for(const r of ers){const e=r.e;if(e.k==='e'){b.fillStyle='#409740';if(e.g&&b.eraseRect)b.eraseRect(e.x*8,e.y*8,e.w*8,e.h*8);else b.fillRect(e.x*8,e.y*8,e.w*8,e.h*8)}else b.clearRect(e.x*8,e.y*8,e.w*8,e.h*8)}
+ ps.sort((a,c)=>a.b-c.b||a.i-c.i);
+ for(const p of ps){const e=p.e,t=EDT[e.i];if(!t||t.chest||!t.o)continue;const o=edFlip(t.o,e.fx,e.fy);
+  const later=ers.filter(r=>r.i>p.i).map(r=>r.e),useHc=!!(o.hc&&ch),src=useHc?o.hc:o.c;
+  const cell=(x,y)=>{const w=o.tw,h=o.th,hit=later.filter(q=>q.x<x+w&&x<q.x+q.w&&q.y<y+h&&y<q.y+q.h);
+   if(!hit.length){if(useHc)b.drawImage(o.hc,x*8,y*8,o.c.width,o.c.height);else b.drawImage(o.c,x*8,y*8);return}
+   const tc=document.createElement('canvas');tc.width=src.width;tc.height=src.height;const q=tc.getContext('2d');q.drawImage(src,0,0);
+   const sx=src.width/(w*8),sy=src.height/(h*8);
+   for(const z of hit)q.clearRect((z.x-x)*8*sx,(z.y-y)*8*sy,z.w*8*sx,z.h*8*sy);
+   if(useHc)b.drawImage(tc,x*8,y*8,o.c.width,o.c.height);else b.drawImage(tc,x*8,y*8)};
+  if(e.k==='f'){for(let r=0;r<e.rows;r++)for(let c=0;c<e.cols;c++)cell(e.x+c*o.tw,e.y+r*o.th)}else cell(e.x,e.y)}}
+function edApplyAll(L){if(!EDYSORT){L.forEach(edApply);return}EDND=true;try{L.forEach(edApply)}finally{EDND=false}edDrawSorted(L)}
 function edCommit(e){if(edNeedsResort(e))edRebuild();else{edApply(e);edMMn();edSave()}}
 function edToggleYSort(){EDYSORT=!EDYSORT;try{localStorage.setItem('graal_ed_ysort',EDYSORT?'1':'0')}catch(err){}edRebuild();edRefresh();edMsg(EDYSORT?'Ordem por Y ligada: o que está mais embaixo fica por cima.':'Ordem por Y desligada: a última peça colocada fica por cima.')}
 
 function edApply(e){
  const b=IM.below.getContext('2d'),W2=D.W,H2=D.H;
  const setS=(x,y,w,h,f)=>{for(let j=0;j<h;j++)for(let i=0;i<w;i++){const X=x+i,Y=y+j;if(X>=0&&Y>=0&&X<W2&&Y<H2)SO[Y*W2+X]=f(i,j,X,Y)}};
- const put=(t,x,y,fx,fy)=>{const o=t.chest?t.o:edFlip(t.o,fx,fy);if(t.chest)CH.push({x:(x+1)*8,y:(y+2)*8,open:0});else if(o.hc&&IM.below.chunked)b.drawImage(o.hc,x*8,y*8,o.c.width,o.c.height);else b.drawImage(o.c,x*8,y*8);try{edBushHook(x,y,o.tw,o.th,edIsBush(t),o)}catch(err){}setS(x,y,o.tw,o.th,(i,j,X,Y)=>{const v=o.s[j*o.tw+i];return o.rep?v:v?1:SO[Y*W2+X]})};
- if(e.k==='e'){b.fillStyle='#409740';if(e.g&&b.eraseRect)b.eraseRect(e.x*8,e.y*8,e.w*8,e.h*8);else b.fillRect(e.x*8,e.y*8,e.w*8,e.h*8);try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>0);
+ const put=(t,x,y,fx,fy)=>{const o=t.chest?t.o:edFlip(t.o,fx,fy);if(t.chest)CH.push({x:(x+1)*8,y:(y+2)*8,open:0});else if(EDND){}else if(o.hc&&IM.below.chunked)b.drawImage(o.hc,x*8,y*8,o.c.width,o.c.height);else b.drawImage(o.c,x*8,y*8);try{edBushHook(x,y,o.tw,o.th,edIsBush(t),o)}catch(err){}setS(x,y,o.tw,o.th,(i,j,X,Y)=>{const v=o.s[j*o.tw+i];return o.rep?v:v?1:SO[Y*W2+X]})};
+ if(e.k==='e'){if(!EDND){b.fillStyle='#409740';if(e.g&&b.eraseRect)b.eraseRect(e.x*8,e.y*8,e.w*8,e.h*8);else b.fillRect(e.x*8,e.y*8,e.w*8,e.h*8)}try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>0);
   CH=CH.filter(c=>{const cx=c.x/8-1,cy=c.y/8-2;return!(cx>=e.x&&cx<e.x+e.w&&cy>=e.y&&cy<e.y+e.h)})}
- else if(e.k==='v'){b.clearRect(e.x*8,e.y*8,e.w*8,e.h*8);try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>1);
+ else if(e.k==='v'){if(!EDND)b.clearRect(e.x*8,e.y*8,e.w*8,e.h*8);try{edBushHook(e.x,e.y,e.w,e.h,false,null)}catch(err){}setS(e.x,e.y,e.w,e.h,()=>1);
   CH=CH.filter(c=>{const cx=c.x/8-1,cy=c.y/8-2;return!(cx>=e.x&&cx<e.x+e.w&&cy>=e.y&&cy<e.y+e.h)})}
  else if(e.k==='s')setS(e.x,e.y,e.w,e.h,()=>e.v);
  else{const t=EDT[e.i];if(!t)return;if(e.k==='f'){for(let r=0;r<e.rows;r++)for(let c=0;c<e.cols;c++)put(t,e.x+c*t.o.tw,e.y+r*t.o.th,e.fx,e.fy)}else put(t,e.x,e.y,e.fx,e.fy)}
@@ -1884,11 +1902,11 @@ function edApply(e){
 function edInit(){
  const B=IM.below,c=document.createElement('canvas');if(!B.chunked){c.width=B.width;c.height=B.height;c.getContext('2d').drawImage(B,0,0)}
  BASEC=c;BASES=SO.slice();BASECH=CH.map(o=>({...o}));EDB=EDT.length;edLoadCustom();
- const fin=()=>{EDC.objs.forEach(d=>EDT.push(edBuildObj(d)));edOrder(EDITS).forEach(edApply);MM=null;edUI();/* v27.1: Ordem por Y ao reabrir o jogo — refaz o mapa UMA vez depois que tudo carregou (peças/imagens/chunks prontos), na ordem certa */if(EDYSORT&&EDITS.length>1)setTimeout(()=>{try{edRebuild()}catch(err){}},0)};
+ const fin=()=>{EDC.objs.forEach(d=>EDT.push(edBuildObj(d)));edApplyAll(EDITS);MM=null;edUI()};
  const pend=EDC.sets.map(st=>new Promise(r=>{const im=new Image();im.onload=()=>{st.img=im;r()};im.onerror=()=>r();im.src=st.url}));
  if(pend.length)Promise.all(pend).then(fin);else fin();
 }
-function edRebuild(){if(IM.below.chunked)IM.below.reset();else IM.below.getContext('2d').drawImage(BASEC,0,0);SO.set(BASES);CH=BASECH.map(o=>({...o}));EDBU.clear();EDGONE.clear();edOrder(EDITS).forEach(edApply);try{if(IM.below.chunked&&window.__bushScan)window.__bushScan()}catch(err){}if(typeof GW_FRESTAS!=='undefined'&&typeof GTW!=='undefined'&&D.W===GTW&&SO)for(const f of GW_FRESTAS)for(let y=f[2];y<=f[3];y++)for(let x=f[0];x<=f[1];x++)SO[y*GTW+x]=0; /* v26.42: edições salvas no navegador não fecham mais as frestas */MM=null;edSave()}
+function edRebuild(){if(IM.below.chunked)IM.below.reset();else IM.below.getContext('2d').drawImage(BASEC,0,0);SO.set(BASES);CH=BASECH.map(o=>({...o}));EDBU.clear();EDGONE.clear();edApplyAll(EDITS);try{if(IM.below.chunked&&window.__bushScan)window.__bushScan()}catch(err){}if(typeof GW_FRESTAS!=='undefined'&&typeof GTW!=='undefined'&&D.W===GTW&&SO)for(const f of GW_FRESTAS)for(let y=f[2];y<=f[3];y++)for(let x=f[0];x<=f[1];x++)SO[y*GTW+x]=0; /* v26.42: edições salvas no navegador não fecham mais as frestas */MM=null;edSave()}
 function edAdd(e){
  const t=e.i!=null?EDT[e.i]:null,w=e.k==='f'?e.cols*t.o.tw:t?t.o.tw:e.w,h=e.k==='f'?e.rows*t.o.th:t?t.o.th:e.h;
  if(e.x<0||e.y<0||e.x+w>D.W||e.y+h>D.H)return;
