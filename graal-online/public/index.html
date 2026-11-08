@@ -1884,7 +1884,7 @@ function edApply(e){
 function edInit(){
  const B=IM.below,c=document.createElement('canvas');if(!B.chunked){c.width=B.width;c.height=B.height;c.getContext('2d').drawImage(B,0,0)}
  BASEC=c;BASES=SO.slice();BASECH=CH.map(o=>({...o}));EDB=EDT.length;edLoadCustom();
- const fin=()=>{EDC.objs.forEach(d=>EDT.push(edBuildObj(d)));edOrder(EDITS).forEach(edApply);MM=null;edUI()};
+ const fin=()=>{EDC.objs.forEach(d=>EDT.push(edBuildObj(d)));edOrder(EDITS).forEach(edApply);MM=null;edUI();/* v27.1: Ordem por Y ao reabrir o jogo — refaz o mapa UMA vez depois que tudo carregou (peças/imagens/chunks prontos), na ordem certa */if(EDYSORT&&EDITS.length>1)setTimeout(()=>{try{edRebuild()}catch(err){}},0)};
  const pend=EDC.sets.map(st=>new Promise(r=>{const im=new Image();im.onload=()=>{st.img=im;r()};im.onerror=()=>r();im.src=st.url}));
  if(pend.length)Promise.all(pend).then(fin);else fin();
 }
