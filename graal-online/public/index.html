@@ -1010,6 +1010,12 @@ const SKG={m:new Map(),sk:null,n:0,on:0};
 function skgBuild(){
  SKG.m.clear();SKG.sk=SK;SKG.n=SK?SK.length:0;SKG.on=0;if(!SK||SK.length<40)return;SKG.on=1;
  for(let i=0;i<SK.length;i++){const o=SK[i];if(o.dead)continue;const k=Math.floor(o.y/32)*4096+Math.floor(o.x/32);let a=SKG.m.get(k);if(a)a.push(o);else SKG.m.set(k,[o])}}
+function rpHit(x,y){ /* só OUTROS JOGADORES online: raio 5 contra raio 5, bloqueia só quem está entrando; fantasmas (al<1) e esquiva não bloqueiam */
+ if(!P||P.dash>0)return false;const RPm=window.RPX;if(!RPm||!RPm.size)return false;
+ for(const o of RPm.values()){if(o.al!==undefined&&o.al!=1)continue;
+  const m=10,dx=x-o.x;if(dx>m||dx<-m)continue;const dy=y-o.y;if(dy>m||dy<-m)continue;
+  const d2=dx*dx+dy*dy;if(d2<m*m&&d2<(P.x-o.x)*(P.x-o.x)+(P.y-o.y)*(P.y-o.y))return true}
+ return false}
 function bodyHit(e,x,y){
  if(!P||!SK||(e===P&&P.dash>0))return false;
  const re=bodyR(e);
@@ -1055,6 +1061,8 @@ function move(e,dx,dy){if(e===P&&window.ADMX&&(ADMX.nc||ADMX.spec)){e.x=Math.max
  const L=Math.hypot(dx,dy),n=Math.max(1,Math.ceil(L/2.5)),sx0=dx/n,sy0=dy/n,sl=L/n;
  for(let i=0;i<n;i++){
   let sx=sx0,sy=sy0;
+  /* jogador online na frente: para de vez (sem deslizar pelo outro eixo nem pelo empurrãozinho). Parede/mato/monstros continuam como antes */
+  if(e===P&&(rpHit(e.x+sx,e.y+sy)||(sx!==0&&rpHit(e.x+sx,e.y))||(sy!==0&&rpHit(e.x,e.y+sy))))break;
   /* v26.47: direcao um pouco torta (joystick/2 teclas) contra MATO ou BOMBA: o eixo principal esta bloqueado so pelo objeto, entao o eixo lateral nao anda (senao desliza em volta e nunca da pra ficar de frente) */
   if(e===P&&sx!==0&&sy!==0){if(Math.abs(sx)>=Math.abs(sy)*1.25&&objBlk(e.x+sx,e.y,hb))sy=0;else if(Math.abs(sy)>=Math.abs(sx)*1.25&&objBlk(e.x,e.y+sy,hb))sx=0}
   const okx=sx!==0&&!blocked(e.x+sx,e.y,hb)&&!bodyHit(e,e.x+sx,e.y);if(okx)e.x+=sx;
