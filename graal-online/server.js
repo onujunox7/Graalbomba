@@ -687,6 +687,10 @@ wss.on('connection', (ws, req) => {
     admins: Object.entries(AD.admins).map(([k, v]) => ({ k, nm: v.nm })),
     bans: Object.entries(AD.bans).filter(([k]) => banOf(k)).map(([k, v]) => ({ k, nm: v.nm, until: v.until || 0 })) });
 
+  { // mesmo aparelho (cookie ggid) já online com OUTRA identidade (ex.: acabou de sair da conta Discord): remove o antigo na hora, sem esperar o fechamento do socket
+    const dev = guestOf(req);
+    if (dev) { p.dev = dev; for (const o of [...P.values()]) if (o !== p && o.dev === dev) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } }
+  }
   { // conectou com a sessão do Discord: a identidade (bans/admins) passa a ser a conta, e o progresso vem do servidor
     const sid = sessionOf(req);
     if (sid) {
