@@ -3904,6 +3904,17 @@ const pfCss3=document.createElement('style');pfCss3.textContent=`
 #pfPanel.gr .pfBgRow #pfBgX{background:linear-gradient(#fff,#cfd3dc);color:#222;border:1px solid #333;font-weight:normal}
 #pfPanel.gr .pfBgDm{color:#222;font-size:calc(var(--u)*.8)}
 #pfPanel.gr section[data-p=v] .pfHint{color:#333;font-size:calc(var(--u)*.8)}
+/* modo Editar igual ao Godot: sem faixa branca, abas em pílula escura, campos escuros */
+#pfPanel.gr[data-m=e]:not(.hasbg){background-color:#12141b!important;background-image:none!important}
+#pfPanel.gr[data-m=e] #pfTabs{justify-content:center;gap:calc(var(--u)*.6);padding:calc(var(--u)*.7) 0 calc(var(--u)*.3);background:none!important;border:0!important}
+#pfPanel.gr[data-m=e] #pfTabs button{padding:calc(var(--u)*.4) calc(var(--u)*1.5);border:1px solid rgba(255,255,255,.45)!important;border-radius:999px;background:rgba(18,20,28,.78);color:#fff!important;font:calc(var(--u)*.85) Verdana,Arial,sans-serif;text-shadow:0 1px 2px #000a}
+#pfPanel.gr[data-m=e] #pfTabs button:hover:not(.on){background:rgba(60,64,80,.85)}
+#pfPanel.gr[data-m=e] #pfTabs button.on{background:rgba(130,132,142,.85);border-color:#fff!important;color:#fff!important}
+#pfPanel.gr[data-m=e] #pfBody{background:none!important;color:#fff;text-shadow:0 1px 3px #000c}
+#pfPanel.gr[data-m=e] .eRow input,#pfPanel.gr[data-m=e] .eRow select{border:1px solid rgba(255,255,255,.35);border-radius:6px;background:rgba(18,20,28,.85);color:#fff;text-shadow:none}
+#pfPanel.gr[data-m=e] #pfA button,#pfPanel.gr[data-m=e] .pfBgRow button,#pfPanel.gr[data-m=e] .pfBgRow #pfBgX{border:1px solid rgba(255,255,255,.4)!important;border-radius:999px!important;background:rgba(18,20,28,.85)!important;color:#fff!important;text-shadow:none}
+#pfPanel.gr[data-m=e] .eMsg{color:#7dff7d}
+#pfPanel.gr[data-m=e] section[data-p=v] .pfHint,#pfPanel.gr[data-m=e] .pfBgDm{color:#ddd}
 `;document.head.appendChild(pfCss3);
 const pf=document.createElement('div');pf.id='pfPanel';pf.className='gr';
 pf.style.display='none';
