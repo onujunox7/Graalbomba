@@ -3245,7 +3245,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='sp'||m.t==='spall'){if(window.SPX)window.SPX.net(m);else(window.__SPQ=window.__SPQ||[]).push(m);return}
   if(m.t==='pu')m={t:'st',p:[m.p],part:1}; /* v26.8: atualização individual, repassada na hora pelo servidor */
   if(m.t!=='st')return;const seen=new Set();
-  for(const p of m.p){if(p.id===myId)continue;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}
+  for(const p0 of m.p){if(p0.id===myId)continue;/* v16: dentro de casa só se veem os que também estão dentro (posição real = ix,iy; animação = ia); quem está em outro espaço some da lista */const _mi=!!(window.INT&&INT.loc==='i'),_pi=p0.in===1&&Number.isFinite(p0.ix)&&Number.isFinite(p0.iy);if(_mi!==_pi){RP.delete(p0.id);continue}const p=_pi?Object.assign({},p0,{x:p0.ix,y:p0.iy,an:p0.ia||p0.an}):p0;seen.add(p.id);let r=RP.get(p.id);if(!r){r={id:p.id,x:p.x,y:p.y,t:0,pn:''};RP.set(p.id,r)}
    if(typeof p.ct==='number'){
     if(r.lct===undefined||p.ct>r.lct){ /* só pacote novo vira ponto (repetido/antigo é ignorado) */
      const _a=performance.now(),c=_a-p.ct;
@@ -3267,13 +3267,13 @@ window.MPNET={send:o=>{try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}c
 function skinNow(){const X=window.MPX,nb=X.nb(),nh=X.nh(),b=X.GSK.b,h=X.GSK.h;
  const bs=b>=nb?(X.cb()[b-nb]||{}).src:null,hs=h>=nh?(X.ch()[h-nh]||{}).src:null;
  return{b:Math.max(0,Math.min(b,nb-1)),h:Math.max(0,Math.min(h,nh-1)),bs:bs&&bs.length<290000?bs:null,hs:hs&&hs.length<290000?hs:null,c:X.GSK.c||null}}
-setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok||(window.INT&&INT.loc==='i'))return;
+setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok)return;const INS=!!(window.INT&&INT.loc==='i'),IR=INS&&INT.ret;if(INS&&!(IR&&Number.isFinite(IR.x)&&Number.isFinite(IR.y)))return; /* v16: dentro de casa o 'u' continua sendo enviado (x,y = a porta; a posição real vai em in/ix/iy/ia) */
  const sk=skinNow(),key=sk.b+'|'+sk.h+'|'+(sk.bs||'').length+'|'+(sk.hs||'').length+'|'+(window.__GBODY_VER||0);
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  const ckey=(sk.c||[]).join(',');if(ckey!==lastCk){lastCk=ckey;ws.send(JSON.stringify({t:'kc',c:sk.c}))} /* cores do body vão numa mensagem leve à parte (não reenvia as imagens) */
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.dash>0?'Jump_'+dn:P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
- ws.send(JSON.stringify({t:'u',x:Math.round(P.x),y:Math.round(P.y),nm:nick,an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0}))}catch(e){}},50);
+ ws.send(JSON.stringify({t:'u',x:Math.round(INS?IR.x:P.x),y:Math.round(INS?IR.y:P.y),nm:nick,an:INS?an.replace(/^(Run|Attack|Jump)_/,'Idle_'):an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0,...(INS?{in:1,ix:Math.round(P.x),iy:Math.round(P.y),ia:an}:{})}))}catch(e){}},50);
 /* dentro de casa o 'u' não é enviado (os outros não veem o interior); então manda só a posição do interior, leve, para o servidor poder gravá-la se a conexão cair */
 setInterval(()=>{try{if(!on||!ws||ws.readyState!==1||!P||ED||P.dead||!(window.INT&&INT.loc==='i'))return;const r=INT.ret;ws.send(JSON.stringify({t:'ip',x:Math.round(P.x),y:Math.round(P.y),f:P.face,r:r&&Number.isFinite(r.x)&&Number.isFinite(r.y)?{x:Math.round(r.x),y:Math.round(r.y)}:null}))}catch(e){}},500);
 /* desenho do personagem remoto com a mesma engine de skin */

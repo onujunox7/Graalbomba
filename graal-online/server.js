@@ -641,6 +641,8 @@ const DROPS = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, a] of DROPS) if (a[5] && a[5] < n) DROPS.delete(k) }, 5000); // corações/bombas/flechas somem em 20s
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
+/* v16: igual a others(), mas só para quem está no mesmo espaço (mundo aberto ou dentro de casa): bombas/flechas/fogo de dentro de casa não aparecem no mundo e vice-versa */
+const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (q && !!q.in !== !!p.in) return; sendTo(c, msg) });
 /* invisibilidade / espectador (só admin e dono): o servidor simplesmente PARA de mostrar esse jogador aos outros (nem posição, nem skin, nem perfil).
    Quem vê o personagem transparente é só o próprio admin, no cliente dele. Espectador = invisível + (no cliente) imortal, atravessa tudo e não ataca. */
 function setHidden(p, h, sp) {
@@ -842,10 +844,10 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'bo' || m.t === 'ar' || m.t === 'fl' || m.t === 'th') { // bomba colocada/jogada, flecha atirada, fogo do cavalo: só efeito visual para os outros
       if (p.hid) return; // invisível não deixa rastro
       const now = Date.now(); if (now - (p.evW || 0) > 1000) { p.evW = now; p.evN = 0 } if (++p.evN > 30) return;
-      if (m.t === 'bo') others(id, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1), bt: num(m.bt, 0, 5) }); // bt = tempo de pavio que falta (o outro lado explode junto)
-      else if (m.t === 'fl') others(id, { t: 'fl', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), dx: Math.max(-1, Math.min(1, Math.round(+m.dx || 0))), dy: Math.max(-1, Math.min(1, Math.round(+m.dy || 0))) });
-      else if (m.t === 'th') others(id, { t: 'th', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), g: num(m.g, 0, 99999) | 0 }); // arbusto arremessado: só visual
-      else others(id, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
+      if (m.t === 'bo') othersSame(p, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1), bt: num(m.bt, 0, 5) }); // bt = tempo de pavio que falta (o outro lado explode junto)
+      else if (m.t === 'fl') othersSame(p, { t: 'fl', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), dx: Math.max(-1, Math.min(1, Math.round(+m.dx || 0))), dy: Math.max(-1, Math.min(1, Math.round(+m.dy || 0))) });
+      else if (m.t === 'th') othersSame(p, { t: 'th', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), g: num(m.g, 0, 99999) | 0 }); // arbusto arremessado: só visual
+      else othersSame(p, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
       return;
     }
     if (m.t === 'dp') { // item pego
@@ -879,7 +881,8 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
       const now = Date.now(); if (now - (p.phW || 0) > 1000) { p.phW = now; p.phN = 0 } if (++p.phN > 8) return;
       const q = P.get(m.to | 0); if (!q || q === p || p.hid || q.hid || !p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
-      if (Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
+      if (!!p.in !== !!q.in) return; // um dentro de casa e o outro fora: não se alcançam
+      if (p.in ? Math.hypot(p.ix - q.ix, p.iy - q.iy) > 110 : Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
       q.phFrom = id; q.phT = now; sendTo(q.ws, { t: 'ph', from: id, d: num(m.d, 0, 2000) }); return;
     }
     if (m.t === 'pk') { // a vítima do sparring avisa quem a derrubou (só vale se levou golpe dele há pouco)
@@ -894,7 +897,12 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'u') {
       if (d.length > 400) return;
-      p.il = null; // voltou ao mundo aberto
+      /* v16 — dentro de casa o cliente continua mandando 'u': x,y = a PORTA (clientes antigos veem o jogador parado nela), in:1 + ix,iy = posição real no interior, ia = animação.
+         Quem também está dentro desenha o jogador andando de verdade; quem está fora não o vê (ele "entrou"). */
+      if (m.in == 1 && Number.isFinite(+m.ix) && Number.isFinite(+m.iy) && Math.abs(+m.ix) <= 1e6 && Math.abs(+m.iy) <= 1e6) {
+        p.in = 1; p.ix = Math.round(+m.ix); p.iy = Math.round(+m.iy); p.ia = normAn(m.ia);
+        p.il = { x: p.ix, y: p.iy, f: (/(Up|Down|Left|Right)$/.exec(p.ia) || [])[1] || 'Down', r: Number.isFinite(+m.x) && Number.isFinite(+m.y) ? { x: Math.round(+m.x), y: Math.round(+m.y) } : null }; // também serve para gravar na conta se ele sair
+      } else { p.in = 0; p.il = null } // voltou ao mundo aberto
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
@@ -930,7 +938,7 @@ function normAn(a) {
   return m[1] + '_' + (/^[0-3]$/.test(m[2]) ? AN_DIR[+m[2]] : m[2]);
 }
 
-const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt | 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0, fl: p.fl | 0 });
+const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt | 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0, fl: p.fl | 0, in: p.in ? 1 : undefined, ix: p.in ? p.ix : undefined, iy: p.in ? p.iy : undefined, ia: p.in ? p.ia : undefined });
 setInterval(() => {
   const a = [...P.values()].filter(p => p.ok && !p.hid).map(pstate);
   if (!a.length) return;
