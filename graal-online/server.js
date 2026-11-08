@@ -199,7 +199,7 @@ const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c =>
 const DC_ID = process.env.DISCORD_CLIENT_ID || '', DC_SECRET = process.env.DISCORD_CLIENT_SECRET || '', SES_SECRET = process.env.SESSION_SECRET || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const AUTH_ON = !!(DC_ID && DC_SECRET && SES_SECRET);
-const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_profile_v1', 'graal_custom_v1', 'graal_headbuy_v1', 'graal_pos_v1'];
+const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_profile_v1', 'graal_custom_v1', 'graal_headbuy_v1', 'graal_pos_v1', 'graal_npc_bag_v1', 'graal_mount_owned'];
 const ACC_MAX = 600000, SES_DAYS = 30;
 /* VISITANTE SALVO: quem não entrou com o Discord ganha uma conta de visitante (id aleatório num cookie de 1 ano, só neste navegador).
  * O progresso fica no PostgreSQL igual ao da conta Discord. Visitantes sem uso há GUEST_KEEP_DAYS dias são apagados. */
