@@ -199,7 +199,7 @@ const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c =>
 const DC_ID = process.env.DISCORD_CLIENT_ID || '', DC_SECRET = process.env.DISCORD_CLIENT_SECRET || '', SES_SECRET = process.env.SESSION_SECRET || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const AUTH_ON = !!(DC_ID && DC_SECRET && SES_SECRET);
-const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_profile_v1', 'graal_custom_v1', 'graal_pos_v1'];
+const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_profile_v1', 'graal_custom_v1', 'graal_headbuy_v1', 'graal_pos_v1'];
 const ACC_MAX = 600000, SES_DAYS = 30;
 /* VISITANTE SALVO: quem não entrou com o Discord ganha uma conta de visitante (id aleatório num cookie de 1 ano, só neste navegador).
  * O progresso fica no PostgreSQL igual ao da conta Discord. Visitantes sem uso há GUEST_KEEP_DAYS dias são apagados. */
@@ -282,6 +282,15 @@ const ensureGuest = id => ensurePid(ACC[id] || (ACC[id] = { id, guest: true, nam
 const avatarOf = a => a.guest ? 'https://cdn.discordapp.com/embed/avatars/0.png' : a.av ? 'https://cdn.discordapp.com/avatars/' + a.id + '/' + a.av + '.png?size=64' : 'https://cdn.discordapp.com/embed/avatars/' + Number((BigInt(a.id) >> 22n) % 6n) + '.png';
 const nickOf = n => String(n).replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12) || 'Jogador';
 const accMsg = a => ({ t: 'acc', guest: !!a.guest, pid: pidOf(a), id: a.id, name: a.name, av: avatarOf(a), data: a.data || {} });
+/* códigos de login do app: 8 letras/números sem ambiguidade, 5 min, uso único, no máximo 500 pendentes */
+const APPCODES = new Map();
+function appCode(id) {
+  const now = Date.now(); for (const [k, v] of APPCODES) if (v.exp < now) APPCODES.delete(k);
+  if (APPCODES.size > 500) APPCODES.delete(APPCODES.keys().next().value);
+  const al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c;
+  do { c = Array.from(crypto.randomBytes(8), b => al[b % al.length]).join('') } while (APPCODES.has(c));
+  APPCODES.set(c, { id, exp: now + 300000 }); return c;
+}
 async function discordCallback(req, res) {
   const fail = why => { console.error('Login Discord falhou:', why); res.writeHead(302, { Location: '/?login=erro' }); res.end() };
   try {
@@ -301,6 +310,11 @@ async function discordCallback(req, res) {
     a.name = name; a.av = u.avatar && /^[A-Za-z0-9_]+$/.test(u.avatar) ? u.avatar : null; a.last = Date.now();
     if (!a.data.graal_nick) a.data.graal_nick = nickOf(name); // conta nova: o nick inicial é o nome do Discord
     saveACC(a.id);
+    if (readCookie(req, 'gapp') === '1') { /* login pelo app (Godot): mostra um código de 8 letras, usado uma vez em /auth/app/redeem */
+      const code = appCode(a.id);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': [ck(req, 'gst', '', 0), ck(req, 'gapp', '', 0)] });
+      return res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Graalbomba</title><body style="font-family:system-ui;background:#10131a;color:#eee;text-align:center;padding:40px 16px"><h2>Login feito!</h2><p>Volte ao jogo e digite este código (vale 5 minutos):</p><p style="font-size:44px;letter-spacing:.15em;font-weight:700;color:#7dd3fc">' + code + '</p>');
+    }
     res.writeHead(302, { Location: '/', 'Set-Cookie': [ck(req, 'gsid', mkSession(a.id), SES_DAYS * 86400), ck(req, 'gst', '', 0)] }); res.end();
   } catch (e) { fail(e.message) }
 }
@@ -471,7 +485,15 @@ const srv = http.createServer((req, res) => {
     if (!AUTH_ON) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Login com Discord não configurado no servidor.') }
     const st = crypto.randomBytes(16).toString('hex');
     const q = new URLSearchParams({ client_id: DC_ID, response_type: 'code', scope: 'identify', redirect_uri: baseUrl(req) + '/auth/discord/callback', state: st, prompt: 'none' });
-    res.writeHead(302, { Location: 'https://discord.com/oauth2/authorize?' + q, 'Set-Cookie': ck(req, 'gst', st, 600) }); return res.end();
+    const isApp = new URL(req.url, 'http://x').searchParams.get('app') === '1';
+    res.writeHead(302, { Location: 'https://discord.com/oauth2/authorize?' + q, 'Set-Cookie': [ck(req, 'gst', st, 600), ck(req, 'gapp', isApp ? '1' : '', isApp ? 600 : 0)] }); return res.end();
+  }
+  if (url === '/auth/app/redeem' && req.method === 'GET') { // o app troca o código por uma sessão (a mesma que o cookie gsid do navegador)
+    const c = String(new URL(req.url, 'http://x').searchParams.get('c') || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), e = APPCODES.get(c);
+    APPCODES.delete(c);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    if (!AUTH_ON || !e || e.exp < Date.now() || !ACC[e.id]) return res.end(JSON.stringify({ ok: false }));
+    return res.end(JSON.stringify({ ok: true, sess: mkSession(e.id), name: ACC[e.id].name }));
   }
   if (url === '/auth/discord/callback' && req.method === 'GET') return discordCallback(req, res);
   if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { if (pl.svTm) clearTimeout(pl.svTm); if (pl.svD) { applySv(pl, pl.svD); pl.svD = null } ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
