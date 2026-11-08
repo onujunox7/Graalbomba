@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
+<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1","graal_mount_owned","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
 (function(){try{if(location.protocol==='file:')return;var x=new XMLHttpRequest();x.open('GET','/api/acc',false);x.send();if(x.status!==200)return;var j=JSON.parse(x.responseText);if(!j||!j.on||!j.id)return;
-var K=["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1"];
+var K=["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1","graal_mount_owned"];
 var id=String(j.id),ow=localStorage.getItem('graal_acc_owner');if(ow&&ow!==id)K.forEach(function(k){localStorage.removeItem(k)});
 localStorage.setItem('graal_acc_owner',id);var d=j.data||{};K.forEach(function(k){if(typeof d[k]==='string')localStorage.setItem(k,d[k])});window.__ACC_PRE=id}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -6091,7 +6091,7 @@ if(window.__GCHQ){const q=window.__GCHQ;window.__GCHQ=null;q.forEach(add)}
 <script>
 /* ===== CONTA COM DISCORD: botão de login + progresso salvo no servidor ===== */
 (()=>{
-const KEYS=['graal_nick','graal_classic_save_v1','graal_classic_zelda_v1','graal_skin_v2','graal_equip_v1','graal_playtime','graal_profile_v1','graal_custom_v1','graal_pos_v1','graal_npc_bag_v1'];
+const KEYS=['graal_nick','graal_classic_save_v1','graal_classic_zelda_v1','graal_skin_v2','graal_equip_v1','graal_playtime','graal_profile_v1','graal_custom_v1','graal_pos_v1','graal_npc_bag_v1','graal_mount_owned'];
 const ls=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 let ready=0,applied=0,lastSent='',lastK={},frozen=0;
 /* PERF: antes o sync() rodava a cada 1 s lendo TODAS as chaves (inclusive as imagens de skin/equipamento em base64, centenas de KB) e fazendo JSON.stringify de tudo, o que gerava engasgos periódicos no celular. Agora só relê as chaves que realmente foram gravadas (chg). */
