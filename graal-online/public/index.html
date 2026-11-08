@@ -3250,6 +3250,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='out'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}location.replace('/?logout=1');return}
   if(m.t==='dup'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}return}
   if(m.t==='role'||m.t==='cmd'||m.t==='kick'||m.t==='adm'||m.t==='pfimg'||m.t==='pfs'){if(m.t==='kick')window.__KICKED=1;if(window.ADM)window.ADM(m);return}
+  if(m.t==='pfc'){if(window.PFCSET)PFCSET(m.c);return}
   if(m.t==='pi'||m.t==='ph'||m.t==='pk'){if(window.PRF)PRF.net(m);else(window.__PRQ=window.__PRQ||[]).push(m);return}
   if(m.t==='q'){window.EQX.remote(m.id,m.e);return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);window.EQX.drop(m.id);if(window.PRF)PRF.drop(m.id);return}
@@ -3386,7 +3387,7 @@ const myCode=(()=>{let h=5381;const u=myUid();for(let i=0;i<u.length;i++)h=((h*3
 setInterval(()=>{const d=!!(P&&P.dead);if(d&&!wasD){PS.dk++;PS.ks=0;psTouch()}wasD=d;
  if(on&&!wasOn)piD=1;wasOn=on;
  if(!on||!P)return;if(!piD&&++piN<40)return;piN=0;piD=0;
- MPNET.send({t:'pi',c:myCode,tt:PS.tt,st:PS.st,el:PS.el,pk:PS.pk,sl:PS.sl,dk:PS.dk,spo:PS.spo,th:PS.th,pt:pt|0,
+ MPNET.send({t:'pi',kills:(P&&P.kills|0)||0,bc:(pfBarC||'').slice(1),c:myCode,tt:PS.tt,st:PS.st,el:PS.el,pk:PS.pk,sl:PS.sl,dk:PS.dk,spo:PS.spo,th:PS.th,pt:pt|0,
   gn:PS.gn||'',bd:PS.bd||'',lg:PS.lg||navLg(),co:myCo(),ks:PS.ks|0,kb:PS.kb|0,ss:PS.ss|0,sb:PS.sb|0})},1500); /* gênero, aniversário, idioma, país e sequências de abates/sparring também vão para os outros */
 window.PRF={
  kill(s){const k=String((s&&s.k)||'esqueleto').replace(/[^\w-]/g,'').slice(0,24)||'monstro';
@@ -3873,16 +3874,48 @@ const pfCss2=document.createElement("style");pfCss2.textContent=`
 #pfPanel.gr .gAv .gStI[hidden],#pfPanel.gr .gAv .gSt[hidden]{display:none}
 #pfPanel.gr.mob.port .gAv .gSt,#pfPanel.gr.mob.port .gAv .gStI{max-width:calc(var(--u)*9);width:calc(var(--u)*9)}
 `;document.head.appendChild(pfCss2);
+const pfCss3=document.createElement('style');pfCss3.textContent=`
+/* ===== cor das barras (--pb) + fundo (--pbi): a mesma escolha do perfil do Godot ===== */
+#pfPanel.gr{--pb:#214290;background-color:color-mix(in srgb,var(--pb) 12%,#fff)!important;background-image:var(--pbi,none)!important;background-size:cover!important;background-position:center!important;background-repeat:no-repeat!important}
+#pfPanel.gr #pfHd{background:linear-gradient(180deg,color-mix(in srgb,var(--pb) 58%,#fff) 0,color-mix(in srgb,var(--pb) 88%,#fff) 14%,var(--pb) 55%,color-mix(in srgb,var(--pb) 62%,#000) 100%);box-shadow:0 2px 0 color-mix(in srgb,var(--pb) 45%,#000)}
+#pfPanel.gr #pfFt{background:linear-gradient(180deg,color-mix(in srgb,var(--pb) 62%,#000),var(--pb) 45%,color-mix(in srgb,var(--pb) 62%,#000));box-shadow:0 -2px 0 color-mix(in srgb,var(--pb) 45%,#000)}
+/* barras arredondadas e lisas, como no Godot: a de cima com os cantos de baixo redondos, a de baixo com os de cima */
+#pfPanel.gr #pfHd{background:var(--pb);border-radius:0 0 calc(var(--u)*1.1) calc(var(--u)*1.1);border-bottom:1px solid color-mix(in srgb,var(--pb) 65%,#fff);box-shadow:0 2px 4px rgba(0,0,0,.28);position:relative;z-index:2}
+#pfPanel.gr #pfFt{background:var(--pb);border-radius:calc(var(--u)*1.1) calc(var(--u)*1.1) 0 0;border-top:1px solid color-mix(in srgb,var(--pb) 65%,#fff);box-shadow:0 -2px 4px rgba(0,0,0,.28);position:relative;z-index:2}
+#pfPanel.gr #pfTabs{background:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 2px,color-mix(in srgb,var(--pb) 16%,transparent) 2px 5px),color-mix(in srgb,var(--pb) 26%,#fff)}
+#pfPanel.gr #pfTabs button{border-color:color-mix(in srgb,var(--pb) 55%,#000)}
+#pfPanel.gr #pfTabs button.on{color:color-mix(in srgb,var(--pb) 85%,#000)}
+#pfPanel.gr #pfBody{background:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 2px,color-mix(in srgb,var(--pb) 16%,transparent) 2px 5px),linear-gradient(180deg,color-mix(in srgb,var(--pb) 26%,#fff),color-mix(in srgb,var(--pb) 5%,#fff) 52%,color-mix(in srgb,var(--pb) 17%,#fff))}
+#pfPanel.gr .xSlot{border-color:color-mix(in srgb,var(--pb) 80%,#000);background:linear-gradient(color-mix(in srgb,var(--pb) 12%,#fff),color-mix(in srgb,var(--pb) 42%,#fff))}
+#pfPanel.gr .gnB.on{border-color:var(--pb);background:color-mix(in srgb,var(--pb) 14%,#fff)}
+/* com foto/GIF de fundo: o corpo fica transparente, o texto claro (como no Godot); barras continuam na cor escolhida */
+#pfPanel.gr.hasbg #pfBody{background:none;color:#fff;text-shadow:0 1px 3px #000c!important}
+#pfPanel.gr.hasbg .gR.g b{color:#7dff7d}#pfPanel.gr.hasbg .gR.b b{color:#9fb4ff}
+#pfPanel.gr.hasbg .gAv canvas{filter:drop-shadow(0 4px 6px #000a)}
+/* aba Aparência */
+#pfPanel.gr section[data-p=v]:not([hidden]){width:min(calc(var(--u)*46),100%);margin:0 auto 10px;padding:calc(var(--u)*.8) calc(var(--u)*1);background:#fff;border:1px solid #666;color:#000;font-size:calc(var(--u)*.9);text-shadow:none}
+#pfPanel.gr section[data-p=v] .pfCard{background:none;border:0;box-shadow:none;padding:0 0 calc(var(--u)*.8);-webkit-backdrop-filter:none;backdrop-filter:none}
+#pfPanel.gr section[data-p=v] .pfLb{color:#222;font-size:calc(var(--u)*.85);font-weight:bold;text-transform:none;letter-spacing:0;opacity:1}
+#pfPanel.gr .pfBarRow{display:flex;flex-wrap:wrap;align-items:center;gap:calc(var(--u)*.5)}
+#pfPanel.gr .pfBarRow button.sw{width:calc(var(--u)*2.2);height:calc(var(--u)*1.7);border-radius:6px;border:2px solid rgba(0,0,0,.35);padding:0;cursor:pointer;min-height:0}
+#pfPanel.gr .pfBarRow button.sw.on{border-color:#000;transform:scale(1.1)}
+#pfPanel.gr .pfBarRow input[type=color]{width:calc(var(--u)*3.2);height:calc(var(--u)*1.7);padding:0;border:1px solid #333;border-radius:4px;background:#fff;cursor:pointer}
+#pfPanel.gr .pfBgRow button{border:1px solid #333;border-radius:3px;background:linear-gradient(#fff,#cfd3dc);color:#000;font:calc(var(--u)*.85) Verdana,Arial,sans-serif;padding:calc(var(--u)*.3) calc(var(--u)*.9);min-height:0;font-weight:normal}
+#pfPanel.gr .pfBgRow #pfBgX{background:linear-gradient(#fff,#cfd3dc);color:#222;border:1px solid #333;font-weight:normal}
+#pfPanel.gr .pfBgDm{color:#222;font-size:calc(var(--u)*.8)}
+#pfPanel.gr section[data-p=v] .pfHint{color:#333;font-size:calc(var(--u)*.8)}
+`;document.head.appendChild(pfCss3);
 const pf=document.createElement('div');pf.id='pfPanel';pf.className='gr';
 pf.style.display='none';
 pf.innerHTML=`<div id="pfHd"><div style="min-width:0"><div id="pfNmR"><i id="pfDot"></i><div id="pfNm"></div></div><div id="pfSub"><span id="pfLv" class="pfLv"></span><span id="pfTtH" class="pfTtH"></span><span id="pfCode"></span><button type="button" id="pfCp" title="Copiar ID">⧉</button></div></div><button type="button" id="pfx" aria-label="Fechar">✕</button></div>
-<div id="pfTabs"><button type="button" data-t="i" class="on">Informação</button><button type="button" data-t="op">Opções</button><button type="button" data-t="ch">Personagem</button></div>
+<div id="pfTabs"><button type="button" data-t="i" class="on">Informação</button><button type="button" data-t="op">Opções</button><button type="button" data-t="ch">Personagem</button><button type="button" data-t="v">Personalizar</button></div>
 <div id="pfBody">
 <section data-p="p"><div class="gV"><div class="gTb"><div class="gR"><span>País</span><b id="pfCo"></b></div><div class="gR"><span>Language:</span><b id="pfLg"></b></div><div class="gR"><span>Gênero:</span><b id="pfGn"></b></div><div class="gR"><span>Birthday:</span><b id="pfBdv"></b></div><div class="gR sp"><span>Tempo online:</span><b id="pfPt"></b></div><div class="gR sp g"><span id="pfC2l">Glims</span><b id="pfC2"></b></div><div class="gR b"><span id="pfBl">Nível</span><b id="pfBv"></b></div></div><div class="gAv"><canvas id="pfc" width="96" height="96"></canvas><div id="pfStR" class="gSt"></div><input id="pfStQ" class="gStI" maxlength="40" autocomplete="off" placeholder="Escreva seu status…" hidden><button type="button" id="pfStBtn" class="gBtn own">Status</button></div><div class="gTc" id="pfSlBox"><div class="gTx">Toque para mudar:</div><div class="xSl gSl"><button type="button" class="xSlot" id="pfSl1" data-s="0" aria-label="Slot 1"></button><button type="button" class="xSlot" id="pfSl2" data-s="1" aria-label="Slot 2"></button></div></div><div id="pfBars" class="pfBars"></div><span id="pfX1"></span><span id="pfX2"></span><div id="pfTtR"></div></div></section>
 <section data-p="i" hidden><div class="eBox"><div class="eTop"><span>Esses dados ficam salvos neste aparelho. Clique em &#39;Apagar Dados&#39; para limpar.</span><button type="button" id="pfWipe" class="gBtn">Apagar Dados</button></div><form id="pff" class="eRow"><label for="pfn">Usuário:</label><input id="pfn" maxlength="12" autocomplete="off" placeholder="Nickname (até 12 letras)"><button type="submit" class="gBtn">Salvar</button></form><div id="pfm" class="eMsg"></div><div class="eRow"><label>Título:</label><select id="pfTt"></select></div><div class="eRow" style="display:none"><label for="pfStI">Status:</label><input id="pfStI" class="own" maxlength="40" placeholder="Definir status…" autocomplete="off"></div><div class="eRow two"><span>Language: <select id="pfLgS"></select></span><span>Timezone: <b id="pfTz"></b></span></div><div class="eRow"><label>Gênero:</label><button type="button" id="pfGnF" class="gnB f" title="Feminino">♀</button><button type="button" id="pfGnM" class="gnB m" title="Masculino">♂</button></div><div class="eRow"><label>Birthday:</label><select id="pfBmS"></select><select id="pfBdS"></select></div></div></section>
 <section data-p="op" hidden><div class="eWide" id="epOp"></div></section>
 <section data-p="ch" hidden><div class="eWide" id="epCh"></div></section>
-<section data-p="v" hidden><div class="pfCard"><div class="pfLb">Cor do perfil</div><div id="pfTh"></div></div>
+<section data-p="v" hidden><div class="pfCard" style="display:none"><div id="pfTh"></div></div>
+<div class="pfCard"><div class="pfLb">Cor das barras, abas e slots</div><div class="pfBarRow" id="pfBarRow"></div><div class="pfHint" style="margin:4px 0 0">Os outros jogadores veem esta cor quando abrem o seu perfil, e ela vale também no jogo do Godot.</div></div>
 <div class="pfCard pfBgBox"><div class="pfLb">Fundo do perfil</div><div class="pfBgRow"><button type="button" id="pfBgB">🖼️ Escolher foto</button><button type="button" id="pfBgX">Remover</button></div><label class="pfBgDm">Escurecer <input type="range" id="pfBgD" min="0" max="85" value="55"></label><label class="pfBgDm"><input type="checkbox" id="pfBgS" style="flex:none"> Ver fundos de outros jogadores</label><input type="file" id="pfBgF" accept="image/*,.gif" hidden><div id="pfBgM" class="pfHint" style="margin:4px 0 0;min-height:16px"></div></div>
 </section>
 <section data-p="k" hidden><div class="kTb"><div class="kCol"><div class="kG"><div class="kR"><span>Abates:</span><b id="pfK1"></b></div><div class="kR"><span>Elites:</span><b id="pfK2"></b></div></div><div class="kG"><div class="kR"><span>Vitórias no sparring:</span><b id="pfK3"></b></div><div class="kR"><span>Derrotas no sparring:</span><b id="pfK5"></b></div></div><div class="kG"><div class="kR"><span>Mortes:</span><b id="pfK4"></b></div></div></div><div class="kCol"><div class="kG"><div class="kR"><span>Sequência de abates:</span><b id="pfK6"></b></div><div class="kR"><span>Melhor sequência:</span><b id="pfK7"></b></div></div><div class="kG"><div class="kR"><span>Sequência no sparring:</span><b id="pfK8"></b></div><div class="kR"><span>Melhor no sparring:</span><b id="pfK9"></b></div></div></div></div>
@@ -3915,10 +3948,28 @@ function pfFromServer(){ /* sem foto neste aparelho: usa a que está guardada no
  try{fetch('/api/pfbg/me/img',{headers:pfHd(),cache:'no-cache'}).then(r=>r.ok?r.blob():null).then(b=>{if(b&&b.size&&!pfBgU)pfBgSet(b)}).catch(()=>{})}catch(e){}}
 function pfLoadRemote(id){const tok=++pfRTok;if(pfRU){try{URL.revokeObjectURL(pfRU)}catch(e){}pfRU=''}pfBgApply();if(!pfSee())return;
  try{fetch('/api/pfbg/'+id,{cache:'no-cache'}).then(r=>r.ok?r.blob():null).then(b=>{if(tok!==pfRTok||pfR!==id)return;if(b&&b.size){pfRU=URL.createObjectURL(b);pfBgApply()}}).catch(()=>{})}catch(e){}}
-function pfBgApply(){try{dispatchEvent(new Event('pfbg'))}catch(e){}const src='',on=false;pf.classList.toggle('hasbg',on);
- if(!on){pf.style.backgroundImage='';return}
- const c=pfThCur==='claro'?'238,243,255':'13,13,17',a=(pfBgD/100).toFixed(2);
- pf.style.backgroundImage='linear-gradient(rgba('+c+','+a+'),rgba('+c+','+a+')),url("'+src+'")'}
+function pfBgApply(){try{dispatchEvent(new Event('pfbg'))}catch(e){}
+ const own=typeof pfR==='undefined'||pfR==null,src=own?pfBgU:(pfSee()?pfRU:''),on=!!src;
+ try{pfBarApply(own?pfBarC:(PI.get(pfR)&&PI.get(pfR).bc?'#'+PI.get(pfR).bc:PFB_DEF))}catch(e){}
+ pf.classList.toggle('hasbg',on);
+ if(!on){pf.style.removeProperty('--pbi');return}
+ const a=(pfBgD/100).toFixed(2);
+ pf.style.setProperty('--pbi','linear-gradient(rgba(0,0,0,'+a+'),rgba(0,0,0,'+a+')),url("'+src+'")')}
+/* cor das barras do perfil: guardada na CONTA (servidor), então vale no site e no Godot; os outros veem a cor de quem abrem (campo bc do perfil público) */
+const PFB_DEF='#214290',PFB_SW=['#214290','#6b33ad','#1f7352','#b32e3d','#cc7319','#cc4d8c','#1a738c','#212433'];
+let pfBarC=PFB_DEF,pfBarShown='',pfBarT=0;
+try{const c=localStorage.getItem('graal_pf_bar');if(/^#[0-9a-f]{6}$/.test(c))pfBarC=c}catch(e){}
+function pfBarApply(c){c=/^#[0-9a-f]{6}$/i.test(c)?c.toLowerCase():PFB_DEF;if(c===pfBarShown)return;pfBarShown=c;pf.style.setProperty('--pb',c)}
+function pfBarUi(){const r=pf.querySelector('#pfBarRow');if(!r)return;r.querySelectorAll('button.sw').forEach(b=>b.classList.toggle('on',b.dataset.c===pfBarC));const i=r.querySelector('input');if(i&&i.value!==pfBarC)i.value=pfBarC}
+function pfBarPost(c){clearTimeout(pfBarT);pfBarT=setTimeout(()=>{try{fetch('/api/pfcol',{method:'POST',headers:Object.assign({'content-type':'application/json'},pfHd()),body:JSON.stringify({c:c.slice(1)})}).catch(()=>{})}catch(e){}},350)}
+function pfBarSet(c,post){c=String(c).toLowerCase();if(!/^#[0-9a-f]{6}$/.test(c))return;pfBarC=c;try{localStorage.setItem('graal_pf_bar',c)}catch(e){}
+ if(typeof pfR==='undefined'||pfR==null)pfBarApply(c);pfBarUi();try{piD=1}catch(e){}if(post)pfBarPost(c)}
+window.PFCSET=c=>{c=String(c||'');pfBarSet(c?'#'+c:PFB_DEF,false)}; /* o servidor avisou: a cor mudou em outro aparelho/jogo */
+(function(){const r=pf.querySelector('#pfBarRow');if(!r)return;
+ r.innerHTML=PFB_SW.map(c=>'<button type="button" class="sw" data-c="'+c+'" style="background:'+c+'" aria-label="Cor '+c+'"></button>').join('')+'<input type="color" value="'+pfBarC+'" title="Outra cor">';
+ r.addEventListener('click',e=>{const b=e.target.closest('button.sw');if(b)pfBarSet(b.dataset.c,true)});
+ r.querySelector('input').addEventListener('input',e=>pfBarSet(e.target.value,true));pfBarUi()})();
+try{fetch('/api/pfcol/me',{headers:pfHd(),cache:'no-store'}).then(r=>r.json()).then(o=>{if(o&&o.c)pfBarSet('#'+o.c,false);else{let u=false;try{u=!!localStorage.getItem('graal_pf_bar')}catch(e){}if(u&&pfBarC!==PFB_DEF)pfBarPost(pfBarC)}}).catch(()=>{})}catch(e){}
 /* temas do perfil: base preta + cor de destaque à escolha (e um tema claro) */
 const THEMES=[['preto','Preto','#e6e6ee'],['azul','Azul','#6f93ff'],['roxo','Roxo','#a78bfa'],['verde','Verde','#4ade80'],['vermelho','Vermelho','#ff6b6b'],['dourado','Dourado','#fbbf24'],['rosa','Rosa','#f472b6'],['claro','Claro','#7b98e0']];
 const hx=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)),mixc=(a,b,t)=>{const x=hx(a),y=hx(b);return '#'+x.map((v,i)=>Math.round(v+(y[i]-v)*t).toString(16).padStart(2,'0')).join('')};
@@ -3986,7 +4037,7 @@ function pfDraw(){try{const X=window.MPX,c=$q('#pfc').getContext('2d');c.clearRe
   [BI,bo]=X.body(ok(sk.bi)?sk.bi:null,Math.min(r.b|0,X.nb()-1),sk.c),[HI,ho]=ok(sk.hi)?[sk.hi,0]:X.gSrc('h',Math.min(r.h|0,X.nh()-1));
  X.compose(X.GANI.idle[0].d[2],BI,bo,HI,ho,EQX.of(r.id,r.sw),0);X.blit(c,ox,oy,s)}catch(e){}}
 function pfUpd(){try{pfInfo()}catch(e){}
- if(pfR!=null){const r=RP.get(pfR);if(!r){pfClose();return}const pi=PI.get(pfR);{const tid='claro';if(tid!==pfThCur){applyTheme(tid);pfBgApply()}}
+ if(pfR!=null){const r=RP.get(pfR);if(!r){pfClose();return}const pi=PI.get(pfR);pfBarApply(pi&&pi.bc?'#'+pi.bc:PFB_DEF);{const tid='claro';if(tid!==pfThCur){applyTheme(tid);pfBgApply()}}
   setT('pfNm',(r.r?'★ ':'')+(r.nm||'?'));setT('pfCode',pi&&pi.c?'#'+pi.c:'');setT('pfLv',r.lv?'Nv '+(r.lv|0):'');setT('pfTtH',pi?ttName(pi.tt):'');pfBars(r.hm?[['HP',r.hp|0,r.hm|0,'#ef4444']]:[]);
   setT('pfPt',pi?fmt2((pi.pt|0)+(performance.now()-pi.rt)/1000):'—');setT('pfC2l','Nível');setT('pfC2',r.lv?String(r.lv|0):'—');
   setT('pfTtR',pi?ttName(pi.tt):'—');setT('pfStR',pi&&pi.st?pi.st:'Sem status definido');
@@ -4040,9 +4091,9 @@ function pfLeave(){const p=pfTabCur;pfTabCur='p';if(p==='op'&&window.CFGP&&CFGP.
 function pfTab(t){const prev=pfTabCur;pfTabCur=t;if(t==='p')pfPg=Math.min(pfPg,pfR==null?2:1);{const bd=$q('#pfBody');if(bd)bd.dataset.dir=pfDir;pfDir=''}
  if(prev==='op'&&t!=='op'&&window.CFGP&&CFGP.opened)CFGP.open(false);
  if(prev==='ch'&&t!=='ch'&&window.GPANEL&&GPANEL.open)GPANEL.toggle();
- pf.dataset.m=/^(i|op|ch)$/.test(t)?'e':t==='st'?'s':'v';
+ pf.dataset.m=/^(i|op|ch|v)$/.test(t)?'e':t==='st'?'s':'v';
  pf.querySelectorAll('#pfTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
- const SH={p:[['p','k','s'][pfPg]||'p'],st:pfR==null?['k','s','a']:['k'],i:['i'],op:['op'],ch:['ch']}[t]||['p'];
+ const SH={p:[['p','k','s'][pfPg]||'p'],st:pfR==null?['k','s','a']:['k'],i:['i'],op:['op'],ch:['ch'],v:['v']}[t]||['p'];
  pf.querySelectorAll('section[data-p]').forEach(x=>x.hidden=!SH.includes(x.dataset.p));
  pf.querySelectorAll('#pfPg button').forEach(b=>b.classList.toggle('on',t==='p'&&+b.dataset.g===pfPg));
  if(t==='i'&&pfR==null)pfTitles();

@@ -349,12 +349,15 @@ process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(ac
 const PF_MAX = 1.6 * 1024 * 1024, PF_MAX_GIF = 4 * 1024 * 1024, PF_CACHE_MAX = 48 * 1024 * 1024;
 const PF = new Map(); // uh -> { nm, mime, st: 'pend'|'ok'|'no', len, h, at }  (sem os bytes)
 const PFD = new Map(); let pfBytes = 0; // cache LRU dos bytes: "uh:h" -> Buffer
+const PFC = new Map(); // uh -> 'rrggbb': cor das barras do perfil (vale no site e no Godot; os outros jogadores veem a cor de quem abrem)
 const PF_RATE = new Map(); // uh -> [horários dos últimos envios]
 async function initPfDB() {
   await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_pfbg (uh TEXT PRIMARY KEY, nm TEXT, mime TEXT NOT NULL, st TEXT NOT NULL, len INT NOT NULL, h TEXT NOT NULL, at BIGINT NOT NULL, data BYTEA NOT NULL)`);
   const r = await pgPool.query('SELECT uh, nm, mime, st, len, h, at FROM graal_pfbg');
   for (const o of r.rows) PF.set(o.uh, { nm: o.nm || '?', mime: o.mime, st: o.st, len: o.len, h: o.h, at: +o.at });
   console.log('Fotos de perfil:', PF.size, 'guardadas,', pfCount(), 'aguardando aprovação');
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_pfcol (uh TEXT PRIMARY KEY, c TEXT NOT NULL)`);
+  for (const o of (await pgPool.query('SELECT uh, c FROM graal_pfcol')).rows) PFC.set(o.uh, o.c);
 }
 const pfCount = () => { let n = 0; for (const v of PF.values()) if (v.st === 'pend') n++; return n };
 function pfSniff(b) { // confere os bytes do arquivo (não confia no Content-Type)
@@ -393,6 +396,32 @@ function pfSendImg(req, res, uh, v, data) {
   const h = { 'Content-Type': v.mime, 'Cache-Control': 'no-cache', ETag: '"' + v.h + '"', 'X-Content-Type-Options': 'nosniff', 'Content-Length': data.length };
   if (req.headers['if-none-match'] === h.ETag) { res.writeHead(304, { ETag: h.ETag, 'Cache-Control': 'no-cache' }); return res.end() }
   res.writeHead(200, h); res.end(req.method === 'HEAD' ? undefined : data);
+}
+function pcHttp(req, res, url) { // /api/pfcol/me (GET) · /api/pfcol (POST {c:'rrggbb'}) · DELETE volta ao padrão
+  const m = url.match(/^\/api\/pfcol(\/me)?$/);
+  if (!m) return false;
+  const uh = pfUh(req), fail = e => { console.error('pfcol:', e && e.message); if (!res.headersSent) pfJson(res, 500, { ok: false }) };
+  if (req.method === 'GET') { pfJson(res, 200, { c: (uh && PFC.get(uh)) || null }); return true }
+  if (!uh) { req.resume(); pfJson(res, 401, { ok: false, erro: 'sem identidade' }); return true }
+  if (req.method !== 'POST' && req.method !== 'DELETE') { req.resume(); pfJson(res, 405, { ok: false }); return true }
+  const apply = c => { // guarda e avisa: os outros jogadores recebem o perfil novo; as outras sessões desta conta recebem 'pfc'
+    for (const o of P.values()) if (o.uh === uh) {
+      if (o.pi) { o.pi.bc = c || ''; if (!o.hid) others(o.id, Object.assign({ t: 'pi', id: o.id }, o.pi)) }
+      sendTo(o.ws, { t: 'pfc', c: c || '' });
+    }
+    pfJson(res, 200, { ok: true, c: c || null });
+  };
+  if (req.method === 'DELETE') { req.resume(); pgPool.query('DELETE FROM graal_pfcol WHERE uh = $1', [uh]).then(() => { PFC.delete(uh); apply('') }).catch(fail); return true }
+  let size = 0, dead = false; const chunks = [];
+  req.on('data', d => { size += d.length; if (size > 256) { dead = true; pfJson(res, 413, { ok: false }); req.destroy() } else chunks.push(d) });
+  req.on('end', () => {
+    if (dead) return;
+    let j = null; try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch (e) {}
+    const c = j && /^#?[0-9a-fA-F]{6}$/.test(String(j.c)) ? String(j.c).replace('#', '').toLowerCase() : null;
+    if (!c) return pfJson(res, 400, { ok: false, erro: 'cor inválida' });
+    pgPool.query(`INSERT INTO graal_pfcol (uh, c) VALUES ($1,$2) ON CONFLICT (uh) DO UPDATE SET c = EXCLUDED.c`, [uh, c]).then(() => { PFC.set(uh, c); apply(c) }).catch(fail);
+  });
+  return true;
 }
 function pfHttp(req, res, url) { // devolve true se a rota era desta função
   const m = url.match(/^\/api\/pfbg(?:\/(me\/img|me|\d{1,9}))?$/);
@@ -511,6 +540,7 @@ const srv = http.createServer((req, res) => {
   }
 
   if (url.startsWith('/api/pfbg') && pfHttp(req, res, url)) return;
+  if (url.startsWith('/api/pfcol') && pcHttp(req, res, url)) return;
 
   if (url === '/graal-config.json' && req.method === 'GET') {
     const c = getCache();
@@ -879,7 +909,9 @@ wss.on('connection', (ws, req) => {
       const bdOk = /^(\d\d)-(\d\d)$/.exec(m.bd), bd = bdOk && +bdOk[1] >= 1 && +bdOk[1] <= 12 && +bdOk[2] >= 1 && +bdOk[2] <= 31 ? m.bd : ''; // aniversário "MM-DD"
       p.pi = { c: /^[a-z0-9]{1,6}$/.test(m.c) ? m.c : '', tt: /^[a-z]{1,16}$/.test(m.tt) ? m.tt : 'novato', st: tx(m.st, 40), el: n(m.el), pk: n(m.pk), sl: n(m.sl), dk: n(m.dk), spo: m.spo ? 1 : 0, th: /^[a-z]{3,10}$/.test(m.th) ? m.th : 'preto', pt: n(m.pt),
         gn: m.gn === 'f' || m.gn === 'm' ? m.gn : '', bd, lg: /^[a-z]{2}$/.test(m.lg) ? m.lg : '', co: /^[A-Z]{2}$/.test(m.co) ? m.co : '', // gênero, aniversário, idioma, país
-        ks: n(m.ks), kb: n(m.kb), ss: n(m.ss), sb: n(m.sb) }; // sequência de abates / melhor, sequência no sparring / melhor
+        ks: n(m.ks), kb: n(m.kb), ss: n(m.ss), sb: n(m.sb),
+        kills: m.kills != null ? n(m.kills) : (p.kl | 0), // abates (o Godot mostra no perfil de quem você abre)
+        bc: PFC.get(p.uh) || (/^[0-9a-fA-F]{6}$/.test(m.bc) ? m.bc.toLowerCase() : '') }; // cor das barras do perfil (RRGGBB); antes: sequência de abates / melhor, sequência no sparring / melhor
       if (!p.hid) others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
     }
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
