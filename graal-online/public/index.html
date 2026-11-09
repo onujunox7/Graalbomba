@@ -1457,7 +1457,7 @@ class WCanvas{
   st.i=end;if(end<4096)return null;this.p.delete(l);
   for(const s of GWD.meta[l].s)x.drawImage(IM.ts,128,0,16,16,s.x*8,s.y*8,16,16);
   if(window.BSTP)window.BSTP(l,x);
-  this.c.set(l,c);if(this.c.size>(typeof MOBILE!=='undefined'&&MOBILE?20:24))for(const k of this.c.keys()){if(!this.dirty.has(k)){const o=this.c.get(k);this.c.delete(k);if(window.__PIXI_FORGET)window.__PIXI_FORGET(o);break}}return c}
+  this.c.set(l,c);if(this.c.size-this.dirty.size>(typeof MOBILE!=='undefined'&&MOBILE?20:24))for(const k of this.c.keys()){if(!this.dirty.has(k)){const o=this.c.get(k);this.c.delete(k);if(window.__PIXI_FORGET)window.__PIXI_FORGET(o);break}}return c}
  getContext(){return this}
  each(x,y,w,h,fn){for(let cy=Math.floor(y/512);cy<=Math.floor((y+h-1)/512);cy++)for(let cx=Math.floor(x/512);cx<=Math.floor((x+w-1)/512);cx++){if(cx<0||cy<0||cx>=GNX||cy>=GNY)continue;const l=cy*GNX+cx;fn(this.get(l).getContext('2d'),cx*512,cy*512,l);this.dirty.add(l);this.dv.set(l,(this.dv.get(l)|0)+1)}}
  drawImage(s,x,y,w,h){const W=w||s.width,H=h||s.height;this.each(x,y,W,H,(q,ox,oy)=>w?q.drawImage(s,x-ox,y-oy,w,h):q.drawImage(s,x-ox,y-oy))}
@@ -5698,7 +5698,7 @@ function mini(){
     for(let ly=Math.max(0,Math.floor(wy0/512));ly<=Math.min(GNY-1,Math.floor((wy0+VD)/512));ly++)for(let lx=Math.max(0,Math.floor(wx0/512));lx<=Math.min(GNX-1,Math.floor((wx0+VD)/512));lx++){
      const l=ly*GNX+lx,ch=Bw.c.get(l);if(!ch){if(miss<0)miss=l;continue}
      x.drawImage(ch,0,0,1024,1024,(lx*512-wx0)*sc,(ly*512-wy0)*sc,512*sc+.6,512*sc+.6)}
-    if(miss>=0&&Bw.c.size<(MOBILE?14:18)){try{Bw.build(miss,1024)}catch(e){}}
+    if(miss>=0&&Bw.c.size-(Bw.dirty?Bw.dirty.size:0)<(MOBILE?14:18)){try{Bw.build(miss,1024)}catch(e){}}
    }}}
  const dot=(px,py,col,r)=>{const X=hx+(px-P.x)*sc,Y=hx+(py-P.y)*sc,rr=r*u/2;if(Math.hypot(X-hx,Y-hx)>hx-rr)return;x.fillStyle=col;x.beginPath();x.arc(X,Y,rr,0,6.2832);x.fill()};
  dot(NPC.x,NPC.y,'#ffd23a',3.6);
@@ -6287,7 +6287,7 @@ function sample(){
 /* ---- pré-carga de chunks do mapa (1 por quadro, só se sobrar tempo) ---- */
 function prefetch(){
  const B=IM&&IM.below;if(!B||!B.chunked||!B.c||!B.build||!P||LC>22||typeof GWD==='undefined'||!GWD)return; /* PERF v22: antes parava no editor (ED) e cada chunk novo era montado de uma vez ao andar a câmera */
- const z=window.GZ>0&&window.GZ<1?window.GZ:1,vw=VW/z,vh=VH/z,m=ED?(VW>384?320:640):384,CAP=MOBILE?20:24;
+ const z=window.GZ>0&&window.GZ<1?window.GZ:1,vw=VW/z,vh=VH/z,m=ED?(VW>384?320:640):384,CAP=(MOBILE?20:24)+(B.dirty?B.dirty.size:0);
  const x0=Math.max(0,Math.floor((cam.x-m)/512)),x1=Math.min(GNX-1,Math.floor((cam.x+vw+m)/512)),
        y0=Math.max(0,Math.floor((cam.y-m)/512)),y1=Math.min(GNY-1,Math.floor((cam.y+vh+m)/512));
  if((x1-x0+1)*(y1-y0+1)>CAP-2)return; /* não deixa o cache em vai-e-vem */
