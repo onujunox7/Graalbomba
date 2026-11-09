@@ -718,7 +718,15 @@ setTimeout(function(){
       let t = this.cache.get(key);
       if (t) { this.cache.delete(key); this.cache.set(key, t); return t }
       t = build(); this.cache.set(key, t);
-      if (this.cache.size > 700) { const k = this.cache.keys().next().value; this.grave.push(this.cache.get(k)); this.cache.delete(k) }
+      /* MEM fix: o limite era só por QUANTIDADE (700), mas cada textura de gradiente/forma pode ter ~0,8 MB (440x440): chegava a centenas de MB. Agora também há teto em BYTES. */
+      const bt = t && t.baseTexture, by = bt ? (bt.realWidth || bt.width || 0) * (bt.realHeight || bt.height || 0) * 4 : 0;
+      if (!this.csz) { this.csz = new Map(); this.cbytes = 0 }
+      this.csz.set(key, by); this.cbytes += by;
+      while (this.cache.size > 1 && (this.cache.size > 700 || this.cbytes > 40 * 1048576)) {
+        const k = this.cache.keys().next().value; if (k === key) break;
+        this.grave.push(this.cache.get(k)); this.cache.delete(k);
+        this.cbytes -= this.csz.get(k) || 0; this.csz.delete(k);
+      }
       return t;
     }
 
@@ -2590,7 +2598,7 @@ function gCompose(parts,BI,bo,HI,ho,eq,obj,onlyHead){
   else if(k===3&&obj===2){if(BOMBI.complete&&BOMBI.naturalWidth)X.drawImage(BOMBI,0,0,28,28,dx+4,dy+1,28,28)}else if(k===3&&obj>=10&&CPP.get(obj)){X.imageSmoothingEnabled=false;cpDraw(X,CPP.get(obj),dx+16,dy+24);X.imageSmoothingEnabled=false}else if(k===3&&obj===1&&BUSH_IC.complete&&BUSH_IC.naturalWidth){bp=[px,py]}else if(k===3&&obj)X.drawImage(IM.ts,400,80,16,16,dx+8,dy+8,16,16);
  }
  e={c,hd:null,bp};CPOOL.set(key,e);GCUR=e;
- if(CPOOL.size>300){const k0=CPOOL.keys().next().value,o=CPOOL.get(k0);CPOOL.delete(k0);if(window.__PIXI_FORGET){window.__PIXI_FORGET(o.c);if(o.u)window.__PIXI_FORGET(o.u)}}
+ if(CPOOL.size>140){const k0=CPOOL.keys().next().value,o=CPOOL.get(k0);CPOOL.delete(k0);if(window.__PIXI_FORGET){window.__PIXI_FORGET(o.c);if(o.u)window.__PIXI_FORGET(o.u)}}
 }
 function gHD(e){
  if(!e)return{y0:-1,mn:GSZ,mx:-1};if(e.hd)return e.hd;
@@ -7694,7 +7702,7 @@ update=function(dt){const M=window.MOUNT;
 /* v26.46: MAPA-MUNDO NÍTIDO — imagem com a arte real (tiles) do Novo mapa, 2 px por bloco, montada aos poucos em segundo plano.
    Usada pelo minimapa e pelo mapa em tela cheia no lugar das "cores médias" de baixa resolução. Blocos editados/alterados no jogo são copiados dos chunks reais. */
 (function(){try{
- var OW=(typeof MOBILE!=='undefined'&&MOBILE&&navigator.deviceMemory&&navigator.deviceMemory<=2)?1280:2560,cv=null,GT8=null,GTA=null,row=0,API=window.WOVR={cv:null,ok:false,os:OW/10240,R:{x:1536,y:11776,w:10240,h:10240}};
+ var OW=(navigator.deviceMemory&&navigator.deviceMemory<=4)?1280:2560,cv=null,GT8=null,GTA=null,row=0,API=window.WOVR={cv:null,ok:false,os:OW/10240,R:{x:1536,y:11776,w:10240,h:10240}};
  function ready(){try{return typeof GWD!=='undefined'&&GWD&&typeof IM!=='undefined'&&IM&&IM.below&&IM.below.chunked&&IM.below.c&&IM.ts&&IM.gt&&IM.gt.complete&&IM.gt.naturalWidth&&typeof gtSrc==='function'}catch(e){return false}}
  function start(){
   GT8=document.createElement('canvas');GT8.width=1024;GT8.height=256;var q=GT8.getContext('2d');q.imageSmoothingEnabled=true;q.imageSmoothingQuality='high';q.drawImage(gtSrc(),0,0,1024,256);
