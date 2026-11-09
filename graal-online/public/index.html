@@ -1007,7 +1007,8 @@ function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.roun
  /* v26.15 nitidez: RS = k/Z com k INTEIRO => RS*Z inteiro (pixels de mundo todos do mesmo tamanho, sem serrilhado). Com "Gráficos melhorados" o canvas é ~1,5x maior que a tela e o navegador reduz suave.
     O limite agora é um ORÇAMENTO DE PIXELS (e não um RS fixo): celular com tela de 2400 px não fica mais com canvas minúsculo esticado (era isso que pixelava no zoom < 100%). */
  const lowq=QL>=2,RM=(()=>{try{return +localStorage.getItem('graal_rsmax')||0}catch(e){return 0}})(),budget=lowq?1.3e6:(MOBILE?(RM>0?3e6:1.8e6):9e6),lim=Math.min(RM>0?RM:((window.__TIER|0)>=1?2:3),4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||(window.__TIER|0)>=1||window.__GFX===0)?1:1.25; /* PERF fix: teto 4x (2048px, 2,4M px) deixava a GPU/CPU sem fôlego; agora 3x no nível alto e 2x quando o auto-ajuste desce */
- let k=Math.max(Z===1&&!lowq?2:1,Math.ceil(Sx*Z*SS-.34));if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));
+ let k=Math.max(Z===1&&!lowq?2:1,Math.ceil(Sx*Z*SS-.34));if(k/Z>lim){k=Math.max(1,Math.floor(lim*Z+1e-6));/* v26.38 nitidez com zoom<100%: RS=k/Z so pode ser multiplo de 1/Z. Arredondar sempre pra baixo deixava o canvas MENOR que a tela (ex.: zoom 50% => RS 2 em vez de 4) e o navegador esticava a imagem => pixelado. Agora, se ficar menor que a tela, sobe 1 passo desde que caiba no orcamento duro de pixels (nao mexe se o auto-ajuste de desempenho ou 'qualidade baixa' estiver ligado). */
+if(Z<1&&!lowq&&(window.__TIER|0)<1&&k/Z<Sx*.98){const hard=Math.min(4096/VW,Math.sqrt(budget/(VW*VH)));if((k+1)/Z<=hard)k=k+1}}
  RS=k/Z;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
 const keys={};let atkPress=0;
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(!keys[k]&&(k===' '||k==='j'||k==='control'))atkPress=1;keys[k]=1;if(e.key.startsWith('Arrow')||e.key===' ')e.preventDefault()});
