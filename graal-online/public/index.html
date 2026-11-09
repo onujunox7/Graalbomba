@@ -6255,18 +6255,18 @@ function apply(t){
 }
 
 /* ---- monitor: mede o intervalo real entre quadros do jogo ---- */
-let lastT=0,acc=0,win=0,settle=performance.now()+5000,bad=0,slow=0;
+let lastT=0,acc=0,win=0,settle=performance.now()+8000,bad=0,slow=0;
 document.addEventListener('visibilitychange',()=>{lastT=0;settle=performance.now()+2000;win=0;acc=0});
 function sample(){
  const n=performance.now();if(!lastT){lastT=n;return}
  const raw=n-lastT,d=Math.min(100,raw);lastT=n;
  if(mode!=='auto'||n<settle||GFPS.gap>0)return;
- if(raw>=120&&raw<2000&&tier<2){if(++slow>=4){slow=0;bad=0;apply(tier+1);LSk('graal_auto_tier',String(tier));return}}else if(raw<40&&slow>0)slow--; /* PERF fix: 4 quadros >120ms já derrubam a qualidade (antes: ~80 amostras) */
+ if(raw>=120&&raw<2000&&tier<1){if(++slow>=10){slow=0;bad=0;apply(tier+1);LSk('graal_auto_tier',String(tier));return}}else if(raw<40&&slow>0)slow--; /* PERF fix: 4 quadros >120ms já derrubam a qualidade (antes: ~80 amostras) */
  acc+=d;win++;
  if(win>=(tier===0?40:30)){
   const avg=acc/win;acc=0;win=0;
   const limit=tier===0?22:40; /* tier0 mira 16,7ms; tier1 mira 33ms */
-  if(avg>limit&&tier<2){if(++bad>=2){bad=0;apply(tier+1);LSk('graal_auto_tier',String(tier))}}else bad=0;
+  if(avg>limit&&tier<1){if(++bad>=3){bad=0;apply(tier+1);LSk('graal_auto_tier',String(tier))}}else bad=0;
  }
 }
 
@@ -6300,7 +6300,7 @@ if(sys){
   try{fx.push({x:P.x,y:P.y-34,txt:'Qualidade: '+(mode==='auto'?'Auto':NAMES[+mode+1]),t:2,c:'#9ad8ff'})}catch(e){}b.blur()});
  sys.appendChild(b);lab();
 }
-if(mode!=='auto')apply(+mode);else{const st=+LGk('graal_auto_tier')||0;if(st>0&&st<=2)apply(st)}
+if(mode!=='auto')apply(+mode);else LSk('graal_auto_tier','0'); /* v26.36: o auto-ajuste não fica mais gravado entre sessões (ficava preso em resolução baixa pra sempre) */
 })();
 
 </script>

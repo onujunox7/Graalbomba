@@ -240,3 +240,8 @@ Só o `public/index.html` mudou (bloco `#hudclean` no fim). Liga/desliga em ⚙ 
 - Chip de abates ☠ escondido; chips zerados (poção, bomba, flecha, glim) ficam apagados; rede vira só o pontinho (o texto fica no tooltip).
 - Quest em uma linha, sem a barra de progresso (o 0/5 já mostra).
 - Botões de ação, chat/config/mapa e direcional ficam semitransparentes e voltam a 100% ao tocar/passar o mouse.
+
+## v26.36: jogo voltou a ficar pixelado (auto-ajuste de qualidade preso)
+- **Causa:** o auto-ajuste de qualidade (⚡A) derrubava a resolução do canvas depois de poucos quadros lentos (comuns ao carregar mapa/chunks) e GRAVAVA isso em `graal_auto_tier`; nunca subia de volta. A partir daí o jogo abria sempre em RS menor (tier 1: máx. 2x; tier 2: ~1x), esticado na tela = pixelado.
+- **Agora:** o tier do auto não é mais lembrado entre sessões, o auto só desce até o tier 1 (nunca ao 2, que é o de baixa resolução), precisa de mais quadros lentos seguidos (10 em vez de 4) e espera 8 s após abrir antes de medir. O tier 2 continua disponível manualmente no botão ⚡.
+- Se ainda aparecer pixelado: clique no ⚡ até ficar "⚡1" (Alta) ou rode no console `localStorage.setItem('graal_auto_tier','0');localStorage.setItem('graal_q','0');location.reload()`.
