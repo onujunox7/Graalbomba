@@ -995,7 +995,7 @@ window.NOMON=true;window.NOCK=true; /* NOMON true = SEM monstros automáticos do
 function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);{const Sx=cv.clientWidth*(devicePixelRatio||1)/VW,Z=(!ed&&window.GZ>0&&window.GZ!==1)?window.GZ:1;
  /* v26.15 nitidez: RS = k/Z com k INTEIRO => RS*Z inteiro (pixels de mundo todos do mesmo tamanho, sem serrilhado). Com "Gráficos melhorados" o canvas é ~1,5x maior que a tela e o navegador reduz suave.
     O limite agora é um ORÇAMENTO DE PIXELS (e não um RS fixo): celular com tela de 2400 px não fica mais com canvas minúsculo esticado (era isso que pixelava no zoom < 100%). */
- const lowq=QL>=2,budget=lowq?1.3e6:(MOBILE?1.8e6:9e6),lim=Math.min((window.__TIER|0)>=1?2:3,4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||(window.__TIER|0)>=1||window.__GFX===0)?1:1.25; /* PERF fix: teto 4x (2048px, 2,4M px) deixava a GPU/CPU sem fôlego; agora 3x no nível alto e 2x quando o auto-ajuste desce */
+ const lowq=QL>=2,budget=lowq?1.3e6:(MOBILE?3e6:9e6),lim=Math.min((window.__TIER|0)>=1?3:4,4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||(window.__TIER|0)>=1||window.__GFX===0)?1:1.25; /* PERF fix: teto 4x (2048px, 2,4M px) deixava a GPU/CPU sem fôlego; agora 3x no nível alto e 2x quando o auto-ajuste desce */
  let k=Math.max(Z===1&&!lowq?2:1,Math.ceil(Sx*Z*SS-.34));if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));
  RS=k/Z;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
 const keys={};let atkPress=0;

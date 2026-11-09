@@ -245,3 +245,6 @@ Só o `public/index.html` mudou (bloco `#hudclean` no fim). Liga/desliga em ⚙ 
 - **Causa:** o auto-ajuste de qualidade (⚡A) derrubava a resolução do canvas depois de poucos quadros lentos (comuns ao carregar mapa/chunks) e GRAVAVA isso em `graal_auto_tier`; nunca subia de volta. A partir daí o jogo abria sempre em RS menor (tier 1: máx. 2x; tier 2: ~1x), esticado na tela = pixelado.
 - **Agora:** o tier do auto não é mais lembrado entre sessões, o auto só desce até o tier 1 (nunca ao 2, que é o de baixa resolução), precisa de mais quadros lentos seguidos (10 em vez de 4) e espera 8 s após abrir antes de medir. O tier 2 continua disponível manualmente no botão ⚡.
 - Se ainda aparecer pixelado: clique no ⚡ até ficar "⚡1" (Alta) ou rode no console `localStorage.setItem('graal_auto_tier','0');localStorage.setItem('graal_q','0');location.reload()`.
+
+### v26.36b: teto de resolução do canvas voltou a 4x
+- O "PERF fix" tinha baixado o teto de RS de 4 para 3 (tier 1: 2) e o orçamento do celular de 3e6 para 1,8e6 px. Em tela cheia 1080p (precisa de RS≈4) o canvas ficava menor que a tela e era esticado ~1,3x, o que deixa o pixel desigual/pixelado. Agora: PC tier 0 = 4, tier 1 = 3; celular 3e6 px. Se pesar, volte para `?3:4` → `?2:3` e `3e6` → `1.8e6` em `fit()`.
