@@ -557,12 +557,13 @@ setTimeout(function(){
         clearBeforeRender: true, autoDensity: false
       });
       if (!this.r || this.r.type !== PIXI.RENDERER_TYPE.WEBGL) throw new Error('sem WebGL');
+      try { this.r.textureGC.maxIdle = 900; this.r.textureGC.checkCountMax = 150 } catch (e) { } /* MEM: GPU solta textura parada mais cedo (padrão: 3600 quadros ≈ 1 min a 60 fps, 8 min a 7 fps) */
       this.root = new PIXI.Container();
       this.M = new PIXI.Matrix();
       this.sp = []; this.gp = []; this.si = 0; this.gi = 0; // pools
       this.snaps = []; this.sni = 0;
       this.cache = new Map(); // texturas de texto/gradiente (LRU)
-      this.bases = new WeakMap();
+      this.bases = new WeakMap(); this.all = new Set(); /* MEM: lista iterável de todas as texturas de canvas/imagem, para o orçamento total */
       this.dead = []; this.grave = [];
       this.lastSig = null; this.texDirty = true; this.noSkip = false; this.tid = 0; // quadro igual ao anterior => não redesenha
       this.frame = 0; this.open = false; this.rw = cv.width; this.rh = cv.height;
@@ -587,8 +588,17 @@ setTimeout(function(){
       this.si = 0; this.gi = 0; this.sni = 0; this.rootL = []; this.cur = this.rootL; this.stack.length = 0;
       queueMicrotask(() => { this.open = false; this.paint() });
     }
+    /* MEM: orçamento total. Passou de ~600 MB de texturas -> descarta as que não são usadas há mais tempo (até ~400 MB). Se o jogo voltar a usar, a ponte recria. */
+    gcTex() {
+      let tot = 0; const arr = [];
+      for (const e of this.all) { tot += e.w * e.h * 4; arr.push(e) }
+      if (tot < 600 * 1048576) return;
+      arr.sort((a, b) => a.last - b.last);
+      for (const e of arr) { if (tot < 400 * 1048576 || e.last >= this.frame - 120) break; tot -= e.w * e.h * 4; this.forget(e.src) }
+    }
     paint() {
       const _t = window.__PROF ? performance.now() : 0;
+      if ((this.frame & 127) === 0) { try { this.gcTex() } catch (e) { } }
       const cv = this.canvas; let force = false;
       if (cv.width !== this.rw || cv.height !== this.rh) { this.rw = cv.width; this.rh = cv.height; this.r.resize(this.rw, this.rh); force = true }
       for (const d of this.dead) { try { d.destroy({ children: false }) } catch (e) { } } this.dead.length = 0;
@@ -676,11 +686,11 @@ setTimeout(function(){
       let e = this.bases.get(src);
       const isC = src instanceof HTMLCanvasElement, w = isC ? src.width : (src.naturalWidth || src.width), h = isC ? src.height : (src.naturalHeight || src.height);
       if (!w || !h) return null;
-      if (e && (e.w !== w || e.h !== h)) { try { e.base.destroy() } catch (x) { } e = null }
+      if (e && (e.w !== w || e.h !== h)) { try { e.base.destroy() } catch (x) { } this.all.delete(e); e = null }
       if (!e) {
         const base = PIXI.BaseTexture.from(src, { scaleMode: NEAREST, mipmap: PIXI.MIPMAP_MODES.OFF });
-        e = { base, w, h, v: src.__v | 0, tex: new Map(), last: 0, dyn: false, sm: false };
-        this.bases.set(src, e);
+        e = { base, w, h, v: src.__v | 0, tex: new Map(), last: 0, dyn: false, sm: false, src };
+        this.bases.set(src, e); this.all.add(e);
       } else if (isC && e.v !== (src.__v | 0)) {
         if (e.last === this.frame && w * h <= 65536) e.dyn = true; // mudou DENTRO do mesmo frame (ex.: canvas do personagem) -> precisa de cópia por uso
         e.v = src.__v | 0; e.base.update(); this.texDirty = true;
@@ -756,7 +766,7 @@ setTimeout(function(){
       this.place(s, iw, ih, dx, dy, dw * iw / sw, dh * ih / sh); this.add(s);
     }
     forget(src) {
-      const e = this.bases.get(src); if (!e) return; this.bases.delete(src);
+      const e = this.bases.get(src); if (!e) return; this.bases.delete(src); this.all.delete(e);
       this.grave.push({ destroy() { try { e.tex.forEach(t => t.destroy(false)); e.base.destroy() } catch (x) { } } });
     }
     chunk(cvs, dx, dy, dw, dh) { this.drawImage(cvs, 0, 0, cvs.width, cvs.height, dx, dy, dw, dh) }
@@ -6515,8 +6525,8 @@ setInterval(()=>{const m=performance.memory;el.textContent=
 'mapa SEM aviso: '+sb+'x pior '+f(sbMax)+'ms | fatia max '+f(pbMax)+'ms\n'+
 'canvas '+cv.width+'x'+cv.height+' RS '+RS+' nivel '+(window.__TIER|0)+(m?' heap '+Math.round(m.usedJSHeapSize/1048576)+'MB':'')+memInfo()},500);
 /* MEM: diagnóstico de memória (aparece no medidor ⚡): texturas na GPU, quadros de personagem e pedaços de mapa em cache */
-function memInfo(){try{let n=0,by=0;const B=PIXI.utils.BaseTextureCache;for(const k in B){n++;const t=B[k];by+=(t.realWidth||t.width||0)*(t.realHeight||t.height||0)*4}
- return '\nMEM texturas '+n+' ('+Math.round(by/1048576)+'MB) | personagens '+(typeof CPOOL!=='undefined'?CPOOL.size:'?')+' | mapa '+(IM&&IM.below&&IM.below.c?IM.below.c.size:'?')+' | jogadores '+(window.RPX?RPX.size:0)}catch(e){return ''}}
+function memInfo(){try{let n=0,by=0;const B=PIXI.utils.BaseTextureCache,G={};for(const k in B){n++;const t=B[k],w=t.realWidth||t.width||0,h=t.realHeight||t.height||0;by+=w*h*4;const q=w+'x'+h,o=G[q]||(G[q]=[0,0]);o[0]++;o[1]+=w*h*4}const top=Object.entries(G).sort((a,b)=>b[1][1]-a[1][1]).slice(0,3).map(([q,v])=>q+'×'+v[0]+'='+Math.round(v[1]/1048576)+'MB').join(' ')
+ return '\nMEM texturas '+n+' ('+Math.round(by/1048576)+'MB) maiores: '+top+' | mapa '+(IM&&IM.below&&IM.below.c?IM.below.c.size:'?')+' | jogadores '+(window.RPX?RPX.size:0)}catch(e){return ''}}
 }catch(e){console.error('perf',e)}})();
 </script>
 
