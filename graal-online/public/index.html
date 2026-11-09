@@ -3721,7 +3721,8 @@ const pfCss2=document.createElement("style");pfCss2.textContent=`
 #pfPanel.gr[data-m=e] #pfTabs{display:flex}
 #pfPanel.gr #pfTabs button{flex:none;min-height:0;padding:4px 20px;border:1px solid #1a2a55;border-bottom:0;border-radius:10px 10px 0 0;background:linear-gradient(#fafafa,#c8c8c8);color:#111;font:bold 12px Verdana,Arial,sans-serif;opacity:1}
 #pfPanel.gr #pfTabs button.on{background:#fff;color:#1a3ae6}
-#pfPanel.gr #pfBody{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;overflow:auto;padding:14px 18px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 2px,rgba(110,150,235,.16) 2px 5px),linear-gradient(180deg,#b9ccf3,#f6f9ff 52%,#d3e0fa)}
+#pfPanel.gr #pfBody,#pfPanel #pfBody,#cfgp .cB{overflow-x:hidden!important}
+#pfPanel.gr #pfBody{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;overflow-x:hidden;overflow-y:auto;padding:14px 18px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 2px,rgba(110,150,235,.16) 2px 5px),linear-gradient(180deg,#b9ccf3,#f6f9ff 52%,#d3e0fa)}
 #pfPanel.gr[data-m=e] #pfBody{padding-top:calc(var(--u)*.8)}
 #pfPanel.gr #pfBody>section{width:100%;margin:auto 0}
 #pfPanel.gr section[hidden]{display:none!important}
@@ -3744,7 +3745,7 @@ const pfCss2=document.createElement("style");pfCss2.textContent=`
 #pfPanel.gr #pfBars,#pfPanel.gr #pfX1,#pfPanel.gr #pfX2,#pfPanel.gr #pfTtR{display:none!important}
 #pfPanel.gr .eBox,#pfPanel.gr .eWide{background:#fff;border:1px solid #666;color:#000;font-size:12.5px}
 #pfPanel.gr .eBox{width:min(520px,100%);margin:0 auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
-#pfPanel.gr .eWide{width:100%;height:100%;min-height:0;overflow:auto;position:relative}
+#pfPanel.gr .eWide{width:100%;height:100%;min-height:0;overflow-x:hidden;overflow-y:auto;position:relative}
 #pfPanel.gr section[data-p=op]:not([hidden]),#pfPanel.gr section[data-p=ch]:not([hidden]){flex:1;min-height:0;display:flex;margin:0;align-self:stretch;width:100%}
 #pfPanel.gr .eTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;font-size:11.5px}
 #pfPanel.gr .eRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -6337,7 +6338,7 @@ const save=()=>{sv(KEY.unl,S.unl?'1':'0');sv(KEY.lock,S.lock?'1':'0');sv(KEY.cap
 const mc=typeof MessageChannel==='function'?new MessageChannel():null,q=[];
 if(mc)mc.port1.onmessage=()=>{const f=q.shift();if(f)f(performance.now())};
 GSCHED=function(f,wait){
- if(S.vs||S.unl||document.hidden||!mc){requestAnimationFrame(f);return} /* sem limite agora segue a tela: rodar a 500 fps numa tela de 60 Hz fazia o jogo andar mais rápido que o que aparecia (pulos) */
+ if((S.vs&&!S.unl)||document.hidden||!mc){requestAnimationFrame(f);return} /* v26.38: 'Sem limite de FPS' agora ignora o VSync (antes ficava preso nos 60 Hz da tela porque o VSync vem ligado por padrão). O jogo usa dt, então a velocidade não muda. */
  if(wait>3)setTimeout(()=>f(performance.now()),wait-2);
  else{q.push(f);mc.port2.postMessage(0)}
 };
@@ -6428,7 +6429,7 @@ const sel=pn.querySelector('.cs'),info=pn.querySelector('.ci');
 pn.querySelectorAll('button,select').forEach(b=>b.tabIndex=-1);
 
 function infoText(){
- const t=S.unl?(S.vs?'Sem limite: roda na taxa de atualização da tela (VSync ligado).':'Sem limite e sem VSync: pode passar da taxa da tela. Gasta mais bateria e pode rasgar a imagem.')
+ const t=S.unl?'Sem limite: roda o mais rápido possível, mesmo acima da taxa da tela (ignora o VSync). Gasta mais bateria e pode rasgar a imagem.'
   :S.lock?('Travado em '+S.cap+' FPS'+(S.vs?' (nunca passa da taxa da tela).':', sem VSync (o tempo pode oscilar um pouco).'))
   :'Automático: 60 FPS, e reduz a qualidade sozinho se o aparelho engasgar.';
  return t+(S.unl||S.lock?' Com FPS definido aqui, a qualidade automática não reduz sozinha.':'')}
