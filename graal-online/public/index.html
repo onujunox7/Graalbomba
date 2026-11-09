@@ -3308,7 +3308,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
      let _t=p.ct+r.off;const _l=r.nb&&r.nb[r.nb.length-1];if(_l&&_t<=_l.t)_t=_l.t+1;
      r.lct=p.ct;snapPush(r,p.x,p.y,_t,p.an,p.ak,p.ad)}
    }else{snapPush(r,p.x,p.y,performance.now(),p.an,p.ak,p.ad);INTERP_DELAY+=Math.max(-.5,Math.min(.5,150-INTERP_DELAY))} /* servidor antigo, sem ct */
-   r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.mt=p.mt|0;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl;r.cy=p.cy|0;r.ac=p.ac|0;{const f=p.fl|0,nw=performance.now();if(((f&&!r.fl)||(r.hpS!=null&&p.hp<r.hpS))&&nw-(r.flT||-1e9)>100)r.flT=nw;if(p.hp!=null)r.hpS=p.hp;r.fl=f}}
+   r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.mt=p.mt|0;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl;r.cy=p.cy|0;r.ac=p.ac|0;{const f=p.fl|0,nw=performance.now();if(((f&&!r.fl)||(r.hpS!=null&&p.hp<r.hpS))&&nw-(r.flT||-1e9)>100&&nw-(r.predT||-1e9)>500)r.flT=nw;if(p.hp!=null)r.hpS=p.hp;r.fl=f}}
   if(!m.part)for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
 conn();
@@ -3319,13 +3319,13 @@ window.MPNET={send:o=>{try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}c
 function skinNow(){const X=window.MPX,nb=X.nb(),nh=X.nh(),b=X.GSK.b,h=X.GSK.h;
  const bs=b>=nb?(X.cb()[b-nb]||{}).src:null,hs=h>=nh?(X.ch()[h-nh]||{}).src:null;
  return{b:Math.max(0,Math.min(b,nb-1)),h:Math.max(0,Math.min(h,nh-1)),bs:bs&&bs.length<290000?bs:null,hs:hs&&hs.length<290000?hs:null,c:X.GSK.c||null}}
-window.__sendU=()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok)return;const INS=!!(window.INT&&INT.loc==='i'),IR=INS&&INT.ret;if(INS&&!(IR&&Number.isFinite(IR.x)&&Number.isFinite(IR.y)))return; /* v16: dentro de casa o 'u' continua sendo enviado (x,y = a porta; a posição real vai em in/ix/iy/ia) */
+window.__ukey=()=>(P.dash>0?3:P.atk>0?2:P.walk?1:0)+'|'+P.face+'|'+(P.akc|0);window.__sendU=()=>{try{window.__uk=window.__ukey();const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok)return;const INS=!!(window.INT&&INT.loc==='i'),IR=INS&&INT.ret;if(INS&&!(IR&&Number.isFinite(IR.x)&&Number.isFinite(IR.y)))return; /* v16: dentro de casa o 'u' continua sendo enviado (x,y = a porta; a posição real vai em in/ix/iy/ia) */
  const sk=skinNow(),key=sk.b+'|'+sk.h+'|'+(sk.bs||'').length+'|'+(sk.hs||'').length+'|'+(window.__GBODY_VER||0);
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  const ckey=(sk.c||[]).join(',');if(ckey!==lastCk){lastCk=ckey;ws.send(JSON.stringify({t:'kc',c:sk.c}))} /* cores do body vão numa mensagem leve à parte (não reenvia as imagens) */
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.dash>0?'Jump_'+dn:P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
- ws.send(JSON.stringify({t:'u',x:Math.round(INS?IR.x:P.x),y:Math.round(INS?IR.y:P.y),nm:nick,an:INS?an.replace(/^(Run|Attack|Jump)_/,'Idle_'):an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0,...(INS?{in:1,ix:Math.round(P.x),iy:Math.round(P.y),ia:an}:{})}))}catch(e){}};setInterval(window.__sendU,50); /* dano manda o 'u' na hora (window.__sendU), sem esperar o tick de 50 ms */
+ ws.send(JSON.stringify({t:'u',x:Math.round(INS?IR.x:P.x),y:Math.round(INS?IR.y:P.y),nm:nick,an:INS?an.replace(/^(Run|Attack|Jump)_/,'Idle_'):an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0,...(INS?{in:1,ix:Math.round(P.x),iy:Math.round(P.y),ia:an}:{})}))}catch(e){}};setInterval(window.__sendU,50);setInterval(()=>{try{if(P&&window.__ukey()!==window.__uk)window.__sendU()}catch(e){}},16); /* mudou andar/direção/ataque/pulo: manda já */ /* dano manda o 'u' na hora (window.__sendU), sem esperar o tick de 50 ms */
 /* dentro de casa o 'u' não é enviado (os outros não veem o interior); então manda só a posição do interior, leve, para o servidor poder gravá-la se a conexão cair */
 setInterval(()=>{try{if(!on||!ws||ws.readyState!==1||!P||ED||P.dead||!(window.INT&&INT.loc==='i'))return;const r=INT.ret;ws.send(JSON.stringify({t:'ip',x:Math.round(P.x),y:Math.round(P.y),f:P.face,r:r&&Number.isFinite(r.x)&&Number.isFinite(r.y)?{x:Math.round(r.x),y:Math.round(r.y)}:null}))}catch(e){}},500);
 /* desenho do personagem remoto com a mesma engine de skin */
@@ -3428,11 +3428,11 @@ window.PRF={
   if(PS.kinds[k]==null&&Object.keys(PS.kinds).length>=40)return;PS.kinds[k]=(PS.kinds[k]|0)+1;if(s&&s.el)PS.el++;psTouch()},
  sword(FV){if(!PS.spo||!P||P.dead||!on||ED)return;
   for(const r of RP.values()){const q=PI.get(r.id);if(!q||!q.spo)continue;const dx=r.x-P.x,dy=r.y-P.y,d=Math.hypot(dx,dy);if(!swordCovers(r.x,r.y,8,FV))continue;
-   const dm=Math.max(3,Math.round(calcDmg(P,P.dmg)*.5));MPNET.send({t:'ph',to:r.id,d:dm});fx.push({x:r.x,y:r.y-26,txt:'-'+dm,t:.8,c:'#fff'})}},
+   const dm=Math.max(3,Math.round(calcDmg(P,P.dmg)*.5));MPNET.send({t:'ph',to:r.id,d:dm});window.__predHit(r);fx.push({x:r.x,y:r.y-26,txt:'-'+dm,t:.8,c:'#fff'})}},
  fire(e,inLine){if(!PS.spo||!P||P.dead||!on||ED)return;
   for(const r of RP.values()){const q=PI.get(r.id);if(!q||!q.spo)continue;
    if(!(inLine(e,r.x,r.y-8,6)||inLine(e,r.x,r.y-16,6)))continue;
-   const dm=Math.max(4,Math.round(calcDmg(P,P.dmg)*.8));MPNET.send({t:'ph',to:r.id,d:dm});fx.push({x:r.x,y:r.y-26,txt:'🔥-'+dm,t:.8,c:'#ffb05a'})}},
+   const dm=Math.max(4,Math.round(calcDmg(P,P.dmg)*.8));MPNET.send({t:'ph',to:r.id,d:dm});window.__predHit(r);fx.push({x:r.x,y:r.y-26,txt:'🔥-'+dm,t:.8,c:'#ffb05a'})}},
  net(m){
   if(m.t==='pi'){PI.set(m.id,Object.assign({rt:performance.now()},m));return}
   if(m.t==='ph'){if(!PS.spo||!P||P.dead||P.inv>0||ED)return;
@@ -4255,6 +4255,7 @@ cv.addEventListener('click',e=>{try{
  const sc=(window.MPX&&window.MPX.GS)||.6;
  if(Math.abs(wx-P.x)<=Math.max(10,12*sc+3)&&wy>P.y-39*sc-5&&wy<P.y+6)pfOpen()
 }catch(err){}});
+window.__predHit=r=>{try{const n=performance.now();r.predT=n;if(n-(r.flT||-1e9)>100)r.flT=n;const dx=r.x-P.x,dy=r.y-P.y,d=Math.hypot(dx,dy);if(d>.001){r.kpu=dx/d;r.kpv=dy/d;r.kpm=17;r.kpT=n;r.lbx=undefined}}catch(e){}}; /* golpe previsto: o alvo pisca, faz a pose de dano e é empurrado (17 px, igual ao kb) NA HORA; o empurrão real chega depois e vai abatendo o previsto */
 window.RPE=function(vw,vh){ /* sprites dos remotos entram na ordenação por Y junto com o jogador local, monstros e cenário */
  if(!rpOn)return[];const out=[];
  for(const r of RP.values()){const x=Math.round(r.x-cam.x),y=Math.round(r.y-cam.y);if(x<-40||y<-60||x>vw+40||y>vh+40)continue;
@@ -4262,7 +4263,7 @@ window.RPE=function(vw,vh){ /* sprites dos remotos entram na ordenação por Y j
  return out};
 const _dm=draw;draw=function(){const X=window.MPX;rpOn=0;
  const act=!!(P&&!ED&&IM.link&&X&&X.ok),now=performance.now(),dt=Math.min(.1,(now-lt)/1000);
- if(act){lt=now;rpOn=1;for(const r of RP.values()){if(!snapSample(r,now)){r.x=r.tx;r.y=r.ty}else if(r.sa)r.an=r.sa;if(r.an!==r.pn){r.pn=r.an;r.t=0}if(r.sk!==r.pk){r.pk=r.sk;r.t=0}r.t+=dt}}
+ if(act){lt=now;rpOn=1;for(const r of RP.values()){if(!snapSample(r,now,1)){r.x=r.tx;r.y=r.ty}else if(r.sa)r.an=r.sa;if(r.kpm>0){const el=(performance.now()-r.kpT)/1000,bx=r.x,by=r.y;if(r.lbx!==undefined){const pr=(bx-r.lbx)*r.kpu+(by-r.lby)*r.kpv;if(pr>0)r.kpm=Math.max(0,r.kpm-pr)}r.lbx=bx;r.lby=by;if(el>.8)r.kpm=Math.max(0,r.kpm-40*dt);const sh=r.kpm*Math.min(1,el/.04);r.x=bx+r.kpu*sh;r.y=by+r.kpv*sh}if(r.an!==r.pn){r.pn=r.an;r.t=0}if(r.sk!==r.pk){r.pk=r.sk;r.t=0}r.t+=dt}}
  _dm();if(!act)return;
  const z=window.GZ>0?window.GZ:1,vw=VW/z,vh=VH/z;
  g.save();g.setTransform(RS*z,0,0,RS*z,0,0);g.imageSmoothingEnabled=false;
