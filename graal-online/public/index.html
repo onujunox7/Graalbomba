@@ -1749,7 +1749,7 @@ function hurtPlayer(r,src){
  if(window.ADMX&&(ADMX.god||ADMX.spec))return; /* admin imortal / espectador */
  if(P.inv>0)return; /* imune logo após um hit (ou durante a esquiva) */
  P.inv=.12;
- P.hp-=r;P.hurt=.15;dmgText(P,r,'#ff5a5a');P.fl=.12;if(src&&!P.dead)kb(P,src.x,src.y,170);
+ P.hp-=r;P.hurt=.15;dmgText(P,r,'#ff5a5a');P.fl=.12;if(window.__sendU)window.__sendU();if(src&&!P.dead)kb(P,src.x,src.y,170);
  if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}
 }
 function monHit(s){hurtPlayer(Math.ceil(hpBase(P)/6*(s.dmgK||1)),s)}
@@ -2259,7 +2259,7 @@ const DIR={Left:[-1,0],Right:[1,0],Up:[0,-1],Down:[0,1]};
 const zSave=()=>{try{localStorage.setItem(ZK,JSON.stringify(ZL))}catch(e){}};
 try{const o=JSON.parse(localStorage.getItem(ZK)||'null');if(o&&Number.isFinite(o.b)&&Number.isFinite(o.a)){ZL.b=o.b;ZL.a=o.a}}catch(e){}
 const say=(x,y,m,c)=>fx.push({x,y,txt:m,t:1.3,c});
-const hurtP=v=>{if(P.dead||P.inv>0||(window.ADMX&&(ADMX.god||ADMX.spec)))return;v=Math.ceil(hpBase(P)/6);P.inv=.12;P.fl=.12;P.hp-=v;P.hurt=.15;dmgText(P,v,'#ff5a5a');if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}};
+const hurtP=v=>{if(P.dead||P.inv>0||(window.ADMX&&(ADMX.god||ADMX.spec)))return;v=Math.ceil(hpBase(P)/6);P.inv=.12;P.fl=.12;P.hp-=v;P.hurt=.15;if(window.__sendU)window.__sendU();dmgText(P,v,'#ff5a5a');if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}};
 const hitSk=(s,m,kx,ky)=>{if(s.dead||s.imm>0)return;s.imm=.5;let r=Math.round(calcDmg(P,P.dmg)*m)-calcDef(s,s.def||0);if(!(r>=3))r=3;s.hp-=r;s.hurt=.25;s.combat=1;{const d=Math.max(1,Math.hypot(kx,ky));s.kvx=kx/d*190;s.kvy=ky/d*190;s.fl=.5;s.hkx=kx/d;s.hky=ky/d}dmgText(s,r,'#ffb05a');if(s.hp<=0)killSk(s)};
 const sd=(px,py,a,b)=>{const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((px-a[0])*dx+(py-a[1])*dy)/(dx*dx+dy*dy||1)));return Math.hypot(px-a[0]-t*dx,py-a[1]-t*dy)};
 function scanBush(){if(typeof GWD==='undefined'||!GWD)return;BUSH.clear();const T=GWD.tiles;for(let l=0;l<GNX*GNY;l++){const o=l*4096,bx=(l%GNX)*64,by=((l/GNX)|0)*64;for(let y=0;y<63;y++)for(let x=0;x<63;x++){const i=o+y*64+x;if(T[i]===2&&T[i+1]===3&&T[i+64]===18&&T[i+65]===19){const cx=bx+x,cy=by+y;BUSH.set(cy*D.W+cx,[cx,cy])}}};if(window.__edBushMerge)window.__edBushMerge(BUSH)}
@@ -3308,7 +3308,7 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
      let _t=p.ct+r.off;const _l=r.nb&&r.nb[r.nb.length-1];if(_l&&_t<=_l.t)_t=_l.t+1;
      r.lct=p.ct;snapPush(r,p.x,p.y,_t,p.an,p.ak,p.ad)}
    }else{snapPush(r,p.x,p.y,performance.now(),p.an,p.ak,p.ad);INTERP_DELAY+=Math.max(-.5,Math.min(.5,150-INTERP_DELAY))} /* servidor antigo, sem ct */
-   r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.mt=p.mt|0;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl;r.cy=p.cy|0;r.ac=p.ac|0;{const f=p.fl|0;if(f&&!r.fl)r.flT=performance.now();r.fl=f}}
+   r.r=p.r|0;r.typ=p.tp|0;r.tx=p.x;r.ty=p.y;r.nm=p.nm;r.an=p.an;r.al=p.al;r.b=p.b;r.h=p.h;r.s=p.s;r.sw=p.sw;r.mt=p.mt|0;r.lv=p.lv;r.hp=p.hp;r.hm=p.hm;r.kl=p.kl;r.cy=p.cy|0;r.ac=p.ac|0;{const f=p.fl|0,nw=performance.now();if(((f&&!r.fl)||(r.hpS!=null&&p.hp<r.hpS))&&nw-(r.flT||-1e9)>100)r.flT=nw;if(p.hp!=null)r.hpS=p.hp;r.fl=f}}
   if(!m.part)for(const k of [...RP.keys()])if(!seen.has(k))RP.delete(k)};
  ws.onclose=()=>{on=0;RP.clear();if(window.PRF)PRF.clear();if(!window.__KICKED)setTimeout(conn,2000)};ws.onerror=()=>{try{ws.close()}catch(e){}}}
 conn();
@@ -3319,19 +3319,19 @@ window.MPNET={send:o=>{try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}c
 function skinNow(){const X=window.MPX,nb=X.nb(),nh=X.nh(),b=X.GSK.b,h=X.GSK.h;
  const bs=b>=nb?(X.cb()[b-nb]||{}).src:null,hs=h>=nh?(X.ch()[h-nh]||{}).src:null;
  return{b:Math.max(0,Math.min(b,nb-1)),h:Math.max(0,Math.min(h,nh-1)),bs:bs&&bs.length<290000?bs:null,hs:hs&&hs.length<290000?hs:null,c:X.GSK.c||null}}
-setInterval(()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok)return;const INS=!!(window.INT&&INT.loc==='i'),IR=INS&&INT.ret;if(INS&&!(IR&&Number.isFinite(IR.x)&&Number.isFinite(IR.y)))return; /* v16: dentro de casa o 'u' continua sendo enviado (x,y = a porta; a posição real vai em in/ix/iy/ia) */
+window.__sendU=()=>{try{const X=window.MPX;if(!on||!ws||ws.readyState!==1||!P||ED||!X||!X.ok)return;const INS=!!(window.INT&&INT.loc==='i'),IR=INS&&INT.ret;if(INS&&!(IR&&Number.isFinite(IR.x)&&Number.isFinite(IR.y)))return; /* v16: dentro de casa o 'u' continua sendo enviado (x,y = a porta; a posição real vai em in/ix/iy/ia) */
  const sk=skinNow(),key=sk.b+'|'+sk.h+'|'+(sk.bs||'').length+'|'+(sk.hs||'').length+'|'+(window.__GBODY_VER||0);
  if(key!==lastSk){lastSk=key;ws.send(JSON.stringify({t:'k',bs:sk.bs,hs:sk.hs}))}
  const ckey=(sk.c||[]).join(',');if(ckey!==lastCk){lastCk=ckey;ws.send(JSON.stringify({t:'kc',c:sk.c}))} /* cores do body vão numa mensagem leve à parte (não reenvia as imagens) */
  if(window.EQX.dirty){window.EQX.dirty=0;ws.send(JSON.stringify({t:'q',e:window.EQX.pack()}))}
  const fd={Up:0,Left:1,Down:2,Right:3}[P.face],dn=fd===undefined?2:fd,an=P.dash>0?'Jump_'+dn:P.atk>0?'Attack_'+dn:P.walk?'Run_'+dn:'Idle_'+dn; /* o servidor só aceita direção numérica 0-3 */
- ws.send(JSON.stringify({t:'u',x:Math.round(INS?IR.x:P.x),y:Math.round(INS?IR.y:P.y),nm:nick,an:INS?an.replace(/^(Run|Attack|Jump)_/,'Idle_'):an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0,...(INS?{in:1,ix:Math.round(P.x),iy:Math.round(P.y),ia:an}:{})}))}catch(e){}},50);
+ ws.send(JSON.stringify({t:'u',x:Math.round(INS?IR.x:P.x),y:Math.round(INS?IR.y:P.y),nm:nick,an:INS?an.replace(/^(Run|Attack|Jump)_/,'Idle_'):an,al:P.dead?.4:1,b:sk.b,h:sk.h,s:X.GS,sw:window.EQX.swim?1:0,mt:window.MOUNT&&MOUNT.on?(MOUNT.skin|0)+1:0,ct:Math.round(performance.now()*10)/10,ak:P.akc|0,ad:Math.round((P.atkLen||ATK_T)*1000),lv:P.lvl|0,hp:Math.max(0,P.hp|0),hm:P.hpM|0,kl:P.kills|0,cy:X.cy|0,ac:X.ac|0,fl:P.fl>0?1:0,...(INS?{in:1,ix:Math.round(P.x),iy:Math.round(P.y),ia:an}:{})}))}catch(e){}};setInterval(window.__sendU,50); /* dano manda o 'u' na hora (window.__sendU), sem esperar o tick de 50 ms */
 /* dentro de casa o 'u' não é enviado (os outros não veem o interior); então manda só a posição do interior, leve, para o servidor poder gravá-la se a conexão cair */
 setInterval(()=>{try{if(!on||!ws||ws.readyState!==1||!P||ED||P.dead||!(window.INT&&INT.loc==='i'))return;const r=INT.ret;ws.send(JSON.stringify({t:'ip',x:Math.round(P.x),y:Math.round(P.y),f:P.face,r:r&&Number.isFinite(r.x)&&Number.isFinite(r.y)?{x:Math.round(r.x),y:Math.round(r.y)}:null}))}catch(e){}},500);
 /* desenho do personagem remoto com a mesma engine de skin */
 function rp(r,x,y,sc){const X=window.MPX,mm=r.an.split('_'),dr=/^[0-3]$/.test(mm[1])?+mm[1]:{Up:0,Left:1,Down:2,Right:3}[mm[1]],kn0=mm[0]==='Run'?'walk':mm[0]==='Attack'?'sword':mm[0]==='Jump'?'jump':'idle';
  const riding=!!(r.mt&&window.MOUNT);let ob=riding?0:(r.cy|0);if(ob>=10){try{if(!CPP.get(ob))ob=1}catch(e){ob=1}} /* peça do editor que este cliente não tem: mostra como arbusto */
- const kn=kn0==='sword'||riding?kn0:r.ac?'lift':ob?(kn0==='walk'?'carry':'carrystill'):kn0,rkn=riding?'sit':kn;const A=X.GANI[rkn],fi=riding?0:(kn==='walk'||kn==='carry')?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/((r.sd||200)/1000)*ATK_BASE/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};
+ const kn=(!riding&&performance.now()-(r.flT||-1e9)<150)?'hurt':kn0==='sword'||riding?kn0:r.ac?'lift':ob?(kn0==='walk'?'carry':'carrystill'):kn0,rkn=riding?'sit':kn;const A=X.GANI[rkn],fi=riding?0:(kn==='walk'||kn==='carry')?Math.floor(r.t/.05):kn==='sword'?Math.min(4,Math.floor(r.t/((r.sd||200)/1000)*ATK_BASE/.06)):0,fr=A[fi%A.length],sk=SKN.get(r.id)||{};
  const ok=i=>i&&i.complete&&i.naturalWidth;
  const[BI,bo]=X.body(ok(sk.bi)?sk.bi:null,Math.min(r.b|0,X.nb()-1),sk.c),[HI,ho]=ok(sk.hi)?[sk.hi,0]:X.gSrc('h',Math.min(r.h|0,X.nh()-1));
  g.globalAlpha=r.al;const rd=riding?MOUNT.draw(g,x,y,dr===undefined?2:dr,kn==='walk'||kn==='jump',sc,undefined,(r.mt|0)-1):null;const ox=rd?rd.ox:x-24*sc,oy=rd?rd.oy:y-39*sc-(riding?Math.round(17*sc/.6):0);const sws=EQX.beg(g,x,y,r.sw);
@@ -3436,7 +3436,7 @@ window.PRF={
  net(m){
   if(m.t==='pi'){PI.set(m.id,Object.assign({rt:performance.now()},m));return}
   if(m.t==='ph'){if(!PS.spo||!P||P.dead||P.inv>0||ED)return;
-   const r=Math.max(2,Math.round((+m.d||0)-calcDef(P,P.def||0)/2));P.hp-=r;P.hurt=.15;P.inv=.12;P.fl=.12;dmgText(P,r,'#ff9a5a');{const o=RP.get(m.from|0);if(o)kb(P,o.x,o.y,170)}
+   const r=Math.max(2,Math.round((+m.d||0)-calcDef(P,P.def||0)/2));P.hp-=r;P.hurt=.15;P.inv=.12;P.fl=.12;if(window.__sendU)window.__sendU();dmgText(P,r,'#ff9a5a');{const o=RP.get(m.from|0);if(o)kb(P,o.x,o.y,170)}
    if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você perdeu o sparring... renascendo',t:3,c:'#ff5a5a'});PS.sl++;PS.ss=0;psTouch();MPNET.send({t:'pk',by:m.from|0})}return}
   if(m.t==='pk'){PS.pk++;PS.ss++;if(PS.ss>PS.sb)PS.sb=PS.ss;psTouch();fx.push({x:P.x,y:P.y-30,txt:'Sparring: você derrotou '+String(m.nm||'?').slice(0,12),t:3,c:'#9aff9a'})}},
  drop(id){PI.delete(id)},clear(){PI.clear()}};
@@ -6523,16 +6523,16 @@ try{const qb=[...document.querySelectorAll('#sys button')].find(b=>b.textContent
   ['pointerup','pointerleave','pointercancel'].forEach(ev=>qb.addEventListener(ev,()=>clearTimeout(tm)));
   qb.addEventListener('contextmenu',e=>e.preventDefault())}}catch(e){}
 if(!on)return;
-const S={u:[],d:[],i:[]},H=[],ring=[];let cur=0,sb=0,sbMax=0,sbSum=0,pbMax=0,lastBuild=-1e9,long=0,hc=0,fr=0,fps=0,t0=performance.now(),last=0,worst=0,lastHeap=0;
-const W=(f,k)=>function(){const t=performance.now();if(k==='u')cur=0;const r=f.apply(this,arguments);const d=performance.now()-t;const a=S[k];a.push(d);if(a.length>60)a.shift();cur+=d;if(k==='i'){ring.push(cur);if(ring.length>4)ring.shift()}return r};
+var FR=null;const S={u:[],d:[],i:[]},H=[],ring=[];let cur=0,sb=0,sbMax=0,sbSum=0,pbMax=0,lastBuild=-1e9,long=0,hc=0,fr=0,fps=0,t0=performance.now(),last=0,worst=0,lastHeap=0;
+const W=(f,k)=>function(){const t=performance.now();if(k==='u')cur=0;const r=f.apply(this,arguments);const d=performance.now()-t;const a=S[k];a.push(d);if(a.length>60)a.shift();cur+=d;if(k==='i'){ring.push(cur);if(ring.length>4)ring.shift();if(FR)FR(performance.now())}return r};
 update=W(update,'u');draw=W(draw,'d');drawUI=W(drawUI,'i');
 const ob=WCanvas.prototype.build;
 WCanvas.prototype.build=function(l,n){const t=performance.now();const r=ob.call(this,l,n);const d=performance.now()-t;if(n>=4096){sb++;sbSum+=d;if(d>sbMax)sbMax=d}else if(d>pbMax)pbMax=d;if(d>8)lastBuild=performance.now();return r};
 const el=document.createElement('div');el.style.cssText='position:fixed;left:0;top:0;z-index:99999;font:10px/1.35 monospace;background:rgba(0,0,0,.75);color:#9aff9a;padding:3px 5px;pointer-events:none;white-space:pre;max-width:100vw';document.body.appendChild(el);
-(function tick(n){const m=performance.memory,h=m?m.usedJSHeapSize:0;
+FR=(function(n){const m=performance.memory,h=m?m.usedJSHeapSize:0;
  if(last){const d=n-last;fr++;if(d>34)long++;if(d>worst)worst=d;
   if(d>60&&!document.hidden){hc++;const js=Math.round(Math.max(0,...ring));H.push(Math.round(d)+'ms js='+js+((h&&lastHeap&&h<lastHeap-2e6)?' GC':'')+(n-lastBuild<150?' mapa':''));if(H.length>4)H.shift()}}
- last=n;if(h)lastHeap=h;if(n-t0>=1000){fps=Math.round(fr*1000/(n-t0));fr=0;t0=n}requestAnimationFrame(tick)})(performance.now());
+ last=n;if(h)lastHeap=h;if(n-t0>=1000){fps=Math.round(fr*1000/(n-t0));fr=0;t0=n}});
 const av=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0,mx=a=>a.length?Math.max(...a):0,f=x=>x.toFixed(1);
 setInterval(()=>{const m=performance.memory;el.textContent=
 'FPS '+fps+'  lentos(>34ms) '+long+'  pior '+Math.round(worst)+'ms\n'+
