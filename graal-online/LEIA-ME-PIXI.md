@@ -248,3 +248,10 @@ Só o `public/index.html` mudou (bloco `#hudclean` no fim). Liga/desliga em ⚙ 
 
 ### v26.36b: teto de resolução do canvas voltou a 4x
 - O "PERF fix" tinha baixado o teto de RS de 4 para 3 (tier 1: 2) e o orçamento do celular de 3e6 para 1,8e6 px. Em tela cheia 1080p (precisa de RS≈4) o canvas ficava menor que a tela e era esticado ~1,3x, o que deixa o pixel desigual/pixelado. Agora: PC tier 0 = 4, tier 1 = 3; celular 3e6 px. Se pesar, volte para `?3:4` → `?2:3` e `3e6` → `1.8e6` em `fit()`.
+
+### v26.36c: teto de resolução voltou a 3x/2x (GPU) + ajuste manual
+- O teto 4x pesou na GPU. Voltou ao padrão (PC 3x, tier 1 = 2x, celular 1,8e6 px). Para escolher na mão: no console `localStorage.setItem('graal_rsmax','4');location.reload()` (mais nítido, mais GPU), `'2'` (mais leve). Apagar com `localStorage.removeItem('graal_rsmax')`.
+
+## v26.37: mapa pixelado (escala ímpar nos chunks)
+- **Causa:** os chunks do mapa são montados em 2x (tile 16 px do atlas → 1024 px por 512 de mundo). Com filtro NEAREST e escala de tela ímpar (RS*zoom = 3 → 1,5 px de tela por texel do chunk) uns pixels do mapa saem largos e outros finos: visual blocado/pixelado, mesmo com qualidade alta. O tileset (`IM.gt`, 2048×512, tiles de 16 px) está certo; não é problema dele.
+- **Agora:** `WCanvas.draw` mede a escala real e, se o texel do chunk não cair em número inteiro de pixels de tela, desenha o mapa com suavização (linear). Escala par (RS 2/4) continua nearest, nítido. "Nearest" nas configurações ainda força tudo nearest; "Linear" força tudo linear.

@@ -995,7 +995,7 @@ window.NOMON=true;window.NOCK=true; /* NOMON true = SEM monstros automáticos do
 function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);{const Sx=cv.clientWidth*(devicePixelRatio||1)/VW,Z=(!ed&&window.GZ>0&&window.GZ!==1)?window.GZ:1;
  /* v26.15 nitidez: RS = k/Z com k INTEIRO => RS*Z inteiro (pixels de mundo todos do mesmo tamanho, sem serrilhado). Com "Gráficos melhorados" o canvas é ~1,5x maior que a tela e o navegador reduz suave.
     O limite agora é um ORÇAMENTO DE PIXELS (e não um RS fixo): celular com tela de 2400 px não fica mais com canvas minúsculo esticado (era isso que pixelava no zoom < 100%). */
- const lowq=QL>=2,budget=lowq?1.3e6:(MOBILE?3e6:9e6),lim=Math.min((window.__TIER|0)>=1?3:4,4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||(window.__TIER|0)>=1||window.__GFX===0)?1:1.25; /* PERF fix: teto 4x (2048px, 2,4M px) deixava a GPU/CPU sem fôlego; agora 3x no nível alto e 2x quando o auto-ajuste desce */
+ const lowq=QL>=2,RM=(()=>{try{return +localStorage.getItem('graal_rsmax')||0}catch(e){return 0}})(),budget=lowq?1.3e6:(MOBILE?(RM>0?3e6:1.8e6):9e6),lim=Math.min(RM>0?RM:((window.__TIER|0)>=1?2:3),4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||(window.__TIER|0)>=1||window.__GFX===0)?1:1.25; /* PERF fix: teto 4x (2048px, 2,4M px) deixava a GPU/CPU sem fôlego; agora 3x no nível alto e 2x quando o auto-ajuste desce */
  let k=Math.max(Z===1&&!lowq?2:1,Math.ceil(Sx*Z*SS-.34));if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));
  RS=k/Z;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
 const keys={};let atkPress=0;
@@ -1457,7 +1457,10 @@ class WCanvas{
   for(let Y=y0;Y<y1;Y++)for(let X=x0;X<x1;X++)q.drawImage(GT,(id%16)*16+(id>>9)*256,((id>>4)&31)*16,16,16,(X&63)*8,(Y&63)*8,8,8)})}
  clearRect(x,y,w,h){this.each(x,y,w,h,(q,ox,oy)=>q.clearRect(x-ox,y-oy,w,h))} /* v27: ferramenta Vazio do editor (apaga o visual; o fundo do jogo é preto) */
  reset(){if(window.__PIXI_FORGET)for(const o of this.c.values())window.__PIXI_FORGET(o);this.c.clear();this.dirty.clear()}
- draw(g,cx,cy,w,h){const _sm=window.__TF==='l';if(_sm)g.imageSmoothingEnabled=true;try{this.draw0(g,cx,cy,w,h)}finally{if(_sm)g.imageSmoothingEnabled=false}}
+ draw(g,cx,cy,w,h){let _sm=window.__TF==='l';
+  /* v26.37: o chunk é 2x (1024px p/ 512 de mundo). Com NEAREST e escala de tela ímpar (ex.: 3x => 1,5 px de tela por texel) uns pixels saem largos e outros finos = pixelado. Escala não-par => suaviza só o mapa. */
+  if(!_sm&&window.__TF!=='n'){try{const m=g.m,t=m?Math.hypot(m[0],m[1]):(g.getTransform?g.getTransform().a:2),q=t/2;if(Math.abs(q-Math.round(q))>.02)_sm=true}catch(e){}}
+  if(_sm)g.imageSmoothingEnabled=true;try{this.draw0(g,cx,cy,w,h)}finally{if(_sm)g.imageSmoothingEnabled=false}}
  draw0(g,cx,cy,w,h){for(let ly=Math.floor(cy/512);ly<=Math.floor((cy+h-1)/512);ly++)for(let lx=Math.floor(cx/512);lx<=Math.floor((cx+w-1)/512);lx++){if(lx<0||ly<0||lx>=GNX||ly>=GNY)continue;
   const ox=lx*512,oy=ly*512;if(g.chunk){g.chunk(this.get(ly*GNX+lx),ox-cx,oy-cy,512,512);continue}
   const sx=Math.max(cx,ox),sy=Math.max(cy,oy),ex=Math.min(cx+w,ox+512),ey=Math.min(cy+h,oy+512);g.drawImage(this.get(ly*GNX+lx),(sx-ox)*2,(sy-oy)*2,(ex-sx)*2,(ey-sy)*2,sx-cx,sy-cy,ex-sx,ey-sy)}}
