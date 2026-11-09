@@ -255,3 +255,8 @@ Só o `public/index.html` mudou (bloco `#hudclean` no fim). Liga/desliga em ⚙ 
 ## v26.37: mapa pixelado (escala ímpar nos chunks)
 - **Causa:** os chunks do mapa são montados em 2x (tile 16 px do atlas → 1024 px por 512 de mundo). Com filtro NEAREST e escala de tela ímpar (RS*zoom = 3 → 1,5 px de tela por texel do chunk) uns pixels do mapa saem largos e outros finos: visual blocado/pixelado, mesmo com qualidade alta. O tileset (`IM.gt`, 2048×512, tiles de 16 px) está certo; não é problema dele.
 - **Agora:** `WCanvas.draw` mede a escala real e, se o texel do chunk não cair em número inteiro de pixels de tela, desenha o mapa com suavização (linear). Escala par (RS 2/4) continua nearest, nítido. "Nearest" nas configurações ainda força tudo nearest; "Linear" força tudo linear.
+
+## v26.38: vazamento de texturas do mapa (travamento + memória)
+- **Diagnóstico (medidor ⚡):** `MEM texturas 280 (966MB) maiores: 1024x1024x240`, com só 24 chunks no cache (`mapa 24`). Ou seja, ~216 texturas de chunks já descartados continuavam na GPU (quase 1 GB), o Edge chegou a 96% de memória do PC e os quadros passaram de 100 ms (`ENGASGOS`), com pior quadro de 13 s.
+- **Correção:** `PixiCtx.sweepChunks()` roda a cada ~64 quadros e destrói toda textura 1024×1024 cujo canvas não está mais em `IM.below.c` (nem em montagem em `IM.below.p`). Também fica como rede de segurança caso `forget()` falhe por qualquer motivo.
+- Depois de jogar uns minutos, confira no medidor: `MEM texturas` deve ficar perto de 24–30 de 1024x1024 (~100 MB), não 240.

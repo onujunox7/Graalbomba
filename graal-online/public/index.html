@@ -596,9 +596,20 @@ setTimeout(function(){
       arr.sort((a, b) => a.last - b.last);
       for (const e of arr) { if (tot < 400 * 1048576 || e.last >= this.frame - 120) break; tot -= e.w * e.h * 4; this.forget(e.src) }
     }
+    /* v26.38: rede de segurança. O medidor mostrava 240 texturas de 1024x1024 (960 MB) na GPU com só 24 chunks no cache do mapa: texturas de chunks já descartados ficavam presas.
+       Aqui, a cada ~64 quadros, qualquer textura 1024x1024 cujo canvas NÃO está mais no cache do mapa (IM.below.c) é destruída. */
+    sweepChunks() {
+      const B = window.IM && IM.below && IM.below.c; if (!B || !B.values) return;
+      const live = new Set(B.values()), P = IM.below.p;
+      if (P && P.values) for (const st of P.values()) live.add(st.c);
+      for (const e of Array.from(this.all)) { if (e.w === 1024 && e.h === 1024 && e.src && !live.has(e.src)) this.forget(e.src) }
+      const BC = PIXI.utils.BaseTextureCache;
+      for (const k in BC) { const t = BC[k]; if (!t || (t.realWidth | 0) !== 1024 || (t.realHeight | 0) !== 1024) continue; const src = t.resource && t.resource.source; if (src && src instanceof HTMLCanvasElement && !live.has(src)) { try { t.destroy() } catch (x) { } } }
+    }
     paint() {
       const _t = window.__PROF ? performance.now() : 0;
       if ((this.frame & 127) === 0) { try { this.gcTex() } catch (e) { } }
+      if ((this.frame & 63) === 7) { try { this.sweepChunks() } catch (e) { } }
       const cv = this.canvas; let force = false;
       if (cv.width !== this.rw || cv.height !== this.rh) { this.rw = cv.width; this.rh = cv.height; this.r.resize(this.rw, this.rh); force = true }
       for (const d of this.dead) { try { d.destroy({ children: false }) } catch (e) { } } this.dead.length = 0;
