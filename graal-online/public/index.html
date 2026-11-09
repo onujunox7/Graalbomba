@@ -599,8 +599,8 @@ setTimeout(function(){
     /* v26.38: rede de segurança. O medidor mostrava 240 texturas de 1024x1024 (960 MB) na GPU com só 24 chunks no cache do mapa: texturas de chunks já descartados ficavam presas.
        Aqui, a cada ~64 quadros, qualquer textura 1024x1024 cujo canvas NÃO está mais no cache do mapa (IM.below.c) é destruída. */
     sweepChunks() {
-      const B = window.IM && IM.below && IM.below.c; if (!B || !B.values) return;
-      const live = new Set(B.values()), P = IM.below.p;
+      const IMo = (typeof IM !== 'undefined') ? IM : null, B = IMo && IMo.below && IMo.below.c; if (!B || !B.values) return;
+      const live = new Set(B.values()), P = IMo.below.p;
       if (P && P.values) for (const st of P.values()) live.add(st.c);
       for (const e of Array.from(this.all)) { if (e.w === 1024 && e.h === 1024 && e.src && !live.has(e.src)) this.forget(e.src) }
       const BC = PIXI.utils.BaseTextureCache;
@@ -1448,7 +1448,7 @@ let GTE=null;function gtSrc(){if(window.__GFX===0)return IM.gt;if(GTE)return GTE
  try{const im=IM.gt,c=document.createElement('canvas');c.width=im.naturalWidth||im.width;c.height=im.naturalHeight||im.height;const x=c.getContext('2d');
   if(!('filter' in x))return GTE=im;x.filter='saturate(1.14) contrast(1.07) brightness(1.015)';x.drawImage(im,0,0);x.filter='none';return GTE=c}catch(e){return GTE=IM.gt}}
 class WCanvas{
- constructor(){this.chunked=1;this.width=GTW*8;this.height=GTH*8;this.c=new Map();this.dirty=new Set();this.p=new Map()}
+ constructor(){this.chunked=1;this.width=GTW*8;this.height=GTH*8;this.c=new Map();this.dirty=new Set();this.dv=new Map();this.p=new Map()}
  get(l){const c=this.c.get(l);if(c){this.c.delete(l);this.c.set(l,c);return c}return this.build(l,4096)}
  /* monta o chunk em fatias de n tiles (o jogo chama com 4096 = tudo de uma vez; a pré-carga chama com fatias pequenas) */
  build(l,n){let st=this.p.get(l);if(!st){const c=gmk(1024,1024),x=c.getContext('2d');x.setTransform(2,0,0,2,0,0);x.imageSmoothingEnabled=false;st={c,x,i:0};this.p.set(l,st);if(n<4096)return null}
@@ -1459,7 +1459,7 @@ class WCanvas{
   if(window.BSTP)window.BSTP(l,x);
   this.c.set(l,c);if(this.c.size>(typeof MOBILE!=='undefined'&&MOBILE?20:24))for(const k of this.c.keys()){if(!this.dirty.has(k)){const o=this.c.get(k);this.c.delete(k);if(window.__PIXI_FORGET)window.__PIXI_FORGET(o);break}}return c}
  getContext(){return this}
- each(x,y,w,h,fn){for(let cy=Math.floor(y/512);cy<=Math.floor((y+h-1)/512);cy++)for(let cx=Math.floor(x/512);cx<=Math.floor((x+w-1)/512);cx++){if(cx<0||cy<0||cx>=GNX||cy>=GNY)continue;const l=cy*GNX+cx;fn(this.get(l).getContext('2d'),cx*512,cy*512,l);this.dirty.add(l)}}
+ each(x,y,w,h,fn){for(let cy=Math.floor(y/512);cy<=Math.floor((y+h-1)/512);cy++)for(let cx=Math.floor(x/512);cx<=Math.floor((x+w-1)/512);cx++){if(cx<0||cy<0||cx>=GNX||cy>=GNY)continue;const l=cy*GNX+cx;fn(this.get(l).getContext('2d'),cx*512,cy*512,l);this.dirty.add(l);this.dv.set(l,(this.dv.get(l)|0)+1)}}
  drawImage(s,x,y,w,h){const W=w||s.width,H=h||s.height;this.each(x,y,W,H,(q,ox,oy)=>w?q.drawImage(s,x-ox,y-oy,w,h):q.drawImage(s,x-ox,y-oy))}
  fillRect(x,y,w,h){this.each(x,y,w,h,(q,ox,oy,l)=>{const t=GWD.tiles,o=l*4096,x0=Math.max(x,ox)>>3,x1=Math.min(x+w,ox+512)>>3,y0=Math.max(y,oy)>>3,y1=Math.min(y+h,oy+512)>>3;
   const GT=gtSrc();for(let Y=y0;Y<y1;Y++)for(let X=x0;X<x1;X++){const id=t[o+((Y&63)<<6)+(X&63)];q.drawImage(GT,(id%16)*16+(id>>9)*256,((id>>4)&31)*16,16,16,(X&63)*8,(Y&63)*8,8,8)}})}
@@ -7760,7 +7760,8 @@ update=function(dt){const M=window.MOUNT;
   return pads[tw]={c:c,tw:tw}};
  API.refresh=function(){ /* copia dos chunks reais (editados, tocos de mato etc.) para a imagem */
   if(!API.ok||!cv)return;try{var B=IM.below,g=cv.getContext('2d'),os=API.os;g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
-   B.dirty.forEach(function(l){var lx=l%GNX,ly=(l/GNX)|0;if(lx<3||lx>=23||ly<23||ly>=43)return;var c=B.c.get(l);if(!c)return;
+   var dn=API.dn||(API.dn=new Map()),nn=0; /* v26.39: só redesenha chunk que mudou desde a última cópia (antes copiava TODOS os editados a cada 3 s = engasgo de ~70 ms) */
+   B.dirty.forEach(function(l){var lx=l%GNX,ly=(l/GNX)|0;if(lx<3||lx>=23||ly<23||ly>=43)return;var c=B.c.get(l);if(!c)return;var v=B.dv?(B.dv.get(l)|0):-1;if(B.dv&&dn.get(l)===v)return;if(nn>=2)return;nn++;dn.set(l,v);
     g.drawImage(c,0,0,1024,1024,(lx*512-1536)*os,(ly*512-11776)*os,512*os,512*os)})}catch(e){}};
  var iv=setInterval(function(){if(ready()){clearInterval(iv);start();setInterval(function(){if(!document.hidden)API.refresh()},3000)}},800);
 }catch(err){console.error('wovr',err)}})();
