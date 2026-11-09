@@ -6513,7 +6513,10 @@ setInterval(()=>{const m=performance.memory;el.textContent=
 'update '+f(av(S.u))+'/'+f(mx(S.u))+'  draw '+f(av(S.d))+'/'+f(mx(S.d))+'  ui '+f(av(S.i))+'/'+f(mx(S.i))+' (media/max ms)\n'+
 'ENGASGOS >60ms: '+hc+'\n'+(H.length?H.join('\n')+'\n':'')+
 'mapa SEM aviso: '+sb+'x pior '+f(sbMax)+'ms | fatia max '+f(pbMax)+'ms\n'+
-'canvas '+cv.width+'x'+cv.height+' RS '+RS+' nivel '+(window.__TIER|0)+(m?' heap '+Math.round(m.usedJSHeapSize/1048576)+'MB':'')},500);
+'canvas '+cv.width+'x'+cv.height+' RS '+RS+' nivel '+(window.__TIER|0)+(m?' heap '+Math.round(m.usedJSHeapSize/1048576)+'MB':'')+memInfo()},500);
+/* MEM: diagnóstico de memória (aparece no medidor ⚡): texturas na GPU, quadros de personagem e pedaços de mapa em cache */
+function memInfo(){try{let n=0,by=0;const B=PIXI.utils.BaseTextureCache;for(const k in B){n++;const t=B[k];by+=(t.realWidth||t.width||0)*(t.realHeight||t.height||0)*4}
+ return '\nMEM texturas '+n+' ('+Math.round(by/1048576)+'MB) | personagens '+(typeof CPOOL!=='undefined'?CPOOL.size:'?')+' | mapa '+(IM&&IM.below&&IM.below.c?IM.below.c.size:'?')+' | jogadores '+(window.RPX?RPX.size:0)}catch(e){return ''}}
 }catch(e){console.error('perf',e)}})();
 </script>
 
