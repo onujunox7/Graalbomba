@@ -977,7 +977,7 @@ window.NOMON=true;window.NOCK=true; /* NOMON true = SEM monstros automáticos do
 function fit(){const ed=document.body.classList.contains('edon');VH=ed?Math.round(288/EDZ):288;const fu=innerWidth/innerHeight>=1.34&&!ed;document.body.classList.toggle('full',fu);VW=fu?Math.max(384,Math.min(1152,Math.round(VH*innerWidth/innerHeight))):(ed?Math.round(384/EDZ):384);{const Sx=cv.clientWidth*(devicePixelRatio||1)/VW,Z=(!ed&&window.GZ>0&&window.GZ!==1)?window.GZ:1;
  /* v26.15 nitidez: RS = k/Z com k INTEIRO => RS*Z inteiro (pixels de mundo todos do mesmo tamanho, sem serrilhado). Com "Gráficos melhorados" o canvas é ~1,5x maior que a tela e o navegador reduz suave.
     O limite agora é um ORÇAMENTO DE PIXELS (e não um RS fixo): celular com tela de 2400 px não fica mais com canvas minúsculo esticado (era isso que pixelava no zoom < 100%). */
- const lowq=QL>=2,budget=lowq?1.3e6:(MOBILE?1.8e6:9e6),lim=Math.min(4,4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||window.__GFX===0)?1:1.5;
+ const lowq=QL>=2,budget=lowq?1.3e6:(MOBILE?1.8e6:9e6),lim=Math.min((window.__TIER|0)>=1?2:3,4096/VW,Math.sqrt(budget/(VW*VH))),SS=(lowq||(window.__TIER|0)>=1||window.__GFX===0)?1:1.25; /* PERF fix: teto 4x (2048px, 2,4M px) deixava a GPU/CPU sem fôlego; agora 3x no nível alto e 2x quando o auto-ajuste desce */
  let k=Math.max(Z===1&&!lowq?2:1,Math.ceil(Sx*Z*SS-.34));if(k/Z>lim)k=Math.max(1,Math.floor(lim*Z+1e-6));
  RS=k/Z;const nw=Math.round(VW*RS),nh=Math.round(VH*RS);if(cv.width!==nw)cv.width=nw;if(cv.height!==nh)cv.height=nh}}
 const keys={};let atkPress=0;
@@ -6232,17 +6232,18 @@ function apply(t){
  if(t===tier)return;const re=(t>=2)!==(tier>=2);tier=t;window.__TIER=t;QL=t>=2?2:0;
  LGAP=t>=1?33:15;
  document.body.classList.toggle('lowq',t>=1);document.body.classList.toggle('pix',t>=2);
- if(re)fit();
- settle=performance.now()+1500;win=0;acc=0;
+ fit();
+ settle=performance.now()+1500;win=0;acc=0;slow=0;
 }
 
 /* ---- monitor: mede o intervalo real entre quadros do jogo ---- */
-let lastT=0,acc=0,win=0,settle=performance.now()+5000,bad=0;
+let lastT=0,acc=0,win=0,settle=performance.now()+5000,bad=0,slow=0;
 document.addEventListener('visibilitychange',()=>{lastT=0;settle=performance.now()+2000;win=0;acc=0});
 function sample(){
  const n=performance.now();if(!lastT){lastT=n;return}
- const d=Math.min(100,n-lastT);lastT=n;
+ const raw=n-lastT,d=Math.min(100,raw);lastT=n;
  if(mode!=='auto'||n<settle||GFPS.gap>0)return;
+ if(raw>=120&&raw<2000&&tier<2){if(++slow>=4){slow=0;bad=0;apply(tier+1);LSk('graal_auto_tier',String(tier));return}}else if(raw<40&&slow>0)slow--; /* PERF fix: 4 quadros >120ms já derrubam a qualidade (antes: ~80 amostras) */
  acc+=d;win++;
  if(win>=(tier===0?40:30)){
   const avg=acc/win;acc=0;win=0;
