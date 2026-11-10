@@ -13,27 +13,32 @@ var KM={doors:'graal_doors_v1',map:'graal_map_gw1',tilesets:'graal_tilesets_v1',
 var LS=window.localStorage,SP=Storage.prototype,gi=SP.getItem,si=SP.setItem,ri=SP.removeItem;
 var G=function(k){try{return gi.call(LS,k)}catch(e){return null}},S=function(k,v){try{si.call(LS,k,v)}catch(e){}},R=function(k){try{ri.call(LS,k)}catch(e){}};
 var TOK='';try{var q=new URLSearchParams(location.search);if(q.get('admin')){S('graal_admin_token',q.get('admin'));q.delete('admin');var qs=q.toString();history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+location.hash)}TOK=G('graal_admin_token')||''}catch(e){}
+function syncBackup(){try{var o={},any=0;for(var n in KM){var v=G(KM[n]);if(v!=null){o[n]=v;any=1}}
+ if(!any)return true;
+ if(!confirm('?sync=1 vai trocar as edições DESTE navegador pelas do servidor.\n\nAntes disso, um arquivo de backup das suas edições locais será baixado (dá para importar de volta pelo botão Importar do editor).\n\nContinuar?'))return false;
+ var b=new Blob([JSON.stringify(o)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='graal-backup-local-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';(document.body||document.documentElement).appendChild(a);a.click();a.remove();return true}
+ catch(e){return confirm('Não consegui gerar o backup local. Continuar mesmo assim?')}}
 /* ?sync=1: descarta as edições locais pendentes e volta a usar o mapa/tilesets/colisão do SERVIDOR (conserta o dono que vê o mapa diferente dos outros) */
-try{var q2=new URLSearchParams(location.search);if(q2.has('sync')){R('graal_cfg_dirty');R('graal_cfg_rev');for(var kk in KM)R(KM[kk]);q2.delete('sync');var qs2=q2.toString();history.replaceState(null,'',location.pathname+(qs2?'?'+qs2:'')+location.hash)}}catch(e){}
+try{var q2=new URLSearchParams(location.search);if(q2.has('sync')){if(syncBackup()){R('graal_cfg_dirty');R('graal_cfg_rev');R('graal_cfg_base');for(var kk in KM)R(KM[kk])}q2.delete('sync');var qs2=q2.toString();history.replaceState(null,'',location.pathname+(qs2?'?'+qs2:'')+location.hash)}}catch(e){}
 var dirty={};try{(JSON.parse(G('graal_cfg_dirty')||'[]')||[]).forEach(function(k){if(KM[k])dirty[k]=1})}catch(e){}
 var saveDirty=function(){var a=Object.keys(dirty);if(a.length)S('graal_cfg_dirty',JSON.stringify(a));else R('graal_cfg_dirty')};
-var have={};
+var have={};var BASE={},SRV={};try{BASE=JSON.parse(G('graal_cfg_base')||'{}')||{}}catch(e){}var saveBase=function(){S('graal_cfg_base',JSON.stringify(BASE))};
 /* 1) baixa a config do servidor (síncrono, antes do jogo iniciar) */
 try{var x=new XMLHttpRequest();x.open('GET','graal-config.json?'+Date.now(),false);x.send();
- if(x.status===200){window.__MPSRV=1;var t=x.responseText,o=JSON.parse(t),h=x.getResponseHeader('ETag')||(t.length+':'+t.slice(0,64));
+ if(x.status===200){window.__MPSRV=1;try{String(x.getResponseHeader('X-Cfg-Rev')||'').split(',').forEach(function(p){var i=p.indexOf('=');if(i>0)SRV[p.slice(0,i)]=p.slice(i+1)})}catch(e){}var t=x.responseText,o=JSON.parse(t),h=x.getResponseHeader('ETag')||(t.length+':'+t.slice(0,64));
   if(o&&typeof o==='object'){var fresh=G('graal_cfg_rev')!==h;
-   for(var k in KM){if(!(k in o))continue;have[k]=1;if(!fresh||dirty[k])continue; /* edição ainda não enviada vale mais que a do servidor */
+   for(var k in KM){if(!(k in o))continue;have[k]=1;if(!dirty[k]&&SRV[k])BASE[k]=SRV[k];if(!fresh||dirty[k])continue; /* edição ainda não enviada vale mais que a do servidor */
     var v=o[k];if(v==null)R(KM[k]);else S(KM[k],typeof v==='string'?v:JSON.stringify(v))}
-   S('graal_cfg_rev',h)}}}catch(e){}
+   S('graal_cfg_rev',h);saveBase()}}}catch(e){}
 /* 2) admin: envia ao servidor, com aviso na tela */
-var toast=function(msg,bad){var go=function(){var e=document.getElementById('cfgtoast');if(!e){e=document.createElement('div');e.id='cfgtoast';e.style.cssText='position:fixed;right:8px;bottom:8px;z-index:99999;padding:4px 10px;border-radius:6px;font:600 12px Verdana,Arial,sans-serif;color:#fff;pointer-events:none;transition:opacity .4s';document.body.appendChild(e)}
-  e.textContent=msg;e.style.background=bad?'#b00020':'#256b2e';e.style.opacity=1;clearTimeout(e._t);e._t=setTimeout(function(){e.style.opacity=0},bad?6000:1800)};
+var toast=function(msg,bad){var go=function(){var e=document.getElementById('cfgtoast');if(!e){e=document.createElement('div');e.id='cfgtoast';e.style.cssText='position:fixed;right:8px;bottom:8px;max-width:min(92vw,520px);line-height:1.3;z-index:99999;padding:4px 10px;border-radius:6px;font:600 12px Verdana,Arial,sans-serif;color:#fff;pointer-events:none;transition:opacity .4s';document.body.appendChild(e)}
+  e.textContent=msg;e.style.background=bad?'#b00020':'#256b2e';e.style.opacity=1;clearTimeout(e._t);e._t=setTimeout(function(){e.style.opacity=0},bad?14000:1800)};
   if(document.body)go();else addEventListener('DOMContentLoaded',go)};
 var timers={};
 function push(k){clearTimeout(timers[k]);dirty[k]=1;saveDirty();timers[k]=setTimeout(function(){
- fetch('api/config/'+k,{method:'PUT',headers:(function(){var H={'Content-Type':'application/json'};if(TOK)H['X-Admin-Token']=TOK;else if(window.__CFGTK)H['X-Admin-Ticket']=window.__CFGTK;return H})(),body:JSON.stringify({v:G(KM[k])})})
- .then(function(r){if(!r.ok)throw r.status;delete dirty[k];saveDirty();toast('☁ Salvo no servidor')})
- .catch(function(e){toast(e===403?'⚠ Token de admin inválido: não salvou no servidor':'⚠ Falha ao salvar no servidor (tentando de novo na próxima edição)',1)})},700)}
+ fetch('api/config/'+k,{method:'PUT',headers:(function(){var H={'Content-Type':'application/json'};if(TOK)H['X-Admin-Token']=TOK;else if(window.__CFGTK)H['X-Admin-Ticket']=window.__CFGTK;if(BASE[k])H['X-Base-Rev']=BASE[k];return H})(),body:JSON.stringify({v:G(KM[k])})})
+ .then(function(r){return r.json().catch(function(){return{}}).then(function(j){if(!r.ok)throw{st:r.status,j:j};return j})}).then(function(j){delete dirty[k];saveDirty();if(j&&j.rev){BASE[k]=j.rev;saveBase()}toast('☁ Salvo no servidor')})
+ .catch(function(e){var st=(e&&e.st!==undefined)?e.st:e,er=e&&e.j&&e.j.erro;if(st===409)toast(er==='desatualizado'?'⚠ NÃO salvou: outro navegador salvou uma versão mais nova no servidor. Nada foi apagado. Abra o jogo com ?sync=1 (ele baixa um backup das suas edições antes).':er==='protegido'?'⚠ NÃO salvou: o mapa não pode ser apagado. O servidor está intacto.':'⚠ NÃO salvou: isso apagaria parte do mapa. O servidor está intacto e as suas edições continuam neste navegador.',1);else toast(st===403?'⚠ Token de admin inválido: não salvou no servidor':'⚠ Falha ao salvar no servidor (tentando de novo na próxima edição)',1)})},700)}
 var hooked=0;
 function hook(){if(hooked)return;hooked=1;
  SP.setItem=function(k,v){var r=si.apply(this,arguments);if(this===LS)for(var n in KM)if(KM[n]===k)push(n);return r};
