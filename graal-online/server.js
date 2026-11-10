@@ -336,7 +336,7 @@ const invalidate = () => { cache = null };
 function getCache() {
   if (!cache) {
     const body = Buffer.from(JSON.stringify(cfg));
-    cache = { body, gz: zlib.gzipSync(body), etag: '"' + crypto.createHash('sha1').update(body).digest('hex').slice(0, 16) + '"' };
+    cache = { body, gz: zlib.gzipSync(body), rev: revHeader(), etag: '"' + crypto.createHash('sha1').update(body).digest('hex').slice(0, 16) + '"' };
   }
   return cache;
 }
@@ -350,6 +350,89 @@ function flush() {
   } catch (e) { console.error('Falha ao gravar config:', e.message) }
 }
 const scheduleSave = () => { if (!saveT) saveT = setTimeout(flush, 300) };
+
+/* ---------------- histórico de versões + proteção: o mapa NUNCA é apagado ---------------- */
+const PROTECT = new Set(['map', 'tilesets', 'tsol', 'levels', 'doors', 'interior']); // nunca aceitam "apagar" (v = null) vindo do site
+const hashOf = s => crypto.createHash('sha1').update(String(s)).digest('hex').slice(0, 12);
+const revHeader = () => Object.keys(cfg).filter(k => typeof cfg[k] === 'string').map(k => k + '=' + hashOf(cfg[k])).join(',');
+const GAP_MS = { map: 60 * 1000 }; // intervalo mínimo entre cópias automáticas (demais chaves: 5 min)
+let histReady = false;
+async function initHistoryDB() {
+  await pgPool.query('CREATE TABLE IF NOT EXISTS graal_config_history (id BIGSERIAL PRIMARY KEY, config_key TEXT NOT NULL, config_gz BYTEA NOT NULL, hash TEXT NOT NULL, size INTEGER NOT NULL, note TEXT NOT NULL DEFAULT \'\', saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+  await pgPool.query('CREATE INDEX IF NOT EXISTS graal_config_history_key_id ON graal_config_history (config_key, id DESC)');
+  histReady = true;
+  for (const k of Object.keys(cfg)) if (typeof cfg[k] === 'string') await snapshot(k, cfg[k], 'boot', true); // cópia do que já existe ao ligar o servidor
+  console.log('Histórico de versões do mapa ativo.');
+}
+async function snapshot(key, value, note, force) {
+  if (!histReady) throw new Error('histórico indisponível');
+  const h = hashOf(value);
+  const last = (await pgPool.query('SELECT hash, saved_at FROM graal_config_history WHERE config_key = $1 ORDER BY id DESC LIMIT 1', [key])).rows[0];
+  if (last && last.hash === h) return false; // já está guardada
+  if (!force && last && Date.now() - new Date(last.saved_at).getTime() < (GAP_MS[key] || 5 * 60 * 1000)) return false;
+  await pgPool.query('INSERT INTO graal_config_history (config_key, config_gz, hash, size, note) VALUES ($1, $2, $3, $4, $5)', [key, zlib.gzipSync(Buffer.from(value, 'utf8')), h, value.length, note || '']);
+  schedulePrune(key);
+  return true;
+}
+/* poda só as cópias "do meio": mapa = tudo por 48h, 1 por hora até 30 dias, depois 1 por dia PARA SEMPRE; as 5 mais novas, 'boot' e 'restaurar' nunca saem */
+const pruneT = {};
+function schedulePrune(key) { if (pruneT[key]) return; pruneT[key] = setTimeout(() => { delete pruneT[key]; prune(key).catch(e => console.error('Falha ao podar histórico:', e.message)) }, 10 * 60 * 1000) }
+async function prune(key) {
+  const rows = (await pgPool.query('SELECT id, saved_at, note FROM graal_config_history WHERE config_key = $1 ORDER BY id DESC', [key])).rows;
+  const now = Date.now(), seen = new Set(), del = [];
+  const freshH = key === 'map' ? 48 : 6, hourlyH = key === 'map' ? 24 * 30 : 72;
+  rows.forEach((r, i) => {
+    if (i < 5 || r.note === 'boot' || /restaur/.test(r.note || '')) return;
+    const t = new Date(r.saved_at).getTime(), ageH = (now - t) / 3600e3;
+    if (ageH <= freshH) return;
+    const b = ageH <= hourlyH ? 'h' + Math.floor(t / 3600e3) : 'd' + Math.floor(t / 86400e3);
+    if (seen.has(b)) del.push(r.id); else seen.add(b);
+  });
+  if (del.length) await pgPool.query('DELETE FROM graal_config_history WHERE id = ANY($1::bigint[])', [del]);
+}
+function shrinks(key, oldV, newV) { // devolve o motivo se a nova versão ia APAGAR muita coisa da atual
+  let a = null, b = null; try { a = JSON.parse(oldV); b = JSON.parse(newV) } catch (e) { }
+  const n = (o, f) => (o && Array.isArray(o[f])) ? o[f].length : 0;
+  if (key === 'map') { const x = n(a, 'edits'), y = n(b, 'edits'); return x >= 50 && y < x * 0.7 ? 'o mapa ia de ' + x + ' para ' + y + ' edições' : '' }
+  if (key === 'tilesets') {
+    const xo = n(a, 'objs'), yo = n(b, 'objs'), xs = n(a, 'sets'), ys = n(b, 'sets');
+    if (xo >= 10 && yo < xo * 0.7) return 'as peças iam de ' + xo + ' para ' + yo;
+    if (xs >= 3 && ys < xs * 0.7) return 'os tilesets iam de ' + xs + ' para ' + ys;
+    return '';
+  }
+  if (key === 'tsol') { const c = t => (t.match(/1/g) || []).length, x = c(oldV), y = c(newV); return x >= 100 && y < x * 0.5 ? 'a colisão ia de ' + x + ' para ' + y + ' blocos' : '' }
+  return oldV.length > 2000 && newV.length < oldV.length * 0.3 ? 'o conteúdo ia de ' + oldV.length + ' para ' + newV.length + ' caracteres' : '';
+}
+function summ(key, text) {
+  try { const o = JSON.parse(text); if (key === 'map') return (o.edits || []).length + ' edições'; if (key === 'tilesets') return (o.sets || []).length + ' tilesets, ' + (o.objs || []).length + ' peças' } catch (e) { }
+  return text.length + ' caracteres';
+}
+let cfgLock = Promise.resolve();
+const withLock = fn => { const p = cfgLock.then(fn, fn); cfgLock = p.catch(() => { }); return p };
+async function applyConfigWrite(key, v, o) {
+  o = o || {};
+  const old = typeof cfg[key] === 'string' ? cfg[key] : null;
+  if (v === null && PROTECT.has(key) && !o.force) return { ok: false, code: 409, erro: 'protegido', msg: 'Esta configuração não pode ser apagada.' };
+  if (v !== null && v === old) return { ok: true, same: true };
+  if (v !== null && old !== null && !o.force) {
+    if (o.base && o.base !== hashOf(old)) return { ok: false, code: 409, erro: 'desatualizado', msg: 'O servidor tem uma versão mais nova (outro navegador salvou antes).' };
+    const why = shrinks(key, old, v);
+    if (why) return { ok: false, code: 409, erro: 'encolheria', msg: 'Salvamento bloqueado: ' + why + '. O servidor continua com a versão completa.' };
+  }
+  if (old !== null) { // nunca grava por cima sem antes guardar a versão atual
+    try { await snapshot(key, old, o.note || 'antes', !!o.force) }
+    catch (e) { console.error('Falha ao guardar histórico:', key, e.message); return { ok: false, code: 503, erro: 'sem_backup', msg: 'Não consegui guardar a cópia de segurança; nada foi alterado.' } }
+  }
+  try {
+    if (v === null) await pgPool.query('DELETE FROM graal_config WHERE config_key = $1', [key]);
+    else await pgPool.query('INSERT INTO graal_config (config_key, config_value) VALUES ($1, $2) ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()', [key, v]);
+  } catch (e) { console.error('Falha ao gravar configuração no PostgreSQL:', key, e.message); return { ok: false, code: 503, erro: 'falha_banco', msg: 'falha ao salvar no banco' } }
+  if (v === null) delete cfg[key]; else cfg[key] = v;
+  invalidate(); scheduleSave();
+  const msg = JSON.stringify({ t: 'cfg', k: key });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) }); // avisa os jogadores online
+  return { ok: true };
+}
 process.on('SIGTERM', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); adDirty = true; await adFlush(); await pgPool.end(); process.exit(0) });
 process.on('SIGINT', async () => { if (saveT) flush(); if (accT) clearTimeout(accT); await flushACC(); await npFlush(); adDirty = true; await adFlush(); await pgPool.end(); process.exit(0) });
 
@@ -556,7 +639,7 @@ const srv = http.createServer((req, res) => {
 
   if (url === '/graal-config.json' && req.method === 'GET') {
     const c = getCache();
-    const h = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', ETag: c.etag };
+    const h = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', ETag: c.etag, 'X-Cfg-Rev': c.rev };
     if (req.headers['if-none-match'] === c.etag) { res.writeHead(304, h); return res.end() }
     if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) { h['Content-Encoding'] = 'gzip'; res.writeHead(200, h); return res.end(c.gz) }
     res.writeHead(200, h); return res.end(c.body);
@@ -574,17 +657,44 @@ const srv = http.createServer((req, res) => {
       if (size > MAX_BODY) return;
       let v; try { v = JSON.parse(Buffer.concat(chunks).toString('utf8')).v } catch (e) { return send(res, 400, { ok: false, erro: 'JSON inválido' }) }
       if (v !== null && !(typeof v === 'string' && KEYS[key](v))) return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
-      try {
-        if (v === null) await pgPool.query('DELETE FROM graal_config WHERE config_key = $1', [key]);
-        else await pgPool.query('INSERT INTO graal_config (config_key, config_value) VALUES ($1, $2) ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()', [key, v]);
-      } catch (e) { console.error('Falha ao gravar configuração no PostgreSQL:', key, e.message); return send(res, 503, { ok: false, erro: 'falha ao salvar no banco' }); }
-      if (v === null) delete cfg[key]; // null = o editor apagou/restaurou o padrão
-      else cfg[key] = v;
-      invalidate(); scheduleSave();
-      const msg = JSON.stringify({ t: 'cfg', k: key });
-      wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) }); // avisa os jogadores online
-      send(res, 200, { ok: true, etag: getCache().etag });
+      const force = String(req.headers['x-force-write'] || '') === 'sim' && !!ADMIN && String(req.headers['x-admin-token'] || '') === ADMIN; // só o dono, com o token, pode passar por cima das proteções
+      const r = await withLock(() => applyConfigWrite(key, v, { base: String(req.headers['x-base-rev'] || ''), force }));
+      if (!r.ok) return send(res, r.code, { ok: false, erro: r.erro, msg: r.msg });
+      send(res, 200, { ok: true, etag: getCache().etag, rev: typeof cfg[key] === 'string' ? hashOf(cfg[key]) : '' });
     });
+    return;
+  }
+
+  /* histórico e restauração (admin): GET /api/config-history/:chave  ·  GET /api/config-history/:chave/:id  ·  POST /api/config-restore/:chave/:id */
+  const hm = url.match(/^\/api\/config-(history|restore)\/([a-z]+)(?:\/(\d+))?$/);
+  if (hm) {
+    if (!isAdmin(req)) { req.resume(); return send(res, 403, { ok: false, erro: 'token inválido' }) }
+    const act = hm[1], hkey = hm[2], hid = hm[3];
+    if (!KEYS[hkey]) return send(res, 404, { ok: false, erro: 'chave desconhecida' });
+    (async () => {
+      try {
+        if (act === 'history' && req.method === 'GET' && !hid) {
+          const lim = Math.max(1, Math.min(200, +(new URL(req.url, 'http://x').searchParams.get('limite')) || 40));
+          const rows = (await pgPool.query('SELECT id, saved_at, size, note, config_gz FROM graal_config_history WHERE config_key = $1 ORDER BY id DESC LIMIT $2', [hkey, lim])).rows;
+          const atual = typeof cfg[hkey] === 'string' ? { rev: hashOf(cfg[hkey]), info: summ(hkey, cfg[hkey]) } : null;
+          return send(res, 200, { ok: true, chave: hkey, atual, versoes: rows.map(r => ({ id: String(r.id), em: new Date(r.saved_at).toISOString(), tamanho: r.size, nota: r.note, info: summ(hkey, zlib.gunzipSync(r.config_gz).toString('utf8')) })) });
+        }
+        if (act === 'history' && req.method === 'GET' && hid) {
+          const r = (await pgPool.query('SELECT config_gz FROM graal_config_history WHERE config_key = $1 AND id = $2', [hkey, hid])).rows[0];
+          if (!r) return send(res, 404, { ok: false, erro: 'versão não encontrada' });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return res.end(zlib.gunzipSync(r.config_gz));
+        }
+        if (act === 'restore' && req.method === 'POST' && hid) {
+          const r = (await pgPool.query('SELECT config_gz FROM graal_config_history WHERE config_key = $1 AND id = $2', [hkey, hid])).rows[0];
+          if (!r) return send(res, 404, { ok: false, erro: 'versão não encontrada' });
+          const text = zlib.gunzipSync(r.config_gz).toString('utf8');
+          const w = await withLock(() => applyConfigWrite(hkey, text, { force: true, note: 'antes-de-restaurar' }));
+          if (!w.ok) return send(res, w.code, { ok: false, erro: w.erro, msg: w.msg });
+          return send(res, 200, { ok: true, restaurado: hid, info: summ(hkey, text) });
+        }
+        send(res, 405, { ok: false, erro: 'método não suportado' });
+      } catch (e) { console.error('histórico:', e.message); send(res, 500, { ok: false, erro: 'falha no histórico' }) }
+    })();
     return;
   }
 
@@ -998,7 +1108,7 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initConfigDB(), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
+Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
