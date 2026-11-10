@@ -40,10 +40,22 @@ const KEYS = {
 fs.mkdirSync(DATA_DIR, { recursive: true });
 let cfg = {};
 (function load() {
-  for (const f of [CFG_FILE, BAK_FILE, path.join(__dirname, 'public', 'graal-config.json')]) { // o último aproveita um "Exportar tudo" antigo
-    try { const o = JSON.parse(fs.readFileSync(f, 'utf8')); if (o && typeof o === 'object') { cfg = o; console.log('Config carregada de', f); return } } catch (e) { }
+  for (const f of [CFG_FILE, BAK_FILE, path.join(__dirname, 'public', 'graal-config.json')]) { // cópia local; o PostgreSQL prevalece na inicialização
+    try { const o = JSON.parse(fs.readFileSync(f, 'utf8')); if (o && typeof o === 'object') { cfg = o; console.log('Config local carregada de', f); return } } catch (e) { }
   }
 })();
+async function initConfigDB() {
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS graal_config (config_key TEXT PRIMARY KEY, config_value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  const r = await pgPool.query('SELECT config_key, config_value FROM graal_config');
+  if (r.rowCount) {
+    cfg = Object.fromEntries(r.rows.map(row => [row.config_key, row.config_value]));
+    console.log('Configurações carregadas do PostgreSQL:', r.rowCount);
+    return;
+  }
+  const entries = Object.entries(cfg).filter(([key, value]) => KEYS[key] && (value === null || (typeof value === 'string' && KEYS[key](value))));
+  for (const [key, value] of entries) await pgPool.query('INSERT INTO graal_config (config_key, config_value) VALUES ($1, $2) ON CONFLICT (config_key) DO NOTHING', [key, value]);
+  if (entries.length) console.log('Config local migrada para PostgreSQL:', entries.length);
+}
 
 /* ---------------- cargos: admins e banidos (persistentes) ---------------- */
 const ADM_FILE = path.join(DATA_DIR, 'graal-admins.json');
@@ -558,12 +570,16 @@ const srv = http.createServer((req, res) => {
     if (!isAdmin(req)) { req.resume(); return send(res, 403, { ok: false, erro: 'token inválido' }) }
     let size = 0; const chunks = [];
     req.on('data', d => { size += d.length; if (size > MAX_BODY) { send(res, 413, { ok: false, erro: 'grande demais' }); req.destroy() } else chunks.push(d) });
-    req.on('end', () => {
+    req.on('end', async () => {
       if (size > MAX_BODY) return;
       let v; try { v = JSON.parse(Buffer.concat(chunks).toString('utf8')).v } catch (e) { return send(res, 400, { ok: false, erro: 'JSON inválido' }) }
-      if (v === null) cfg[key] = null; // null = o editor apagou/restaurou o padrão
-      else if (typeof v === 'string' && KEYS[key](v)) cfg[key] = v;
-      else return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
+      if (v !== null && !(typeof v === 'string' && KEYS[key](v))) return send(res, 400, { ok: false, erro: 'valor inválido para ' + key });
+      try {
+        if (v === null) await pgPool.query('DELETE FROM graal_config WHERE config_key = $1', [key]);
+        else await pgPool.query('INSERT INTO graal_config (config_key, config_value) VALUES ($1, $2) ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()', [key, v]);
+      } catch (e) { console.error('Falha ao gravar configuração no PostgreSQL:', key, e.message); return send(res, 503, { ok: false, erro: 'falha ao salvar no banco' }); }
+      if (v === null) delete cfg[key]; // null = o editor apagou/restaurou o padrão
+      else cfg[key] = v;
       invalidate(); scheduleSave();
       const msg = JSON.stringify({ t: 'cfg', k: key });
       wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg) }); // avisa os jogadores online
@@ -982,7 +998,7 @@ setInterval(() => {
   wss.clients.forEach(c => sendTo(c, msg));
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
+Promise.all([initConfigDB(), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
