@@ -6154,7 +6154,7 @@ if(window.__MSQ){const q=window.__MSQ;window.__MSQ=null;q.forEach(window.MSY.net
 <script>
 /* ===== CHAT GLOBAL: botão 💬, histórico rolável, não lidas. Tudo que se escreve vai para todos os jogadores online. ===== */
 (()=>{
-const LOG=[],MAX=100,seen=new Set();let isOpen=0,unread=0,view=0; /* view=1: janela aberta só para ler (Tab), sem cursor no campo e sem aparecer "digitando" */
+const LOG=[],MAX=100,seen=new Set();let channel='global',isOpen=0,unread=0,view=0; /* view=1: janela aberta só para ler (Tab), sem cursor no campo e sem aparecer "digitando" */
 const css=document.createElement('style');css.textContent=
 '#gch-b{position:fixed;left:8px;top:calc(env(safe-area-inset-top,0px) + 92px);z-index:9998;width:40px;height:40px;border-radius:50%;border:2px solid #5a4020;background:rgba(30,22,12,.85);color:#fff;font-size:19px;line-height:1;cursor:pointer;display:none;padding:0}'+
 'body.hud-on #gch-b{display:block}body.hud-on.gch-open #gch-b{display:none}'+
@@ -6167,23 +6167,34 @@ const css=document.createElement('style');css.textContent=
 '#gch-f{display:flex;gap:4px;padding:5px;border-top:1px solid #5a4020}'+
 '#gch-f input{flex:1;min-width:0;padding:6px 8px;font:14px Verdana,Arial,sans-serif;border:1px solid #5a4020;border-radius:5px;background:rgba(0,0,0,.4);color:#fff;outline:none}'+
 '#gch-f button{padding:0 12px;border:0;border-radius:5px;background:#5a4020;color:#fff;font-size:15px;cursor:pointer}';
+css.textContent += '#gch-tabs{display:flex;gap:4px;padding:4px 6px;border-bottom:1px solid #ffffff30}#gch-tabs button{flex:1;padding:5px;border:1px solid #ffffff40;border-radius:4px;background:#25282d;color:#fff;cursor:pointer}#gch-tabs button[aria-selected="true"]{background:#626975;border-color:#ddd}';
 document.head.appendChild(css);
 const b=document.createElement('button');b.id='gch-b';b.type='button';b.title='Chat global';b.textContent='💬';
 const bd=document.createElement('i');b.appendChild(bd);
 const pn=document.createElement('div');pn.id='gch-p';
-pn.innerHTML='<header><span>💬 Chat global</span><button type="button" id="gch-x" aria-label="Fechar">✕</button></header><div id="gch-l"></div><form id="gch-f" autocomplete="off"><input maxlength="100" placeholder="Escreva para todos..." enterkeyhint="send"><button type="submit">➤</button></form>';
+pn.innerHTML='<header><span>💬 Chat global</span><button type="button" id="gch-x" aria-label="Fechar">✕</button></header><nav id="gch-tabs" role="tablist" aria-label="Canal do chat"><button type="button" role="tab" data-channel="global" aria-selected="true">Geral</button><button type="button" role="tab" data-channel="local" aria-selected="false">Local</button></nav><div id="gch-l"></div><form id="gch-f" autocomplete="off"><input maxlength="100" placeholder="Escreva para todos..." enterkeyhint="send"><button type="submit">➤</button></form>';
 document.body.append(b,pn);
 const L=pn.querySelector('#gch-l'),F=pn.querySelector('#gch-f'),I=F.querySelector('input');
 const fmt=t=>{const d=new Date(t);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+function setChannel(value){
+ channel=value==='local'?'local':'global';
+ pn.querySelector('header span').textContent=channel==='local'?'💬 Chat local':'💬 Chat geral';
+ I.placeholder=channel==='local'?'Escreva para quem está perto...':'Escreva para todos...';
+ pn.querySelectorAll('[data-channel]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.channel===channel)));
+ Array.from(L.children).forEach(el=>{el.style.display=el.dataset.channel===channel?'':'none'});
+ scrollEnd();if(isOpen&&!view)I.focus();
+}
+pn.querySelectorAll('[data-channel]').forEach(el=>el.addEventListener('click',()=>setChannel(el.dataset.channel)));
 function badge(){bd.style.display=unread?'block':'none';bd.textContent=unread>99?'99+':unread}
 function scrollEnd(){L.scrollTop=L.scrollHeight}
 function add(m){
- const at=+m.at||Date.now(),nm=String(m.nm||'?').slice(0,12),x=String(m.x||'').slice(0,100),key=at+'|'+nm+'|'+x;
+ const at=+m.at||Date.now(),nm=String(m.nm||'?').slice(0,12),x=String(m.x||'').slice(0,100),ch=m.ch==='local'?'local':'global',key=ch+'|'+at+'|'+nm+'|'+x;
  if(seen.has(key))return;seen.add(key);
- LOG.push({at,nm,x});
+ LOG.push({at,nm,x,ch});
  const near=L.scrollHeight-L.scrollTop-L.clientHeight<40,d=document.createElement('div'),sm=document.createElement('small'),nb=document.createElement('b');
  sm.textContent=fmt(at);nb.textContent=(m.r>0?'★ ':'')+nm+':';if(m.r>0)nb.className='adm';
  if(window.MPNET&&m.id!=null&&m.id===MPNET.myId())d.className='me';
+ d.dataset.channel=ch;d.style.display=ch===channel?'':'none';
  d.append(sm,nb,document.createTextNode(' '+x));L.appendChild(d);
  if(LOG.length>MAX){LOG.shift();if(L.firstChild)L.removeChild(L.firstChild)}
  if(isOpen){if(near)scrollEnd()}else if(!m.hist&&!(m.id!=null&&window.MPNET&&m.id===MPNET.myId())){unread++;badge()}
@@ -6196,12 +6207,13 @@ b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();open(windo
 pn.querySelector('#gch-x').addEventListener('click',e=>{e.preventDefault();close()});
 F.addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();
  const v=I.value.trim();if(!v)return;
- if(window.MPNET&&MPNET.live()){MPNET.send({t:'c',x:v});I.value=''}
+ if(window.MPNET&&MPNET.live()){MPNET.send({t:channel==='local'?'cl':'c',x:v});I.value=''}
  else{try{MPNET.note('sem conexão com o servidor')}catch(_){}}
  I.focus()});
 ['keydown','keyup','keypress'].forEach(ev=>I.addEventListener(ev,e=>{e.stopPropagation();if(ev==='keydown'&&e.key==='Escape')close()}));
 ['pointerdown','touchstart'].forEach(ev=>pn.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
 I.addEventListener('focus',()=>{if(view){view=0;tell()}}); /* clicou no campo: passou a digitar */
+setChannel(channel);
 window.GCH={add,open,close,typing:()=>isOpen&&!view,shown:()=>isOpen,view:()=>open(1)};
 /* janela de chat MÓVEL: arraste pelo título (mouse ou dedo); a posição fica salva neste navegador e sempre volta para dentro da tela */
 (()=>{const H=pn.querySelector('header'),KP='graal_chat_pos_v1';H.style.cursor='move';H.style.touchAction='none';H.style.userSelect='none';H.style.webkitUserSelect='none';H.title='Arraste para mover';
