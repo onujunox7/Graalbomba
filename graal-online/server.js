@@ -795,6 +795,15 @@ setInterval(electHost, 1000);
 /* itens no chão (Glims): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
 const DROPS = new Map();
 setInterval(() => { const n = Date.now(); for (const [k, a] of DROPS) if (a[5] && a[5] < n) DROPS.delete(k) }, 5000); // corações/bombas/flechas somem em 20s
+const LOCAL_CHAT_RADIUS = 320;
+function canHearLocal(sender, receiver) {
+  if (!receiver || !receiver.ok || !!sender.in !== !!receiver.in) return false;
+  // Os interiores compartilham coordenadas; a porta diferencia as casas.
+  if (sender.in && (Math.abs(sender.x - receiver.x) > 16 || Math.abs(sender.y - receiver.y) > 16)) return false;
+  const ax = sender.in ? sender.ix : sender.x, ay = sender.in ? sender.iy : sender.y;
+  const bx = receiver.in ? receiver.ix : receiver.x, by = receiver.in ? receiver.iy : receiver.y;
+  return [ax, ay, bx, by].every(Number.isFinite) && Math.hypot(ax - bx, ay - by) <= LOCAL_CHAT_RADIUS;
+}
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 /* v16: igual a others(), mas só para quem está no mesmo espaço (mundo aberto ou dentro de casa): bombas/flechas/fogo de dentro de casa não aparecem no mundo e vice-versa */
@@ -1079,12 +1088,13 @@ wss.on('connection', (ws, req) => {
       if (!m.e || typeof m.e !== 'object' || d.length > 20000) return;
       p.e = { h: m.e.h, s: m.e.s, d: m.e.d };
       if (!p.hid) others(id, { t: 'q', id, e: p.e });
-    } else if (m.t === 'c') {
+    } else if (m.t === 'c' || m.t === 'cl') {
       const x = String(m.x || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100), now = Date.now();
       if (!x || p.muted || now - p.lastChat < 500) return; p.lastChat = now;
-      const at = now, r = p.role | 0; CHAT.push({ nm: p.nm, x, r, at }); if (CHAT.length > 60) CHAT.shift();
-      const out = JSON.stringify({ t: 'c', id, nm: p.nm, x, r, at });
-      wss.clients.forEach(c => sendTo(c, out)); // inclusive o remetente (o cliente espera o eco)
+      const at = now, r = p.role | 0, local = m.t === 'cl', ch = local ? 'local' : 'global';
+      if (!local) { CHAT.push({ nm: p.nm, x, r, at, ch }); if (CHAT.length > 60) CHAT.shift(); }
+      const out = JSON.stringify({ t: 'c', id, nm: p.nm, x, r, at, ch });
+      wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
   ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
