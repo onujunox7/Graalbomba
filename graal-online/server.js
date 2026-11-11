@@ -877,49 +877,20 @@ function cancelSparCountdown(pendingId) {
   clearTimeout(pending.timer);
   SPAR_PENDING.delete(String(pendingId));
   for (const id of pending.players) {
-    const q = P.get(id);
-    if (q && q.sparPending === pending.id) { q.sparPending = null; sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length }); }
+    const q = P.get(id), back = pending.returns[id];
+    if (!q || q.sparPending !== pending.id) continue;
+    q.sparPending = null; q.x = back.x; q.y = back.y; q.in = back.in ? 1 : 0;
+    if (back.in) { q.ix = back.ix; q.iy = back.iy; q.ia = back.ia } else { q.ix = undefined; q.iy = undefined; q.ia = undefined }
+    sendTo(q.ws, { t: 'spm', s: 'end', r: 'cancelled', x: back.in ? back.ix : back.x, y: back.in ? back.iy + 80000 : back.y, in: back.in ? 1 : 0, ix: back.in ? back.ix : undefined, iy: back.in ? back.iy : undefined, f: back.f });
+    sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
   }
 }
 function startSpar(a, b, sparConfig) {
   if (a.sparPending || b.sparPending) return;
-  const id = 'count-' + String(sparNextId++);
-  const center = sparConfig && Number.isFinite(+sparConfig.x) && Number.isFinite(+sparConfig.y)
-    ? { x: +sparConfig.x + (+sparConfig.w / 2), y: +sparConfig.y + (+sparConfig.h / 2) }
-    : { x: SPAR_ARENA.x + SPAR_ARENA.w / 2, y: SPAR_ARENA.y + SPAR_ARENA.h / 2 };
-  const pending = { id, players: [a.id, b.id], timer: null };
-  SPAR_PENDING.set(id, pending);
-  for (const q of [a, b]) {
-    q.sparPending = id;
-    sendTo(q.ws, { t: 'spm', s: 'countdown', m: id, x: center.x, y: center.y, ms: 1800 });
-    sendTo(q.ws, { t: 'bo', sx: center.x, sy: center.y, tx: center.x, ty: center.y, fl: 0, bt: 1.8, spar: 1 });
-  }
-  pending.timer = setTimeout(() => {
-    const current = SPAR_PENDING.get(id);
-    if (!current) return;
-    SPAR_PENDING.delete(id);
-    for (const pid of current.players) {
-      const q = P.get(pid);
-      if (q && q.sparPending === id) q.sparPending = null;
-    }
-    const first = P.get(a.id), second = P.get(b.id);
-    if (first === a && second === b && a.ws.readyState === 1 && b.ws.readyState === 1) {
-      startSparNow(a, b, sparConfig);
-    } else {
-      for (const q of [a, b]) if (P.get(q.id) === q) sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
-    }
-  }, 1800);
-}
-function startSparNow(a, b, sparConfig) {
-  const id = String(sparNextId++);
-  const players = [a, b];
-  const returns = {};
+  const id = 'count-' + String(sparNextId++), players = [a, b], returns = {};
   for (const q of players) returns[q.id] = { x: q.x, y: q.y, in: !!q.in, ix: q.ix, iy: q.iy, ia: q.ia, f: (/(Up|Down|Left|Right)$/.exec(String(q.in ? q.ia : q.an || '')) || [])[1] || 'Down' };
-  const match = { id, players: players.map(q => q.id), returns, done: false };
-  SPAR_MATCHES.set(id, match);
   const customSpawns = !!sparConfig && Array.isArray(sparConfig.spawns) && sparConfig.spawns.length === 2 && sparConfig.spawns.every(Boolean);
-  const pickSpawn = (area, fallback) => {
-    if (!area) return fallback;
+  const pickSpawn = area => {
     const marginX = Math.min(20, Math.floor(area.w / 4)), marginY = Math.min(20, Math.floor(area.h / 4));
     const x0 = area.x + marginX, y0 = area.y + marginY;
     const w = Math.max(1, area.w - marginX * 2 - 1), h = Math.max(1, area.h - marginY * 2 - 1);
@@ -932,6 +903,33 @@ function startSparNow(a, b, sparConfig) {
     { x: SPAR_ARENA.x + 84, y: SPAR_ARENA.y + 112, f: 'Right' },
     { x: SPAR_ARENA.x + 204, y: SPAR_ARENA.y + 112, f: 'Left' }
   ];
+  const center = sparConfig && Number.isFinite(+sparConfig.x) && Number.isFinite(+sparConfig.y)
+    ? { x: +sparConfig.x + (+sparConfig.w / 2), y: +sparConfig.y + (+sparConfig.h / 2) }
+    : { x: SPAR_ARENA.x + SPAR_ARENA.w / 2, y: SPAR_ARENA.y + SPAR_ARENA.h / 2 };
+  const pending = { id, players: players.map(q => q.id), returns, spawns, timer: null };
+  SPAR_PENDING.set(id, pending);
+  for (let i = 0; i < players.length; i++) {
+    const q = players[i], sp = spawns[i], back = returns[q.id];
+    q.sparPending = id;
+    if (back.in) { q.in = 1; q.ix = sp.x; q.iy = sp.y - 80000; q.ia = 'Idle_' + sp.f }
+    else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
+    sendTo(q.ws, { t: 'spm', s: 'countdown', m: id, x: sp.x, y: sp.y, f: sp.f, center_x: center.x, center_y: center.y, custom: customSpawns ? 1 : 0, in: back.in ? 1 : 0, ix: back.in ? sp.x : undefined, iy: back.in ? sp.y - 80000 : undefined, ms: 1800 });
+    sendTo(q.ws, { t: 'bo', sx: center.x, sy: center.y + 6, tx: center.x, ty: center.y + 6, fl: 0, bt: 1.8, spar: 1 });
+  }
+  pending.timer = setTimeout(() => {
+    if (SPAR_PENDING.get(id) !== pending) return;
+    SPAR_PENDING.delete(id);
+    for (const pid of pending.players) { const q = P.get(pid); if (q && q.sparPending === id) q.sparPending = null; }
+    if (P.get(a.id) === a && P.get(b.id) === b && a.ws.readyState === 1 && b.ws.readyState === 1) startSparNow(a, b, sparConfig, spawns, returns);
+    else for (const q of players) if (P.get(q.id) === q) sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
+  }, 1800);
+}
+function startSparNow(a, b, sparConfig, spawns, returns) {
+  const id = String(sparNextId++);
+  const players = [a, b];
+  const match = { id, players: players.map(q => q.id), returns, done: false };
+  SPAR_MATCHES.set(id, match);
+  const customSpawns = !!sparConfig && Array.isArray(sparConfig.spawns) && sparConfig.spawns.length === 2 && sparConfig.spawns.every(Boolean);
   for (let i = 0; i < players.length; i++) {
     const q = players[i], other = players[1 - i], sp = spawns[i];
     q.sparAreaConfig = null;
