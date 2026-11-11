@@ -906,6 +906,7 @@ function startSpar(a, b, sparConfig) {
   const center = sparConfig && Number.isFinite(+sparConfig.x) && Number.isFinite(+sparConfig.y)
     ? { x: +sparConfig.x + (+sparConfig.w / 2), y: +sparConfig.y + (+sparConfig.h / 2) }
     : { x: SPAR_ARENA.x + SPAR_ARENA.w / 2, y: SPAR_ARENA.y + SPAR_ARENA.h / 2 };
+  const countdownMs = 2000;
   const pending = { id, players: players.map(q => q.id), returns, spawns, timer: null };
   SPAR_PENDING.set(id, pending);
   for (let i = 0; i < players.length; i++) {
@@ -913,8 +914,8 @@ function startSpar(a, b, sparConfig) {
     q.sparPending = id;
     if (back.in) { q.in = 1; q.ix = sp.x; q.iy = sp.y - 80000; q.ia = 'Idle_' + sp.f }
     else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
-    sendTo(q.ws, { t: 'spm', s: 'countdown', m: id, x: sp.x, y: sp.y, f: sp.f, center_x: center.x, center_y: center.y, custom: customSpawns ? 1 : 0, in: back.in ? 1 : 0, ix: back.in ? sp.x : undefined, iy: back.in ? sp.y - 80000 : undefined, ms: 1800 });
-    sendTo(q.ws, { t: 'bo', sx: center.x, sy: center.y + 6, tx: center.x, ty: center.y + 6, fl: 0, bt: 1.8, spar: 1 });
+    sendTo(q.ws, { t: 'spm', s: 'countdown', m: id, x: sp.x, y: sp.y, f: sp.f, center_x: center.x, center_y: center.y, custom: customSpawns ? 1 : 0, in: back.in ? 1 : 0, ix: back.in ? sp.x : undefined, iy: back.in ? sp.y - 80000 : undefined, ms: countdownMs });
+    sendTo(q.ws, { t: 'bo', sx: center.x, sy: center.y - 10, tx: center.x, ty: center.y - 10, fl: 0, bt: countdownMs / 1000, spar: 1 });
   }
   pending.timer = setTimeout(() => {
     if (SPAR_PENDING.get(id) !== pending) return;
@@ -922,7 +923,7 @@ function startSpar(a, b, sparConfig) {
     for (const pid of pending.players) { const q = P.get(pid); if (q && q.sparPending === id) q.sparPending = null; }
     if (P.get(a.id) === a && P.get(b.id) === b && a.ws.readyState === 1 && b.ws.readyState === 1) startSparNow(a, b, sparConfig, spawns, returns);
     else for (const q of players) if (P.get(q.id) === q) sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
-  }, 1800);
+  }, countdownMs);
 }
 function startSparNow(a, b, sparConfig, spawns, returns) {
   const id = String(sparNextId++);
