@@ -842,7 +842,7 @@ function cleanSparConfig(value) {
   return { areas };
 }
 function sparArea() { try { return cleanSparConfig(JSON.parse(cfg.spararea || 'null')) || { areas: [], spawns: [null, null] } } catch (_) { return { areas: [], spawns: [null, null] } } }
-function findSparArea(p) { const x = p.in ? +p.ix : +p.x, y = p.in ? +p.iy : +p.y; if (!Number.isFinite(x) || !Number.isFinite(y)) return null; return sparArea().areas.find(a => x >= a.x && y >= a.y && x < a.x + a.w && y < a.y + a.h) || null }
+function findSparArea(p) { const x = p.in ? +p.ix : +p.x, y = p.in ? +p.iy + 80000 : +p.y; if (!Number.isFinite(x) || !Number.isFinite(y)) return null; return sparArea().areas.find(a => x >= a.x && y >= a.y && x < a.x + a.w && y < a.y + a.h) || null }
 function inSparArea(p) { return !!findSparArea(p) }
 function sparQueueState() {
   const n = SPAR_QUEUE.length;
@@ -867,7 +867,7 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
     q.phFrom = 0; q.phT = 0;
     const back = match.returns[id];
     q.x = back.x; q.y = back.y; q.in = back.in ? 1 : 0; if (back.in) { q.ix = back.ix; q.iy = back.iy; q.ia = back.ia } else { q.ix = undefined; q.iy = undefined; q.ia = undefined } q.hp = q.hm; q.mt = 0; q.cy = 0; q.ac = 0;
-    sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.in ? back.ix : back.x, y: back.in ? back.iy : back.y, f: back.f });
+    sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.in ? back.ix : back.x, y: back.in ? back.iy + 80000 : back.y, in: back.in ? 1 : 0, ix: back.in ? back.ix : undefined, iy: back.in ? back.iy : undefined, f: back.f });
   }
 }
 function startSpar(a, b, sparConfig) {
@@ -896,8 +896,8 @@ function startSpar(a, b, sparConfig) {
     const q = players[i], other = players[1 - i], sp = spawns[i];
     q.sparAreaConfig = null;
     q.spar = id; q.mt = 0; q.cy = 0; q.hp = q.hm; q.ac = 0; q.uT = Date.now();
-    if (returns[q.id].in) { q.in = 1; q.ix = sp.x; q.iy = sp.y; q.ia = 'Idle_' + sp.f } else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
-    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, in: returns[q.id].in ? 1 : 0, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
+    if (returns[q.id].in) { q.in = 1; q.ix = sp.x; q.iy = sp.y - 80000; q.ia = 'Idle_' + sp.f } else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
+    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, in: returns[q.id].in ? 1 : 0, ix: returns[q.id].in ? sp.x : undefined, iy: returns[q.id].in ? sp.y - 80000 : undefined, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
   }
 }
 function requestSpar(p, join) {
