@@ -1030,7 +1030,7 @@ for(const k in IMGS){const i=new Image();i.onload=done;i.onerror=()=>{loadErr=1;
 fit();addEventListener('resize',fit);loadScr();
 cv.addEventListener('pointerdown',e=>{if(!shop)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*VW-(VW-384)/2,y=(e.clientY-r.top)/r.height*VH;if(x<56||x>328||y<70||y>206){shop=0;return}const i=Math.floor((y-96)/26);if(i>=0&&i<3&&(y-96)%26<22)buy(i)});
 const bits=Uint8Array.from(atob(D.solid),c=>c.charCodeAt(0));
- window.GSPAR=window.GSPAR||{active:false,waiting:false,ending:false,opponent:-1,origin:{x:512,y:512},back:null,button:null};
+  window.GSPAR=window.GSPAR||{active:false,waiting:false,ending:false,opponent:-1,origin:{x:512,y:512},back:null,button:null,area:null,draftArea:null,editingArea:false};
  function solidAt(x,y){const sp=window.GSPAR;if(sp&&sp.active){const o=sp.origin;return x<o.x+8||x>o.x+280||y<o.y+8||y>o.y+216}const cx=Math.floor(x/8),cy=Math.floor(y/8);if(cx<0||cy<0||cx>=D.W||cy>=D.H)return true;const k=cy*D.W+cx;return SO?SO[k]:(bits[k>>3]>>(k&7))&1}
 /* hitbox = [meia-largura, meia-altura, quanto o centro fica acima do pé]. Jogador: caixa 12x5 só nos pés (de y-3 até y+2)
    (bate com o sprite). Amostra a cada <=4px (célula = 8px) para não atravessar objetos finos */
@@ -2065,6 +2065,12 @@ function edUI(){
  btn(p2,'↔ Espelhar <kbd>F</kbd>',()=>{EDfx=!EDfx;edRefresh()},'Espelha a peça na horizontal',{id:'fx'});
  btn(p2,'↕ Inverter <kbd>V</kbd>',()=>{EDfy=!EDfy;edRefresh()},'Vira a peça de cabeça para baixo',{id:'fy'});
  btn(p2,'↕ Ordem por Y',edToggleYSort,'Ligado: a peça que está mais embaixo no mapa fica por cima das de cima (árvores, casas). Desligado: a última colocada fica por cima.',{id:'ys'});
+ const spa=sec('spar','Área do botão de spar'),spb=el('div','pills','',spa);
+ el('div','lbl','Arraste no mapa para marcar a região. O botão Spar aparece para todos os jogadores dentro dela.',spa);
+ btn(spb,'▭ Marcar área',()=>{GSPAR.editingArea=true;ms.down=0;edMsg('Arraste no mapa para selecionar a área do botão de spar.')},'Selecione no mapa a região compartilhada');
+ btn(spb,'☁ Salvar para todos',()=>{const a=GSPAR.draftArea;if(!a){edMsg('Marque uma área antes de salvar.');return}if(!MPNET.live()){edMsg('Conecte-se ao servidor para salvar a área.');return}MPNET.send({t:'spa',a});edMsg('Enviando a área do spar para o servidor…')},'Salva a área no servidor para todos os jogadores');
+ btn(spb,'✖ Remover área',()=>{if(!MPNET.live()){edMsg('Conecte-se ao servidor para alterar a área.');return}if(confirm('Remover a área compartilhada do botão de spar?'))MPNET.send({t:'spa',a:null})},'Esconde o botão de spar para todos até uma nova área ser marcada');
+ const spaInfo=el('div','lbl','',spa);spaInfo.id='edSparInfo';
  const s3=sec('cur','Peça selecionada'),cb=el('div','curbox','',s3),pv=el('canvas','','',cb);pv.id='edprev';pv.width=pv.height=96;el('div','curinfo','',cb).id='edcur';
  const ca=el('div','pills','',s3);btn(ca,'✏ Renomear',edRename,'Só peças personalizadas');btn(ca,'🙈 Ocultar',edHideCur,'Tira da paleta (dá para mostrar de novo)');btn(ca,'🌿 Cortável',edToggleBush,'Marca/desmarca a peça (2×2) como arbusto que dá para cortar com espada, bomba e cavalo');
  const s4=sec('pal','Paleta'),lv=el('div','pal','',s4);
@@ -2119,7 +2125,8 @@ function edIdx(){ /* registra a seleção ao vivo (recorte ou cópia do mapa) na
 }
 function edBrush(){const o=edCur().o,x=snp(ms.tx,o.tw),y=snp(ms.ty,o.th);if(x===ms.lx&&y===ms.ly)return;ms.lx=x;ms.ly=y;edAdd({k:'o',i:edIdx(),x,y,fx:EDfx?1:0,fy:EDfy?1:0})}
 function edArea(m){const bs=EDbs,x=ms.tx-(bs>>1),y=ms.ty-(bs>>1);if(x===ms.lx&&y===ms.ly)return;ms.lx=x;ms.ly=y;edAdd({k:m==='erase'?'e':m==='void'?'v':'s',x,y,w:bs,h:bs,v:m==='solid'?1:0,g:m==='erase'?1:0})}
-function edStart(){
+ function edStart(){
+  if(GSPAR.editingArea){ms.ax=ms.bx=ms.tx;ms.ay=ms.by=ms.ty;return}
  const m=edMode();ms.lx=ms.ly=-1e9;
  if(m==='copy'||m==='cut'){ms.ax=ms.bx=ms.tx;ms.ay=ms.by=ms.ty;return}
  if(m==='pick'){edPick();return}
@@ -2129,14 +2136,16 @@ function edStart(){
  else if(m==='rect'){const o=c.o;ms.ax=ms.bx=snp(ms.tx,o.tw);ms.ay=ms.by=snp(ms.ty,o.th)}
  else edArea(m);
 }
-function edDrag(){
+ function edDrag(){
+  if(GSPAR.editingArea){ms.bx=ms.tx;ms.by=ms.ty;return}
  const m=edMode();
  if(m==='copy'||m==='cut'){ms.bx=ms.tx;ms.by=ms.ty;return}
  if(m==='pick')return;
  if(m==='brush'){if(edCur())edBrush()}else if(m==='rect'){const c=edCur();if(!c)return;const o=c.o;ms.bx=snp(ms.tx,o.tw);ms.by=snp(ms.ty,o.th)}
  else if(m!=='stamp')edArea(m);
 }
-function edEnd(){
+ function edEnd(){
+  if(GSPAR.editingArea){const x=Math.min(ms.ax,ms.bx),y=Math.min(ms.ay,ms.by);GSPAR.draftArea={x:x*8,y:y*8,w:(Math.abs(ms.bx-ms.ax)+1)*8,h:(Math.abs(ms.by-ms.ay)+1)*8};GSPAR.editingArea=false;edMsg('Área marcada: '+GSPAR.draftArea.w/8+'×'+GSPAR.draftArea.h/8+' tiles. Clique em “Salvar para todos”.');edUI();return}
  const m=edMode();if(ms.down!==1)return;
  if(m==='rect'){const c=edCur();if(!c)return;const o=c.o,cols=Math.abs(ms.bx-ms.ax)/o.tw+1,rows=Math.abs(ms.by-ms.ay)/o.th+1;
   if(cols*rows<=2500)edAdd({k:'f',i:edIdx(),x:Math.min(ms.ax,ms.bx),y:Math.min(ms.ay,ms.by),cols,rows,fx:EDfx?1:0,fy:EDfy?1:0})}
@@ -2170,6 +2179,9 @@ function edDrawCol(cx0,cy0){
  const w=g.measureText(tx).width+10;g.fillStyle='rgba(12,14,20,.85)';g.fillRect(4,4,w,12);g.fillStyle='rgba(255,60,70,1)';g.fillRect(4,4,3,12);g.fillStyle='#fff';g.fillText(tx,10,13)}
 function drawEd(){
  const cx0=Math.floor(cam.x/8),cy0=Math.floor(cam.y/8),W2=D.W,m=edMode(),FF=window.__FF||'sans-serif',cm=EDCOL[m]||'#fff';
+  const sa=GSPAR.draftArea||GSPAR.area;if(sa){const x=sa.x-cam.x,y=sa.y-cam.y;g.fillStyle='rgba(80,210,255,.12)';g.fillRect(x,y,sa.w,sa.h);g.save();g.setLineDash([7,4]);g.lineDashOffset=-((performance.now()/70|0)%11);g.lineWidth=2;g.strokeStyle='#52d7ff';g.strokeRect(x+1,y+1,sa.w-2,sa.h-2);g.restore();g.font='bold 9px '+FF;g.textAlign='left';g.lineWidth=2;g.strokeStyle='#07131a';g.strokeText('SPAR · botão aparece dentro da área',x+4,y+12);g.fillStyle='#b9f2ff';g.fillText('SPAR · botão aparece dentro da área',x+4,y+12)}
+  if(GSPAR.editingArea&&ms.down===1){const x=Math.min(ms.ax,ms.bx)*8-cam.x,y=Math.min(ms.ay,ms.by)*8-cam.y,w=(Math.abs(ms.bx-ms.ax)+1)*8,h=(Math.abs(ms.by-ms.ay)+1)*8;g.fillStyle='rgba(80,210,255,.22)';g.fillRect(x,y,w,h);g.strokeStyle='#52d7ff';g.lineWidth=2;g.strokeRect(x+1,y+1,w-2,h-2)}
+  const si=$e('edSparInfo');if(si){si.textContent=sa?'Área atual: tile '+(sa.x/8)+','+(sa.y/8)+' · '+(sa.w/8)+'×'+(sa.h/8)+' tiles':'Nenhuma área salva.'}
  if(EDcol)edDrawCol(cx0,cy0);
  if(EDgrid){g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=1;g.beginPath();for(let i=0;i<=(VW>>3)+1;i++){const x=(cx0+i)*8-cam.x+.5;g.moveTo(x,0);g.lineTo(x,VH)}for(let j=0;j<=(VH>>3)+1;j++){const y=(cy0+j)*8-cam.y+.5;g.moveTo(0,y);g.lineTo(VW,y)}g.stroke()}
  g.textAlign='left';g.lineWidth=1;
@@ -3296,12 +3308,12 @@ function conn(){try{ws=new WebSocket(url())}catch(e){return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs),c:(SKN.get(m.id)||{}).c||null});return}
   if(m.t==='kc'){const o=SKN.get(m.id)||{};o.c=window.MPX?window.MPX.fixCols(m.c):null;SKN.set(m.id,o);return}
   if(m.t==='cfgtk'){window.__CFGTK=m.k;if(window.__cfgTkReady)window.__cfgTkReady();return}
-  if(m.t==='cfg'){if(!localStorage.getItem('graal_admin_token')&&!window.__CFGTK&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
+   if(m.t==='cfg'){if(m.k==='spararea')return;if(!localStorage.getItem('graal_admin_token')&&!window.__CFGTK&&performance.now()-(window._cfgMsgT||-1e9)>60000){window._cfgMsgT=performance.now();MSG.push({id:null,nm:'🗺',x:'mapa/portas atualizados: recarregue a página (F5)',t:performance.now()})}return}
   if(m.t==='out'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}location.replace('/?logout=1');return}
   if(m.t==='dup'){window.__KICKED=1;window.__OUT=1;try{ws.close()}catch(e){}return}
   if(m.t==='role'||m.t==='cmd'||m.t==='kick'||m.t==='adm'||m.t==='pfimg'||m.t==='pfs'){if(m.t==='kick')window.__KICKED=1;if(window.ADM)window.ADM(m);return}
   if(m.t==='pfc'){if(window.PFCSET)PFCSET(m.c);return}
-    if(m.t==='spq'||m.t==='spm'){if(window.GSPAR&&window.GSPAR.net)GSPAR.net(m);else(window.__SPRQ=window.__SPRQ||[]).push(m);return}
+    if(m.t==='spa'||m.t==='spq'||m.t==='spm'){if(window.GSPAR&&window.GSPAR.net)GSPAR.net(m);else(window.__SPRQ=window.__SPRQ||[]).push(m);return}
    if(m.t==='pi'||m.t==='ph'||m.t==='pk'){if(window.PRF)PRF.net(m);else(window.__PRQ=window.__PRQ||[]).push(m);return}
   if(m.t==='q'){window.EQX.remote(m.id,m.e);return}
   if(m.t==='l'){RP.delete(m.id);SKN.delete(m.id);window.EQX.drop(m.id);if(window.PRF)PRF.drop(m.id);return}
@@ -3407,7 +3419,7 @@ window.addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.altKey||e.m
 const sys=document.getElementById('sys');if(sys){const b=document.createElement('button');b.textContent='💬';b.setAttribute('aria-label','Chat');
  ['click','pointerdown'].forEach(ev=>b.addEventListener(ev,e=>{e.stopPropagation();if(ev==='click'){if(window.GCH&&GCH.view&&window.matchMedia&&matchMedia('(pointer:coarse)').matches)GCH.view();else openC()}})); /* celular: o botão só abre a janela; o teclado só aparece quando tocar no campo */
  sys.appendChild(b)}
-if(sys){const b=document.createElement('button');b.id='sparQBtn';b.type='button';b.textContent='⚔ Spar';b.title='Entrar na fila do spar 1 contra 1';b.setAttribute('aria-label','Spar 1 contra 1');b.dataset.cap='Entrar na fila do spar 1 contra 1';b.addEventListener('click',e=>{e.stopPropagation();if(window.GSPAR&&GSPAR.toggle)GSPAR.toggle()});sys.appendChild(b);window.GSPAR.button=b}
+ if(sys){const b=document.createElement('button');b.id='sparQBtn';b.type='button';b.textContent='⚔ Spar';b.title='Entrar na fila do spar 1 contra 1';b.setAttribute('aria-label','Spar 1 contra 1');b.dataset.cap='Entrar na fila do spar 1 contra 1';b.style.display='none';b.addEventListener('click',e=>{e.stopPropagation();if(window.GSPAR&&GSPAR.toggle)GSPAR.toggle()});sys.appendChild(b);window.GSPAR.button=b}
 /* ===== PERFIL + NICKNAME ===== */
 window.__NICK=nick;
 let pt=0;try{pt=+localStorage.getItem('graal_playtime')||0}catch(e){}
@@ -3463,14 +3475,16 @@ window.PRF={
   if(sp.active||sp.waiting){MPNET.send({t:'spq',join:false});return}
   if(!P||P.dead||(window.MOUNT&&MOUNT.on)||(typeof CARRY!=='undefined'&&CARRY)||(window.INT&&INT.loc==='i')){MPNET.note('Saia da montaria/interior e solte os itens antes do spar');return}
   MPNET.send({t:'spq',join:true})};
- window.GSPAR.net=function(m){const sp=window.GSPAR,b=sp.button;if(m.t==='spq'){
+  window.GSPAR.net=function(m){const sp=window.GSPAR,b=sp.button;if(m.t==='spa'){sp.area=m.a&&Number.isFinite(+m.a.x)?{x:+m.a.x,y:+m.a.y,w:+m.a.w,h:+m.a.h}:null;sp.draftArea=sp.area?Object.assign({},sp.area):null;if(m.err)MPNET.note(m.err);return}if(m.t==='spq'){
    if(m.s==='waiting'){sp.waiting=true;if(b)b.textContent='Cancelar fila';MPNET.note('Aguardando adversário para o spar 1v1')}
    else if(m.s==='error'){sp.waiting=false;if(b)b.textContent='⚔ Spar';MPNET.note(m.msg||'Não foi possível entrar no spar agora')}
    else{sp.waiting=false;if(!sp.active&&b)b.textContent='⚔ Spar'}return}
   if(m.s==='start'){sp.waiting=false;sp.active=true;sp.ending=false;sp.opponent=m.oi|0;sp.back={x:P.x,y:P.y,f:P.face};sp.origin={x:+m.ox||512,y:+m.oy||512};
    P.x=+m.x;P.y=+m.y;P.face=m.f||'Down';P.walk=0;P.atk=0;P.dash=0;P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;shop=0;window.__CAMSNAP=1;if(b)b.textContent='Sair do spar';MPNET.note('Spar 1v1 contra '+String(m.on||'?').slice(0,12));return}
   if(m.s==='end'){const was=sp.active;sp.active=false;sp.ending=false;sp.waiting=false;sp.opponent=-1;P.x=Number.isFinite(+m.x)?+m.x:(sp.back?sp.back.x:P.x);P.y=Number.isFinite(+m.y)?+m.y:(sp.back?sp.back.y:P.y);P.face=m.f||((sp.back&&sp.back.f)||'Down');P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;P.atk=0;P.dash=0;P.walk=0;window.__CAMSNAP=1;if(b)b.textContent='⚔ Spar';if(was){if(m.r==='finished')MPNET.note(m.w?'Você venceu o spar!':'Você perdeu o spar.');else if(m.r==='disconnect')MPNET.note('O adversário saiu do spar.');else MPNET.note('Spar encerrado.')}return}};
-  if(window.__SPRQ){const q=window.__SPRQ;window.__SPRQ=null;q.forEach(m=>window.GSPAR.net(m))}
+ window.GSPAR.refreshButton=function(){const sp=window.GSPAR,b=sp.button,a=sp.area;if(!b)return;const inside=!!(a&&P&&!P.dead&&P.x>=a.x&&P.x<a.x+a.w&&P.y>=a.y&&P.y<a.y+a.h);b.style.display=inside||sp.waiting||sp.active?'':'none'};
+ setInterval(()=>{try{window.GSPAR.refreshButton()}catch(e){}},200);
+ if(window.__SPRQ){const q=window.__SPRQ;window.__SPRQ=null;q.forEach(m=>window.GSPAR.net(m))}
  if(window.__PRQ){const q=window.__PRQ;window.__PRQ=null;q.forEach(m=>window.PRF.net(m))}
 
 const pfCss=document.createElement('style');pfCss.textContent=`
