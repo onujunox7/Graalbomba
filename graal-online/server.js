@@ -33,7 +33,7 @@ const MAX_BODY = 40 * 1024 * 1024;
 const jsonOk = s => { try { JSON.parse(s); return true } catch (e) { return false } };
 const KEYS = {
   doors: jsonOk, map: jsonOk, tilesets: jsonOk, interior: jsonOk, levels: jsonOk,
-  tsol: s => /^[01]{4096}$/.test(s)
+  tsol: s => /^[01]{4096}$/.test(s), spararea: s => { try { const a = JSON.parse(s); return a === null || !!cleanSparArea(a) } catch (e) { return false } }
 };
 
 /* ---------------- config persistente ---------------- */
@@ -812,6 +812,14 @@ const SPAR_QUEUE = [];
 const SPAR_MATCHES = new Map();
 let sparNextId = 1;
 const SPAR_ARENA = { x: 512, y: 512, w: 288, h: 224 };
+function cleanSparArea(a) {
+  if (!a || typeof a !== 'object') return null;
+  const x = +a.x, y = +a.y, w = +a.w, h = +a.h;
+  if (![x, y, w, h].every(Number.isFinite) || x < 0 || y < 0 || w < 64 || h < 64 || w > 100000 || h > 100000 || x + w > 1e6 || y + h > 1e6) return null;
+  return { x: Math.round(x / 8) * 8, y: Math.round(y / 8) * 8, w: Math.round(w / 8) * 8, h: Math.round(h / 8) * 8 };
+}
+function sparArea() { try { return cleanSparArea(JSON.parse(cfg.spararea || 'null')) } catch (_) { return null } }
+function inSparArea(p) { const a = sparArea(); return !!a && p.x >= a.x && p.y >= a.y && p.x < a.x + a.w && p.y < a.y + a.h }
 function sparQueueState() {
   const n = SPAR_QUEUE.length;
   for (const id of SPAR_QUEUE) { const q = P.get(id); if (q) sendTo(q.ws, { t: 'spq', s: 'waiting', n }) }
@@ -859,6 +867,10 @@ function requestSpar(p, join) {
     removeSparQueue(p.id);
     if (p.spar) finishSpar(p.spar, 0, 'cancelled');
     sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
+    return;
+  }
+  if (!inSparArea(p)) {
+    sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Vá até a área de spar marcada no mapa para entrar.' });
     return;
   }
   if (!p.ok || p.hid || p.in || p.mt || p.cy || p.hp <= 0 || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
@@ -909,6 +921,7 @@ wss.on('connection', (ws, req) => {
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
+  sendTo(ws, { t: 'spa', a: sparArea() }); // área de acesso à fila de spar, compartilhada e persistente
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
   if (DROPS.size) { const now = Date.now(); sendTo(ws, { t: 'dall', a: [...DROPS.values()].map(a => [a[0], a[1], a[2], a[3], a[4] || 0, a[5] ? Math.max(0, a[5] - now) : 0]) }) }
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
@@ -977,6 +990,19 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (m.t === 'spq') { requestSpar(p, !!m.join); return }
+    if (m.t === 'spa') { // área do botão de spar: só admin/dono pode alterar; salva no config persistente e avisa todos
+      if (p.role < 1) return;
+      const now = Date.now(); if (now - (p.spaT || 0) < 500) return; p.spaT = now;
+      const area = m.a == null ? null : cleanSparArea(m.a);
+      if (m.a != null && !area) return sendTo(ws, { t: 'spa', a: sparArea(), err: 'Área inválida. Marque uma área retangular válida no mapa.' });
+      (async () => {
+        const value = area ? JSON.stringify(area) : null;
+        const r = await withLock(() => applyConfigWrite('spararea', value, { note: 'área-de-spar' }));
+        if (!r.ok) return sendTo(ws, { t: 'spa', a: sparArea(), err: r.msg || 'Não foi possível salvar a área.' });
+        wss.clients.forEach(c => sendTo(c, { t: 'spa', a: area }));
+      })().catch(e => { console.error('Área de spar:', e.message); sendTo(ws, { t: 'spa', a: sparArea(), err: 'Falha ao salvar a área do spar.' }) });
+      return;
+    }
     if (m.t === 'a') { // comandos do painel admin
       if (p.role < 1) return;
       const now = Date.now(); if (now - p.cmdT < 80) return; p.cmdT = now;
