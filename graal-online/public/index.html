@@ -1206,6 +1206,7 @@ function dashTrail(){const n=performance.now();if(n-_trT>=28){_trT=n;TRL.push({x
 function updatePlayer(dt){P.glv=0;
  if(P.dead){shop=0;P.rt-=dt;if(P.rt>1.2)P.rt=1.2;if(P.rt<=0&&(keys['arrowright']||keys['d']||keys['arrowleft']||keys['a']||keys['arrowdown']||keys['s']||keys['arrowup']||keys['w'])){respawn();SK.forEach(s=>{s.combat=0;s.atkT=1.5})}return}
  P.hurt=Math.max(0,P.hurt-dt);kbTick(P,dt);
+ if(window.GSPAR&&GSPAR.preparing){P.walk=0;P.atk=0;P.dash=0;atkPress=0;return}
   if(!(window.GSPAR&&GSPAR.active)&&HZ&&!P.dead&&HZ[Math.floor(P.y/8)*D.W+Math.floor(P.x/8)]){hzT-=dt;if(hzT<=0){hzT=.8;hurtPlayer(Math.max(1,Math.round(P.hpM*.05)))}}else hzT=0;
   if(keys['q']){keys['q']=0;if(!(window.GSPAR&&GSPAR.active)&&P.pot>0&&P.hp<P.hpM){P.pot--;const h=Math.min(P.hpM-P.hp,30);P.hp+=h;fx.push({x:P.x,y:P.y-18,txt:'+'+h+' HP',t:1,c:'#ff8aff'})}}
   if(keys['e']){keys['e']=0;if(!(window.GSPAR&&GSPAR.active)){if(shop)shop=0;else if(dist(P,NPC)<34)shop=1;else if(portalUse()){}else{const c=CH.find(c=>!c.open&&dist(P,c)<28);if(c){c.open=1;questEvent('chest');const v=ri(10,40);P.gl+=v;fx.push({x:c.x,y:c.y-22,txt:'+'+v+' Glims',t:1.5,c:'#5aff7a'});if(Math.random()<.35&&P.pot<9){P.pot++;fx.push({x:c.x,y:c.y-32,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}}}}
@@ -3478,10 +3479,10 @@ window.PRF={
   window.GSPAR.net=function(m){const sp=window.GSPAR,b=sp.button;if(m.t==='spa'){const cfg=m.a&&typeof m.a==='object'?m.a:{};sp.areas=Array.isArray(cfg.areas)?cfg.areas.filter(a=>a&&Number.isFinite(+a.x)&&Number.isFinite(+a.y)&&Number.isFinite(+a.w)&&Number.isFinite(+a.h)):(Number.isFinite(+cfg.x)&&Number.isFinite(+cfg.y)&&Number.isFinite(+cfg.w)&&Number.isFinite(+cfg.h)?[cfg]:[]);sp.area=sp.areas[0]||null;sp.draftArea=sp.area?Object.assign({},sp.area):null;if(m.err)MPNET.note(m.err);return}if(m.t==='spq'){
    if(m.s==='waiting'){sp.waiting=true;if(b)b.textContent='Cancelar fila';MPNET.note('Aguardando adversário para o spar 1v1')}
    else if(m.s==='error'){sp.waiting=false;if(b)b.textContent='⚔ Spar';MPNET.note(m.msg||'Não foi possível entrar no spar agora')}
-   else{sp.waiting=false;if(!sp.active&&b)b.textContent='⚔ Spar'}return}
-  if(m.s==='start'){sp.waiting=false;sp.active=true;sp.ending=false;sp.opponent=m.oi|0;sp.back={x:P.x,y:P.y,f:P.face};sp.origin={x:+m.ox||512,y:+m.oy||512};
+   else{sp.waiting=false;sp.preparing=false;if(!sp.active&&b)b.textContent='⚔ Spar'}return}
+  if(m.s==='countdown'){sp.preparing=true;MPNET.note('A luta começa quando a bomba do centro explodir!');return}if(m.s==='start'){sp.preparing=false;sp.waiting=false;sp.active=true;sp.ending=false;sp.opponent=m.oi|0;sp.back={x:P.x,y:P.y,f:P.face};sp.origin={x:+m.ox||512,y:+m.oy||512};
    P.x=+m.x;P.y=m.in&&Number.isFinite(+m.iy)?+m.iy:+m.y;P.face=m.f||'Down';P.walk=0;P.atk=0;P.dash=0;P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;shop=0;window.__CAMSNAP=1;if(b)b.textContent='Sair do spar';MPNET.note('Spar 1v1 contra '+String(m.on||'?').slice(0,12));return}
-  if(m.s==='end'){const was=sp.active;sp.active=false;sp.ending=false;sp.waiting=false;sp.opponent=-1;P.x=Number.isFinite(+m.x)?+m.x:(sp.back?sp.back.x:P.x);P.y=m.in&&Number.isFinite(+m.iy)?+m.iy:(Number.isFinite(+m.y)?+m.y:(sp.back?sp.back.y:P.y));P.face=m.f||((sp.back&&sp.back.f)||'Down');P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;P.atk=0;P.dash=0;P.walk=0;window.__CAMSNAP=1;if(b)b.textContent='⚔ Spar';if(was){if(m.r==='finished')MPNET.note(m.w?'Você venceu o spar!':'Você perdeu o spar.');else if(m.r==='disconnect')MPNET.note('O adversário saiu do spar.');else MPNET.note('Spar encerrado.')}return}};
+  if(m.s==='end'){const was=sp.active;sp.preparing=false;sp.active=false;sp.ending=false;sp.waiting=false;sp.opponent=-1;P.x=Number.isFinite(+m.x)?+m.x:(sp.back?sp.back.x:P.x);P.y=m.in&&Number.isFinite(+m.iy)?+m.iy:(Number.isFinite(+m.y)?+m.y:(sp.back?sp.back.y:P.y));P.face=m.f||((sp.back&&sp.back.f)||'Down');P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;P.atk=0;P.dash=0;P.walk=0;window.__CAMSNAP=1;if(b)b.textContent='⚔ Spar';if(was){if(m.r==='finished')MPNET.note(m.w?'Você venceu o spar!':'Você perdeu o spar.');else if(m.r==='disconnect')MPNET.note('O adversário saiu do spar.');else MPNET.note('Spar encerrado.')}return}};
  window.GSPAR.refreshButton=function(){const sp=window.GSPAR,b=sp.button,areas=Array.isArray(sp.areas)?sp.areas:(sp.area?[sp.area]:[]);if(!b)return;const insideY=P?P.y+(window.INT&&INT.loc==='i'?80000:0):0,inside=!!(P&&!P.dead&&areas.some(a=>P.x>=a.x&&P.x<a.x+a.w&&insideY>=a.y&&insideY<a.y+a.h));b.style.display=inside||sp.waiting||sp.active?'':'none'};
  setInterval(()=>{try{window.GSPAR.refreshButton()}catch(e){}},200);
  if(window.__SPRQ){const q=window.__SPRQ;window.__SPRQ=null;q.forEach(m=>window.GSPAR.net(m))}
@@ -6165,9 +6166,9 @@ const DRP=window.DRP={n:0,
  add(o){if(this.ok()){o.id=MPNET.myId()+'-'+(++this.n);MPNET.send({t:'dr',id:o.id,x:Math.round(o.x),y:Math.round(o.y),v:o.v|0,pop:o.pop?1:0,k:o.k||0})}return o},
  ev(t,o){if(this.ok()){o.t=t;MPNET.send(o)}},
  take(d){if(d.id&&window.MPNET&&MPNET.live())MPNET.send({t:'dp',id:d.id})},
- net(m){if(!drops||(window.INT&&INT.loc==='i')){if(m.t==='dall')this.pend=m;return}
+ net(m){if(!drops||((window.INT&&INT.loc==='i')&&m.t!=='bo')){if(m.t==='dall')this.pend=m;return}
   const X=window.PKX,far=(x,y)=>!P||Math.hypot(P.x-x,P.y-y)>1200;
-  if(m.t==='bo'){if(!X||far(m.sx,m.sy))return;X.bo().push({x:+m.sx,y:+m.sy,sx:+m.sx,sy:+m.sy,tx:+m.tx,ty:+m.ty,fl:+m.fl||0,z:0,t:+m.bt>0?Math.min(5,+m.bt):1.7,rm:1});return}
+  if(m.t==='bo'){const off=m.spar&&window.INT&&INT.loc==='i'?80000:0,sx=+m.sx,sy=+m.sy-off,tx=+m.tx,ty=+m.ty-off;if(!X||far(sx,sy))return;X.bo().push({x:sx,y:sy,sx,sy,tx,ty,fl:+m.fl||0,z:0,t:+m.bt>0?Math.min(5,+m.bt):1.7,rm:1});return}
   if(m.t==='fl'){if(!X||far(m.x,m.y))return;X.ex().push({x:+m.x,y:+m.y,t:X.fdur,ln:1,dx:+m.dx||0,dy:+m.dy||0});return}
   if(m.t==='th'){const M=window.MPX;if(!M||!M.th||far(m.sx,m.sy))return;const T=M.th();if(T.length<30)T.push({sx:+m.sx,sy:+m.sy,tx:+m.tx,ty:+m.ty,x:+m.sx,y:+m.sy,u:0,z:22,g:+m.g||0,rm:1});return}
   if(m.t==='ar'){if(!X||far(m.x,m.y))return;X.ar().push({x:+m.x,y:+m.y,vx:+m.vx||0,vy:+m.vy||0,t:.75,rm:1});return}
