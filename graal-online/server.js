@@ -1110,7 +1110,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'mp') { // monstro bateu em jogador remoto: vai só para a vítima
       if (p.id !== HOST) return;
       const now = Date.now(); if (now - (p.mpW || 0) > 1000) { p.mpW = now; p.mpN = 0 } if (++p.mpN > 120) return;
-      const v = P.get(m.pid | 0); if (v && v !== p) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20) }); return;
+      const v = P.get(m.pid | 0); if (v && v !== p && !v.spar) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20) }); return;
     }
     if (m.t === 'pi') { // perfil público: título, status, contadores, sparring, gênero, aniversário, idioma, país e sequências (muda de vez em quando)
       if (d.length > 1200) return;
