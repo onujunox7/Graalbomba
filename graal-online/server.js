@@ -866,7 +866,9 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
     if (!q) continue;
     q.spar = null;
     q.phFrom = 0; q.phT = 0;
-    const back = match.returns[id];
+    // Os dois saem da luta no mesmo ponto em que a fila começou. Assim a
+    // partida não espalha jogadores por posições antigas da arena.
+    const back = match.returnPoint || match.returns[id];
     q.x = back.x; q.y = back.y; q.in = back.in ? 1 : 0; if (back.in) { q.ix = back.ix; q.iy = back.iy; q.ia = back.ia } else { q.ix = undefined; q.iy = undefined; q.ia = undefined } q.hp = q.hm; q.mt = 0; q.cy = 0; q.ac = 0;
     sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.in ? back.ix : back.x, y: back.in ? back.iy + 80000 : back.y, in: back.in ? 1 : 0, ix: back.in ? back.ix : undefined, iy: back.in ? back.iy : undefined, f: back.f });
   }
@@ -907,7 +909,9 @@ function startSpar(a, b, sparConfig) {
     ? { x: +sparConfig.x + (+sparConfig.w / 2), y: +sparConfig.y + (+sparConfig.h / 2) }
     : { x: SPAR_ARENA.x + SPAR_ARENA.w / 2, y: SPAR_ARENA.y + SPAR_ARENA.h / 2 };
   const countdownMs = 2000;
-  const pending = { id, players: players.map(q => q.id), returns, spawns, timer: null };
+  // O primeiro da fila define o ponto de retorno compartilhado da luta.
+  const returnPoint = { ...returns[a.id] };
+  const pending = { id, players: players.map(q => q.id), returns, returnPoint, spawns, timer: null };
   SPAR_PENDING.set(id, pending);
   for (let i = 0; i < players.length; i++) {
     const q = players[i], sp = spawns[i], back = returns[q.id];
@@ -928,7 +932,7 @@ function startSpar(a, b, sparConfig) {
 function startSparNow(a, b, sparConfig, spawns, returns) {
   const id = String(sparNextId++);
   const players = [a, b];
-  const match = { id, players: players.map(q => q.id), returns, done: false };
+  const match = { id, players: players.map(q => q.id), returns, returnPoint: { ...returns[a.id] }, done: false };
   SPAR_MATCHES.set(id, match);
   const customSpawns = !!sparConfig && Array.isArray(sparConfig.spawns) && sparConfig.spawns.length === 2 && sparConfig.spawns.every(Boolean);
   for (let i = 0; i < players.length; i++) {
