@@ -810,6 +810,7 @@ const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(
 const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (!q || String(q.spar || '') !== String(p.spar || '') || !!q.in !== !!p.in) return; sendTo(c, msg) });
 const SPAR_QUEUE = [];
 const SPAR_MATCHES = new Map();
+const SPAR_PENDING = new Map();
 let sparNextId = 1;
 const SPAR_ARENA = { x: 512, y: 512, w: 288, h: 224 };
 function cleanSparArea(a) {
@@ -870,7 +871,46 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
     sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.in ? back.ix : back.x, y: back.in ? back.iy + 80000 : back.y, in: back.in ? 1 : 0, ix: back.in ? back.ix : undefined, iy: back.in ? back.iy : undefined, f: back.f });
   }
 }
+function cancelSparCountdown(pendingId) {
+  const pending = SPAR_PENDING.get(String(pendingId));
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  SPAR_PENDING.delete(String(pendingId));
+  for (const id of pending.players) {
+    const q = P.get(id);
+    if (q && q.sparPending === pending.id) { q.sparPending = null; sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length }); }
+  }
+}
 function startSpar(a, b, sparConfig) {
+  if (a.sparPending || b.sparPending) return;
+  const id = 'count-' + String(sparNextId++);
+  const center = sparConfig && Number.isFinite(+sparConfig.x) && Number.isFinite(+sparConfig.y)
+    ? { x: +sparConfig.x + (+sparConfig.w / 2), y: +sparConfig.y + (+sparConfig.h / 2) }
+    : { x: SPAR_ARENA.x + SPAR_ARENA.w / 2, y: SPAR_ARENA.y + SPAR_ARENA.h / 2 };
+  const pending = { id, players: [a.id, b.id], timer: null };
+  SPAR_PENDING.set(id, pending);
+  for (const q of [a, b]) {
+    q.sparPending = id;
+    sendTo(q.ws, { t: 'spm', s: 'countdown', m: id, x: center.x, y: center.y, ms: 1800 });
+    sendTo(q.ws, { t: 'bo', sx: center.x, sy: center.y, tx: center.x, ty: center.y, fl: 0, bt: 1.8, spar: 1 });
+  }
+  pending.timer = setTimeout(() => {
+    const current = SPAR_PENDING.get(id);
+    if (!current) return;
+    SPAR_PENDING.delete(id);
+    for (const pid of current.players) {
+      const q = P.get(pid);
+      if (q && q.sparPending === id) q.sparPending = null;
+    }
+    const first = P.get(a.id), second = P.get(b.id);
+    if (first === a && second === b && a.ws.readyState === 1 && b.ws.readyState === 1) {
+      startSparNow(a, b, sparConfig);
+    } else {
+      for (const q of [a, b]) if (P.get(q.id) === q) sendTo(q.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
+    }
+  }, 1800);
+}
+function startSparNow(a, b, sparConfig) {
   const id = String(sparNextId++);
   const players = [a, b];
   const returns = {};
@@ -903,6 +943,7 @@ function startSpar(a, b, sparConfig) {
 function requestSpar(p, join) {
   if (!join) {
     removeSparQueue(p.id);
+    if (p.sparPending) cancelSparCountdown(p.sparPending);
     p.sparAreaConfig = null;
     if (p.spar) finishSpar(p.spar, 0, 'cancelled');
     sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
@@ -921,6 +962,7 @@ function requestSpar(p, join) {
     sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Defina os dois spawns da área para jogar spar dentro do interior.' });
     return;
   }
+  if (p.sparPending) { sendTo(p.ws, { t: 'spq', s: 'waiting', n: SPAR_QUEUE.length }); return }
   if (p.spar) { sendTo(p.ws, { t: 'spq', s: 'active', n: SPAR_QUEUE.length }); return }
   if (SPAR_QUEUE.includes(p.id)) { removeSparQueue(p.id); p.sparAreaConfig = null; sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length }); return }
   let other = null;
@@ -1203,7 +1245,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
       const now = Date.now(); if (now - (p.phW || 0) > 1000) { p.phW = now; p.phN = 0 } if (++p.phN > 8) return;
       const q = P.get(m.to | 0); if (!q || q === p || p.hid || q.hid) return;
-      if (p.spar || q.spar) { const match = SPAR_MATCHES.get(String(p.spar || '')); if (!p.spar || p.spar !== q.spar || !match || !match.players.includes(q.id)) return }
+      if (p.sparPending || q.sparPending) return; if (p.spar || q.spar) { const match = SPAR_MATCHES.get(String(p.spar || '')); if (!p.spar || p.spar !== q.spar || !match || !match.players.includes(q.id)) return }
       else if (!p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
       if (!!p.in !== !!q.in) return; // um dentro de casa e o outro fora: não se alcançam
       if (p.in ? Math.hypot(p.ix - q.ix, p.iy - q.iy) > 110 : Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
@@ -1253,7 +1295,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
-  ws.on('close', () => { removeSparQueue(id); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
+  ws.on('close', () => { removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
   ws.on('error', () => { });
 });
 
