@@ -807,10 +807,85 @@ function canHearLocal(sender, receiver) {
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 /* v16: igual a others(), mas só para quem está no mesmo espaço (mundo aberto ou dentro de casa): bombas/flechas/fogo de dentro de casa não aparecem no mundo e vice-versa */
-const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (q && !!q.in !== !!p.in) return; sendTo(c, msg) });
+const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (!q || String(q.spar || '') !== String(p.spar || '') || !!q.in !== !!p.in) return; sendTo(c, msg) });
+const SPAR_QUEUE = [];
+const SPAR_MATCHES = new Map();
+let sparNextId = 1;
+const SPAR_ARENA = { x: 512, y: 512, w: 288, h: 224 };
+function sparQueueState() {
+  const n = SPAR_QUEUE.length;
+  for (const id of SPAR_QUEUE) { const q = P.get(id); if (q) sendTo(q.ws, { t: 'spq', s: 'waiting', n }) }
+}
+function removeSparQueue(id) {
+  const i = SPAR_QUEUE.indexOf(id);
+  if (i >= 0) SPAR_QUEUE.splice(i, 1);
+  sparQueueState();
+}
+function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
+  const match = SPAR_MATCHES.get(String(matchId));
+  if (!match || match.done) return;
+  match.done = true;
+  SPAR_MATCHES.delete(String(matchId));
+  for (const id of match.players) {
+    const q = P.get(id);
+    if (!q) continue;
+    q.spar = null;
+    q.phFrom = 0; q.phT = 0;
+    const back = match.returns[id];
+    q.x = back.x; q.y = back.y; q.in = 0; q.hp = q.hm; q.mt = 0; q.cy = 0; q.ac = 0;
+    sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.x, y: back.y, f: back.f });
+  }
+}
+function startSpar(a, b) {
+  const id = String(sparNextId++);
+  const players = [a, b];
+  const returns = {};
+  for (const q of players) returns[q.id] = { x: q.x, y: q.y, f: (/(Up|Down|Left|Right)$/.exec(String(q.an || '')) || [])[1] || 'Down' };
+  const match = { id, players: players.map(q => q.id), returns, done: false };
+  SPAR_MATCHES.set(id, match);
+  const spawns = [
+    { x: SPAR_ARENA.x + 84, y: SPAR_ARENA.y + 112, f: 'Right' },
+    { x: SPAR_ARENA.x + 204, y: SPAR_ARENA.y + 112, f: 'Left' }
+  ];
+  for (let i = 0; i < players.length; i++) {
+    const q = players[i], other = players[1 - i], sp = spawns[i];
+    q.spar = id; q.x = sp.x; q.y = sp.y; q.in = 0; q.mt = 0; q.cy = 0; q.hp = q.hm; q.ac = 0; q.uT = Date.now();
+    q.an = 'Idle_' + sp.f;
+    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
+  }
+}
+function requestSpar(p, join) {
+  if (!join) {
+    removeSparQueue(p.id);
+    if (p.spar) finishSpar(p.spar, 0, 'cancelled');
+    sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
+    return;
+  }
+  if (!p.ok || p.hid || p.in || p.mt || p.cy || p.hp <= 0 || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+    sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Não foi possível entrar no spar agora.' });
+    return;
+  }
+  if (p.spar) { sendTo(p.ws, { t: 'spq', s: 'active', n: SPAR_QUEUE.length }); return }
+  if (SPAR_QUEUE.includes(p.id)) { removeSparQueue(p.id); sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length }); return }
+  let other = null;
+  while (SPAR_QUEUE.length && !other) {
+    const id = SPAR_QUEUE.shift(), q = P.get(id);
+    if (q && q !== p && q.ok && !q.hid && !q.in && !q.spar && Date.now() - (q.uT || 0) < 5000) other = q;
+  }
+  if (!other) {
+    SPAR_QUEUE.push(p.id);
+    sendTo(p.ws, { t: 'spq', s: 'waiting', n: SPAR_QUEUE.length });
+    sparQueueState();
+    return;
+  }
+  startSpar(other, p);
+  sparQueueState();
+}
 /* invisibilidade / espectador (só admin e dono): o servidor simplesmente PARA de mostrar esse jogador aos outros (nem posição, nem skin, nem perfil).
    Quem vê o personagem transparente é só o próprio admin, no cliente dele. Espectador = invisível + (no cliente) imortal, atravessa tudo e não ataca. */
 function setHidden(p, h, sp) {
+  removeSparQueue(p.id);
+  if (p.spar) finishSpar(p.spar, 0, 'cancelled');
   const was = !!p.hid; p.hid = (h || sp) ? 1 : 0; p.spec = sp ? 1 : 0;
   if (p.hid && !was) others(p.id, { t: 'l', id: p.id });          // some da tela de todo mundo
   else if (!p.hid && was) {                                        // volta a aparecer: reenvia skin/equipamento/perfil/posição
@@ -901,6 +976,7 @@ wss.on('connection', (ws, req) => {
       else { p.authFails++; if (p.authFails >= 5) ws.close() }
       return;
     }
+    if (m.t === 'spq') { requestSpar(p, !!m.join); return }
     if (m.t === 'a') { // comandos do painel admin
       if (p.role < 1) return;
       const now = Date.now(); if (now - p.cmdT < 80) return; p.cmdT = now;
@@ -1051,14 +1127,19 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
       const now = Date.now(); if (now - (p.phW || 0) > 1000) { p.phW = now; p.phN = 0 } if (++p.phN > 8) return;
-      const q = P.get(m.to | 0); if (!q || q === p || p.hid || q.hid || !p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
+      const q = P.get(m.to | 0); if (!q || q === p || p.hid || q.hid) return;
+      if (p.spar || q.spar) { const match = SPAR_MATCHES.get(String(p.spar || '')); if (!p.spar || p.spar !== q.spar || !match || !match.players.includes(q.id)) return }
+      else if (!p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
       if (!!p.in !== !!q.in) return; // um dentro de casa e o outro fora: não se alcançam
       if (p.in ? Math.hypot(p.ix - q.ix, p.iy - q.iy) > 110 : Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
       q.phFrom = id; q.phT = now; sendTo(q.ws, { t: 'ph', from: id, d: num(m.d, 0, 2000) }); return;
     }
     if (m.t === 'pk') { // a vítima do sparring avisa quem a derrubou (só vale se levou golpe dele há pouco)
       const k = P.get(m.by | 0), now = Date.now(); if (!k || k === p || p.phFrom !== k.id || now - (p.phT || 0) > 15000) return;
-      p.phFrom = 0; sendTo(k.ws, { t: 'pk', id, nm: p.nm }); return;
+      if (p.spar && (p.spar !== k.spar || p.hp > 0)) return;
+      p.phFrom = 0; sendTo(k.ws, { t: 'pk', id, nm: p.nm });
+      if (p.spar && p.spar === k.spar) finishSpar(p.spar, k.id, 'finished');
+      return;
     }
     if (m.t === 'ip') { // posição DENTRO de uma casa (o 'u' não vem de lá): guardada só para gravar na conta se ele sair
       if (d.length > 300 || !p.ok) return;
@@ -1077,7 +1158,7 @@ wss.on('connection', (ws, req) => {
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = num(m.mt, 0, 9) | 0; /* 0 a pé · skin da montaria + 1 */ p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) others(id, JSON.stringify({ t: 'pu', p: pstate(p) }));
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = num(m.mt, 0, 9) | 0; /* 0 a pé · skin da montaria + 1 */ p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) othersSame(p, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
@@ -1097,7 +1178,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
-  ws.on('close', () => { if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
+  ws.on('close', () => { removeSparQueue(id); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
   ws.on('error', () => { });
 });
 
@@ -1112,10 +1193,12 @@ function normAn(a) {
 
 const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt | 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0, fl: p.fl | 0, in: p.in ? 1 : undefined, ix: p.in ? p.ix : undefined, iy: p.in ? p.iy : undefined, ia: p.in ? p.ia : undefined });
 setInterval(() => {
-  const a = [...P.values()].filter(p => p.ok && !p.hid).map(pstate);
-  if (!a.length) return;
-  const msg = JSON.stringify({ t: 'st', p: a });
-  wss.clients.forEach(c => sendTo(c, msg));
+  for (const c of wss.clients) {
+    const self = P.get(c.pid);
+    if (!self || !self.ok) continue;
+    const a = [...P.values()].filter(p => p.ok && !p.hid && String(p.spar || '') === String(self.spar || '') && !!p.in === !!self.in).map(pstate);
+    sendTo(c, { t: 'st', p: a });
+  }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
 Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
