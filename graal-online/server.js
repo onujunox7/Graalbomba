@@ -780,7 +780,7 @@ const COLS = c => Array.isArray(c) && c.length === 5 && c.some(x => typeof x ===
 const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
-setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; try { c.ping() } catch (e) { } } }, 10000);
+setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; c.pingAt = Date.now(); try { c.ping() } catch (e) { } } }, 10000);
 /* anfitrião dos monstros: o jogador online mais antigo (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
 let HOST = 0;
 function electHost() {
@@ -1006,7 +1006,7 @@ function setHidden(p, h, sp) {
 const onlineList = () => [...P.values()].filter(q => q.ok).sort((a, b) => a.id - b.id).map(q => ({ id: q.id, nm: String(q.nm || '?'), r: q.role | 0, lv: q.lv | 0, hid: q.hid ? 1 : 0, sp: q.spec ? 1 : 0, mu: q.muted ? 1 : 0, dc: q.acc && !GID_RE.test(q.acc) ? 1 : 0 }));
 
 wss.on('connection', (ws, req) => {
-  const id = nid++; ws.pid = id; ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true });
+  const id = nid++; ws.pid = id; ws.isAlive = true; ws.pingMs = 0; ws.on('pong', () => { ws.isAlive = true; if (ws.pingAt) ws.pingMs = Math.max(0, Date.now() - ws.pingAt) });
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
@@ -1267,6 +1267,7 @@ wss.on('connection', (ws, req) => {
       if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) return;
       p.il = { x, y, f: /^(Up|Down|Left|Right)$/.test(m.f) ? m.f : 'Down', r }; return;
     }
+    if (m.t === 'lag') { sendTo(ws, { t: 'lag', ms: Math.round(ws.pingMs || 0) }); return; }
     if (m.t === 'u') {
       if (d.length > 400) return;
       /* v16 — dentro de casa o cliente continua mandando 'u': x,y = a PORTA (clientes antigos veem o jogador parado nela), in:1 + ix,iy = posição real no interior, ia = animação.
