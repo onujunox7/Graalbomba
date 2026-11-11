@@ -1828,7 +1828,7 @@ addEventListener('pagehide',edFlush);document.addEventListener('visibilitychange
 var edMMt=0;function edMMn(){if(!edMMt)edMMt=setTimeout(()=>{edMMt=0;MM=null},300)}
 function edLoadCustom(){try{const o=JSON.parse(localStorage.getItem('graal_tilesets_v1')||'null');if(o&&Array.isArray(o.sets)&&Array.isArray(o.objs))EDC={sets:o.sets,objs:o.objs}}catch(e){}}
 function edSaveCustom(){try{localStorage.setItem('graal_tilesets_v1',JSON.stringify({sets:EDC.sets.map(s=>({n:s.n,url:s.url})),objs:EDC.objs}))}catch(e){edMsg('Sem espaço para salvar: o tileset vale só nesta sessão.')}}
-const edImg=id=>id==='ts'?IM.ts:id==='tl'?IM.tl:(EDC.sets[+id.slice(1)]||{}).img;
+const edImg=id=>id==='ts'?IM.ts:id==='tl'?IM.tl:id==='gt'?IM.gt:(EDC.sets[+id.slice(1)]||{}).img;
 
 /* recorta uma peça [x,y,w,h] de um tileset, remove as cores-chave e calcula a colisão (sol: 0 nenhuma, 1 total, 2 só base) */
 /* COR TRANSPARENTE (v27): d.edge=0 (padrão antigo) apaga a cor em TODA a peça; d.edge=1 apaga só o fundo: a partir das bordas da peça, espalha pelos pixels vizinhos
@@ -1847,6 +1847,15 @@ function edAutoKeys(im,r){const c=document.createElement('canvas');c.width=r[2];
  const at=(x,y)=>{const i=(y*W+x)*4;if(d[i+3]<128)return;const k=d[i]+','+d[i+1]+','+d[i+2];cnt.set(k,(cnt.get(k)||0)+1);tot++};
  for(let x=0;x<W;x++){at(x,0);at(x,H-1)}for(let y=1;y<H-1;y++){at(0,y);at(W-1,y)}
  return[...cnt.entries()].sort((a,b)=>b[1]-a[1]).filter(e=>e[1]>=Math.max(2,tot*.04)).slice(0,6).map(e=>e[0].split(',').map(Number))}
+/* Cópias do Godot guardam pixels crus; cópias web já vêm com o filtro do mapa. */
+function edMatchMapColors(canvas,d){
+ if(!canvas||window.__GFX===0)return canvas;
+ const raw=d.raw_colors===true||d.set==='gt'||(d.cp&&/^Cópia \d+×\d+$/.test(d.n||''));
+ if(!raw)return canvas;
+ const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;
+ const q=out.getContext('2d');if(!('filter' in q))return canvas;
+ q.filter='saturate(1.14) contrast(1.07) brightness(1.015)';q.drawImage(canvas,0,0);q.filter='none';return out;
+}
 function edBuildObj(d,imO){
  const[x,y,w0,h0]=d.rect,sc=d.sc||1,w=Math.floor(w0/sc),h=Math.floor(h0/sc),tw=w>>3,th=h>>3,c=document.createElement('canvas'),s=[],IMG=imO||edImg(d.set);c.width=w;c.height=h;let HC=null;
  const cx=c.getContext('2d');cx.imageSmoothingEnabled=false;
@@ -1861,7 +1870,7 @@ function edBuildObj(d,imO){
    s.push(d.sol===0?0:d.sol===2?(any&&j>=(th>>1)?1:0):any?1:0)}
  }catch(e){}
  while(s.length<tw*th)s.push(0);
- return{n:d.n,cu:1,cp:d.cp,hidden:d.hidden,bush:d.bush,o:{c,s,tw,th,hc:HC,rep:d.sb?1:0}};
+ return{n:d.n,cu:1,cp:d.cp,hidden:d.hidden,bush:d.bush,o:{c:edMatchMapColors(c,d),s,tw,th,hc:edMatchMapColors(HC,d),rep:d.sb?1:0}};
 }
 /* ARBUSTOS DO EDITOR: o editor só desenha a imagem e a colisão; o corte usa o mapa BUSH (módulo Zelda). Aqui cada edição registra/remove o arbusto lá.
    EDBU = arbustos colocados pelo editor; EDGONE = células cobertas por edições (arbustos naturais que não valem mais). Ambos são reaplicados após o setup() e após cada rebuild. */
