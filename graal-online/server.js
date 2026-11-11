@@ -842,7 +842,7 @@ function cleanSparConfig(value) {
   return { areas };
 }
 function sparArea() { try { return cleanSparConfig(JSON.parse(cfg.spararea || 'null')) || { areas: [], spawns: [null, null] } } catch (_) { return { areas: [], spawns: [null, null] } } }
-function findSparArea(p) { return sparArea().areas.find(a => p.x >= a.x && p.y >= a.y && p.x < a.x + a.w && p.y < a.y + a.h) || null }
+function findSparArea(p) { const x = p.in ? +p.ix : +p.x, y = p.in ? +p.iy : +p.y; if (!Number.isFinite(x) || !Number.isFinite(y)) return null; return sparArea().areas.find(a => x >= a.x && y >= a.y && x < a.x + a.w && y < a.y + a.h) || null }
 function inSparArea(p) { return !!findSparArea(p) }
 function sparQueueState() {
   const n = SPAR_QUEUE.length;
@@ -866,15 +866,15 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
     q.spar = null;
     q.phFrom = 0; q.phT = 0;
     const back = match.returns[id];
-    q.x = back.x; q.y = back.y; q.in = 0; q.hp = q.hm; q.mt = 0; q.cy = 0; q.ac = 0;
-    sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.x, y: back.y, f: back.f });
+    q.x = back.x; q.y = back.y; q.in = back.in ? 1 : 0; if (back.in) { q.ix = back.ix; q.iy = back.iy; q.ia = back.ia } else { q.ix = undefined; q.iy = undefined; q.ia = undefined } q.hp = q.hm; q.mt = 0; q.cy = 0; q.ac = 0;
+    sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.in ? back.ix : back.x, y: back.in ? back.iy : back.y, f: back.f });
   }
 }
 function startSpar(a, b, sparConfig) {
   const id = String(sparNextId++);
   const players = [a, b];
   const returns = {};
-  for (const q of players) returns[q.id] = { x: q.x, y: q.y, f: (/(Up|Down|Left|Right)$/.exec(String(q.an || '')) || [])[1] || 'Down' };
+  for (const q of players) returns[q.id] = { x: q.x, y: q.y, in: !!q.in, ix: q.ix, iy: q.iy, ia: q.ia, f: (/(Up|Down|Left|Right)$/.exec(String(q.in ? q.ia : q.an || '')) || [])[1] || 'Down' };
   const match = { id, players: players.map(q => q.id), returns, done: false };
   SPAR_MATCHES.set(id, match);
   const customSpawns = !!sparConfig && Array.isArray(sparConfig.spawns) && sparConfig.spawns.length === 2 && sparConfig.spawns.every(Boolean);
@@ -895,9 +895,9 @@ function startSpar(a, b, sparConfig) {
   for (let i = 0; i < players.length; i++) {
     const q = players[i], other = players[1 - i], sp = spawns[i];
     q.sparAreaConfig = null;
-    q.spar = id; q.x = sp.x; q.y = sp.y; q.in = 0; q.mt = 0; q.cy = 0; q.hp = q.hm; q.ac = 0; q.uT = Date.now();
-    q.an = 'Idle_' + sp.f;
-    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
+    q.spar = id; q.mt = 0; q.cy = 0; q.hp = q.hm; q.ac = 0; q.uT = Date.now();
+    if (returns[q.id].in) { q.in = 1; q.ix = sp.x; q.iy = sp.y; q.ia = 'Idle_' + sp.f } else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
+    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, in: returns[q.id].in ? 1 : 0, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
   }
 }
 function requestSpar(p, join) {
@@ -913,8 +913,12 @@ function requestSpar(p, join) {
     sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Vá até a área de spar marcada no mapa para entrar.' });
     return;
   }
-  if (!p.ok || p.hid || p.in || p.mt || p.cy || p.hp <= 0 || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+  if (!p.ok || p.hid || p.mt || p.cy || p.hp <= 0 || !Number.isFinite(p.x) || !Number.isFinite(p.y) || (p.in && (!Number.isFinite(p.ix) || !Number.isFinite(p.iy)))) {
     sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Não foi possível entrar no spar agora.' });
+    return;
+  }
+  if (p.in && !(Array.isArray(selectedArea.spawns) && selectedArea.spawns.length === 2 && selectedArea.spawns.every(Boolean))) {
+    sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Defina os dois spawns da área para jogar spar dentro do interior.' });
     return;
   }
   if (p.spar) { sendTo(p.ws, { t: 'spq', s: 'active', n: SPAR_QUEUE.length }); return }
@@ -922,7 +926,7 @@ function requestSpar(p, join) {
   let other = null;
   while (SPAR_QUEUE.length && !other) {
     const id = SPAR_QUEUE.shift(), q = P.get(id);
-    if (q && q !== p && q.ok && !q.hid && !q.in && !q.spar && Date.now() - (q.uT || 0) < 5000) other = q;
+    const sameSpace = q && !!q.in === !!p.in && (!p.in || (Math.abs(q.x - p.x) <= 16 && Math.abs(q.y - p.y) <= 16)); if (q && q !== p && sameSpace && q.ok && !q.hid && !q.spar && Date.now() - (q.uT || 0) < 5000) other = q;
     else if (q) q.sparAreaConfig = null;
   }
   if (!other) {
