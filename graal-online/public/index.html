@@ -1030,7 +1030,7 @@ for(const k in IMGS){const i=new Image();i.onload=done;i.onerror=()=>{loadErr=1;
 fit();addEventListener('resize',fit);loadScr();
 cv.addEventListener('pointerdown',e=>{if(!shop)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*VW-(VW-384)/2,y=(e.clientY-r.top)/r.height*VH;if(x<56||x>328||y<70||y>206){shop=0;return}const i=Math.floor((y-96)/26);if(i>=0&&i<3&&(y-96)%26<22)buy(i)});
 const bits=Uint8Array.from(atob(D.solid),c=>c.charCodeAt(0));
-  window.GSPAR=window.GSPAR||{active:false,waiting:false,ending:false,opponent:-1,origin:{x:512,y:512},back:null,button:null,area:null,draftArea:null,editingArea:false};
+  window.GSPAR=window.GSPAR||{active:false,waiting:false,ending:false,opponent:-1,origin:{x:512,y:512},back:null,button:null,area:null,areas:[],draftArea:null,editingArea:false};
  function solidAt(x,y){const sp=window.GSPAR;if(sp&&sp.active){const o=sp.origin;return x<o.x+8||x>o.x+280||y<o.y+8||y>o.y+216}const cx=Math.floor(x/8),cy=Math.floor(y/8);if(cx<0||cy<0||cx>=D.W||cy>=D.H)return true;const k=cy*D.W+cx;return SO?SO[k]:(bits[k>>3]>>(k&7))&1}
 /* hitbox = [meia-largura, meia-altura, quanto o centro fica acima do pé]. Jogador: caixa 12x5 só nos pés (de y-3 até y+2)
    (bate com o sprite). Amostra a cada <=4px (célula = 8px) para não atravessar objetos finos */
@@ -3475,14 +3475,14 @@ window.PRF={
   if(sp.active||sp.waiting){MPNET.send({t:'spq',join:false});return}
   if(!P||P.dead||(window.MOUNT&&MOUNT.on)||(typeof CARRY!=='undefined'&&CARRY)||(window.INT&&INT.loc==='i')){MPNET.note('Saia da montaria/interior e solte os itens antes do spar');return}
   MPNET.send({t:'spq',join:true})};
-  window.GSPAR.net=function(m){const sp=window.GSPAR,b=sp.button;if(m.t==='spa'){sp.area=m.a&&Number.isFinite(+m.a.x)?{x:+m.a.x,y:+m.a.y,w:+m.a.w,h:+m.a.h}:null;sp.draftArea=sp.area?Object.assign({},sp.area):null;if(m.err)MPNET.note(m.err);return}if(m.t==='spq'){
+  window.GSPAR.net=function(m){const sp=window.GSPAR,b=sp.button;if(m.t==='spa'){const cfg=m.a&&typeof m.a==='object'?m.a:{};sp.areas=Array.isArray(cfg.areas)?cfg.areas.filter(a=>a&&Number.isFinite(+a.x)&&Number.isFinite(+a.y)&&Number.isFinite(+a.w)&&Number.isFinite(+a.h)):(Number.isFinite(+cfg.x)&&Number.isFinite(+cfg.y)&&Number.isFinite(+cfg.w)&&Number.isFinite(+cfg.h)?[cfg]:[]);sp.area=sp.areas[0]||null;sp.draftArea=sp.area?Object.assign({},sp.area):null;if(m.err)MPNET.note(m.err);return}if(m.t==='spq'){
    if(m.s==='waiting'){sp.waiting=true;if(b)b.textContent='Cancelar fila';MPNET.note('Aguardando adversário para o spar 1v1')}
    else if(m.s==='error'){sp.waiting=false;if(b)b.textContent='⚔ Spar';MPNET.note(m.msg||'Não foi possível entrar no spar agora')}
    else{sp.waiting=false;if(!sp.active&&b)b.textContent='⚔ Spar'}return}
   if(m.s==='start'){sp.waiting=false;sp.active=true;sp.ending=false;sp.opponent=m.oi|0;sp.back={x:P.x,y:P.y,f:P.face};sp.origin={x:+m.ox||512,y:+m.oy||512};
    P.x=+m.x;P.y=+m.y;P.face=m.f||'Down';P.walk=0;P.atk=0;P.dash=0;P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;shop=0;window.__CAMSNAP=1;if(b)b.textContent='Sair do spar';MPNET.note('Spar 1v1 contra '+String(m.on||'?').slice(0,12));return}
   if(m.s==='end'){const was=sp.active;sp.active=false;sp.ending=false;sp.waiting=false;sp.opponent=-1;P.x=Number.isFinite(+m.x)?+m.x:(sp.back?sp.back.x:P.x);P.y=Number.isFinite(+m.y)?+m.y:(sp.back?sp.back.y:P.y);P.face=m.f||((sp.back&&sp.back.f)||'Down');P.dead=0;P.rt=0;P.hp=P.hpM;P.inv=0;P.hurt=0;P.atk=0;P.dash=0;P.walk=0;window.__CAMSNAP=1;if(b)b.textContent='⚔ Spar';if(was){if(m.r==='finished')MPNET.note(m.w?'Você venceu o spar!':'Você perdeu o spar.');else if(m.r==='disconnect')MPNET.note('O adversário saiu do spar.');else MPNET.note('Spar encerrado.')}return}};
- window.GSPAR.refreshButton=function(){const sp=window.GSPAR,b=sp.button,a=sp.area;if(!b)return;const inside=!!(a&&P&&!P.dead&&P.x>=a.x&&P.x<a.x+a.w&&P.y>=a.y&&P.y<a.y+a.h);b.style.display=inside||sp.waiting||sp.active?'':'none'};
+ window.GSPAR.refreshButton=function(){const sp=window.GSPAR,b=sp.button,areas=Array.isArray(sp.areas)?sp.areas:(sp.area?[sp.area]:[]);if(!b)return;const inside=!!(P&&!P.dead&&!(window.INT&&INT.loc==='i')&&areas.some(a=>P.x>=a.x&&P.x<a.x+a.w&&P.y>=a.y&&P.y<a.y+a.h));b.style.display=inside||sp.waiting||sp.active?'':'none'};
  setInterval(()=>{try{window.GSPAR.refreshButton()}catch(e){}},200);
  if(window.__SPRQ){const q=window.__SPRQ;window.__SPRQ=null;q.forEach(m=>window.GSPAR.net(m))}
  if(window.__PRQ){const q=window.__PRQ;window.__PRQ=null;q.forEach(m=>window.PRF.net(m))}
