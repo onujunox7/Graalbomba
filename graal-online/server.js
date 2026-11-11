@@ -33,7 +33,7 @@ const MAX_BODY = 40 * 1024 * 1024;
 const jsonOk = s => { try { JSON.parse(s); return true } catch (e) { return false } };
 const KEYS = {
   doors: jsonOk, map: jsonOk, tilesets: jsonOk, interior: jsonOk, levels: jsonOk,
-  tsol: s => /^[01]{4096}$/.test(s), spararea: s => { try { const a = JSON.parse(s); return a === null || !!cleanSparArea(a) } catch (e) { return false } }
+  tsol: s => /^[01]{4096}$/.test(s), spararea: s => { try { const a = JSON.parse(s); return a === null || !!cleanSparConfig(a) } catch (e) { return false } }
 };
 
 /* ---------------- config persistente ---------------- */
@@ -815,11 +815,35 @@ const SPAR_ARENA = { x: 512, y: 512, w: 288, h: 224 };
 function cleanSparArea(a) {
   if (!a || typeof a !== 'object') return null;
   const x = +a.x, y = +a.y, w = +a.w, h = +a.h;
-  if (![x, y, w, h].every(Number.isFinite) || x < 0 || y < 0 || w < 64 || h < 64 || w > 100000 || h > 100000 || x + w > 1e6 || y + h > 1e6) return null;
+  if (![x, y, w, h].every(Number.isFinite) || x < 0 || y < 0 || w < 16 || h < 16 || w > 100000 || h > 100000 || x + w > 1e6 || y + h > 1e6) return null;
   return { x: Math.round(x / 8) * 8, y: Math.round(y / 8) * 8, w: Math.round(w / 8) * 8, h: Math.round(h / 8) * 8 };
 }
-function sparArea() { try { return cleanSparArea(JSON.parse(cfg.spararea || 'null')) } catch (_) { return null } }
-function inSparArea(p) { const a = sparArea(); return !!a && p.x >= a.x && p.y >= a.y && p.x < a.x + a.w && p.y < a.y + a.h }
+function cleanSparConfig(value) {
+  if (!value || typeof value !== 'object') return null;
+  // Compatibilidade com a configuração antiga, que guardava um único retângulo.
+  const rawAreas = Array.isArray(value.areas) ? value.areas : (cleanSparArea(value) ? [{ ...value, name: 'Spar' }] : []);
+  if (rawAreas.length > 32) return null;
+  const areas = [];
+  const legacySpawns = Array.isArray(value.spawns) ? value.spawns : [];
+  for (let i = 0; i < rawAreas.length; i++) {
+    const item = rawAreas[i];
+    const rect = cleanSparArea(item);
+    if (!rect) return null;
+    const name = String(item.name || '').trim().slice(0, 32);
+    if (!name) return null;
+    let rawSpawns = Array.isArray(item.spawns) ? item.spawns : (i === 0 ? legacySpawns : []);
+    if (rawSpawns.length > 2) return null;
+    const spawns = rawSpawns.map(spawn => spawn == null ? null : cleanSparArea(spawn));
+    if (spawns.some(spawn => spawn === null) && rawSpawns.some(spawn => spawn != null)) return null;
+    while (spawns.length < 2) spawns.push(null);
+    if (spawns[0] && spawns[1] && spawns[0].x === spawns[1].x && spawns[0].y === spawns[1].y && spawns[0].w === spawns[1].w && spawns[0].h === spawns[1].h) return null;
+    areas.push({ name, ...rect, spawns });
+  }
+  return { areas };
+}
+function sparArea() { try { return cleanSparConfig(JSON.parse(cfg.spararea || 'null')) || { areas: [], spawns: [null, null] } } catch (_) { return { areas: [], spawns: [null, null] } } }
+function findSparArea(p) { return sparArea().areas.find(a => p.x >= a.x && p.y >= a.y && p.x < a.x + a.w && p.y < a.y + a.h) || null }
+function inSparArea(p) { return !!findSparArea(p) }
 function sparQueueState() {
   const n = SPAR_QUEUE.length;
   for (const id of SPAR_QUEUE) { const q = P.get(id); if (q) sendTo(q.ws, { t: 'spq', s: 'waiting', n }) }
@@ -827,6 +851,8 @@ function sparQueueState() {
 function removeSparQueue(id) {
   const i = SPAR_QUEUE.indexOf(id);
   if (i >= 0) SPAR_QUEUE.splice(i, 1);
+  const p = P.get(id);
+  if (p) p.sparAreaConfig = null;
   sparQueueState();
 }
 function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
@@ -844,32 +870,46 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
     sendTo(q.ws, { t: 'spm', s: 'end', r: reason, w: winnerId === id, x: back.x, y: back.y, f: back.f });
   }
 }
-function startSpar(a, b) {
+function startSpar(a, b, sparConfig) {
   const id = String(sparNextId++);
   const players = [a, b];
   const returns = {};
   for (const q of players) returns[q.id] = { x: q.x, y: q.y, f: (/(Up|Down|Left|Right)$/.exec(String(q.an || '')) || [])[1] || 'Down' };
   const match = { id, players: players.map(q => q.id), returns, done: false };
   SPAR_MATCHES.set(id, match);
-  const spawns = [
+  const customSpawns = !!sparConfig && Array.isArray(sparConfig.spawns) && sparConfig.spawns.length === 2 && sparConfig.spawns.every(Boolean);
+  const pickSpawn = (area, fallback) => {
+    if (!area) return fallback;
+    const marginX = Math.min(20, Math.floor(area.w / 4)), marginY = Math.min(20, Math.floor(area.h / 4));
+    const x0 = area.x + marginX, y0 = area.y + marginY;
+    const w = Math.max(1, area.w - marginX * 2 - 1), h = Math.max(1, area.h - marginY * 2 - 1);
+    return { x: Math.round(x0 + Math.random() * w), y: Math.round(y0 + Math.random() * h) };
+  };
+  const spawns = customSpawns ? [
+    { ...pickSpawn(sparConfig.spawns[0]), f: 'Right' },
+    { ...pickSpawn(sparConfig.spawns[1]), f: 'Left' }
+  ] : [
     { x: SPAR_ARENA.x + 84, y: SPAR_ARENA.y + 112, f: 'Right' },
     { x: SPAR_ARENA.x + 204, y: SPAR_ARENA.y + 112, f: 'Left' }
   ];
   for (let i = 0; i < players.length; i++) {
     const q = players[i], other = players[1 - i], sp = spawns[i];
+    q.sparAreaConfig = null;
     q.spar = id; q.x = sp.x; q.y = sp.y; q.in = 0; q.mt = 0; q.cy = 0; q.hp = q.hm; q.ac = 0; q.uT = Date.now();
     q.an = 'Idle_' + sp.f;
-    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
+    sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
   }
 }
 function requestSpar(p, join) {
   if (!join) {
     removeSparQueue(p.id);
+    p.sparAreaConfig = null;
     if (p.spar) finishSpar(p.spar, 0, 'cancelled');
     sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length });
     return;
   }
-  if (!inSparArea(p)) {
+  const selectedArea = findSparArea(p);
+  if (!selectedArea) {
     sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Vá até a área de spar marcada no mapa para entrar.' });
     return;
   }
@@ -878,19 +918,23 @@ function requestSpar(p, join) {
     return;
   }
   if (p.spar) { sendTo(p.ws, { t: 'spq', s: 'active', n: SPAR_QUEUE.length }); return }
-  if (SPAR_QUEUE.includes(p.id)) { removeSparQueue(p.id); sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length }); return }
+  if (SPAR_QUEUE.includes(p.id)) { removeSparQueue(p.id); p.sparAreaConfig = null; sendTo(p.ws, { t: 'spq', s: 'idle', n: SPAR_QUEUE.length }); return }
   let other = null;
   while (SPAR_QUEUE.length && !other) {
     const id = SPAR_QUEUE.shift(), q = P.get(id);
     if (q && q !== p && q.ok && !q.hid && !q.in && !q.spar && Date.now() - (q.uT || 0) < 5000) other = q;
+    else if (q) q.sparAreaConfig = null;
   }
   if (!other) {
+    p.sparAreaConfig = selectedArea;
     SPAR_QUEUE.push(p.id);
     sendTo(p.ws, { t: 'spq', s: 'waiting', n: SPAR_QUEUE.length });
     sparQueueState();
     return;
   }
-  startSpar(other, p);
+  const arenaConfig = other.sparAreaConfig || selectedArea;
+  p.sparAreaConfig = selectedArea;
+  startSpar(other, p, arenaConfig);
   sparQueueState();
 }
 /* invisibilidade / espectador (só admin e dono): o servidor simplesmente PARA de mostrar esse jogador aos outros (nem posição, nem skin, nem perfil).
@@ -993,13 +1037,14 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'spa') { // área do botão de spar: só admin/dono pode alterar; salva no config persistente e avisa todos
       if (p.role < 1) return;
       const now = Date.now(); if (now - (p.spaT || 0) < 500) return; p.spaT = now;
-      const area = m.a == null ? null : cleanSparArea(m.a);
-      if (m.a != null && !area) return sendTo(ws, { t: 'spa', a: sparArea(), err: 'Área inválida. Marque uma área retangular válida no mapa.' });
+      const config = m.a == null ? { areas: [], spawns: [null, null] } : cleanSparConfig(m.a);
+      if (m.a != null && !config) return sendTo(ws, { t: 'spa', a: sparArea(), err: 'Configuração inválida. Confira os nomes e os retângulos de spar.' });
       (async () => {
-        const value = area ? JSON.stringify(area) : null;
+        const empty = config.areas.length === 0;
+        const value = empty ? null : JSON.stringify(config);
         const r = await withLock(() => applyConfigWrite('spararea', value, { note: 'área-de-spar' }));
         if (!r.ok) return sendTo(ws, { t: 'spa', a: sparArea(), err: r.msg || 'Não foi possível salvar a área.' });
-        wss.clients.forEach(c => sendTo(c, { t: 'spa', a: area }));
+        wss.clients.forEach(c => sendTo(c, { t: 'spa', a: empty ? { areas: [] } : config }));
       })().catch(e => { console.error('Área de spar:', e.message); sendTo(ws, { t: 'spa', a: sparArea(), err: 'Falha ao salvar a área do spar.' }) });
       return;
     }
