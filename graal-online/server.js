@@ -163,6 +163,7 @@ function npCleanOne(n) {
   for (const i of (Array.isArray(n.it) ? n.it : [])) {
     if (!i || typeof i !== 'object' || it.length >= 24) continue;
     if (i.t === 'x') { if (typeof i.e === 'string' && /^[a-z]{1,8}$/.test(i.e)) it.push({ t: 'x', ic: String(i.ic || '🎁').slice(0, 4), nm: npTx(i.nm, 22, 'Item'), c: npNum(i.c, 0, 99999, 10), e: i.e, v: npNum(i.v, 1, 9999, 1) }) }
+    else if (i.t === 'hat') { if (typeof i.id === 'string' && /^hat_0[1-5]$/.test(i.id)) it.push({ t: 'hat', id: i.id, c: npNum(i.c, 0, 99999, 10) }) }
     else if (typeof i.t === 'string' && /^[a-z]{1,12}$/.test(i.t)) it.push({ t: i.t, c: npNum(i.c, 0, 99999, 10), q: npNum(i.q, 1, 99, 1) });
   }
   const sk = n.sk && Number.isFinite(+n.sk.b) && Number.isFinite(+n.sk.h) ? { b: npNum(n.sk.b, 0, 9999, 0), h: npNum(n.sk.h, 0, 9999, 0) } : null;
@@ -211,7 +212,7 @@ const spBroadcast = o => { const s = JSON.stringify(o); wss.clients.forEach(c =>
 const DC_ID = process.env.DISCORD_CLIENT_ID || '', DC_SECRET = process.env.DISCORD_CLIENT_SECRET || '', SES_SECRET = process.env.SESSION_SECRET || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const AUTH_ON = !!(DC_ID && DC_SECRET && SES_SECRET);
-const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_profile_v1', 'graal_custom_v1', 'graal_headbuy_v1', 'graal_pos_v1', 'graal_npc_bag_v1', 'graal_mount_owned'];
+const ACC_KEYS = ['graal_nick', 'graal_classic_save_v1', 'graal_classic_zelda_v1', 'graal_skin_v2', 'graal_equip_v1', 'graal_playtime', 'graal_profile_v1', 'graal_custom_v1', 'graal_headbuy_v1', 'graal_pos_v1', 'graal_npc_bag_v1', 'graal_mount_owned', 'graal_hats_owned', 'graal_hat_equip'];
 const ACC_MAX = 600000, SES_DAYS = 30;
 /* VISITANTE SALVO: quem não entrou com o Discord ganha uma conta de visitante (id aleatório num cookie de 1 ano, só neste navegador).
  * O progresso fica no PostgreSQL igual ao da conta Discord. Visitantes sem uso há GUEST_KEEP_DAYS dias são apagados. */
@@ -1230,7 +1231,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'mp') { // monstro bateu em jogador remoto: vai só para a vítima
       if (p.id !== HOST) return;
       const now = Date.now(); if (now - (p.mpW || 0) > 1000) { p.mpW = now; p.mpN = 0 } if (++p.mpN > 120) return;
-      const v = P.get(m.pid | 0); if (v && v !== p && !v.spar) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20) }); return;
+      const v = P.get(m.pid | 0); if (v && v !== p && !v.spar) sendTo(v.ws, { t: 'mp', dk: num(m.dk, 0, 20), mpd: m.mpd === 1 ? 1 : 0 }); return;
     }
     if (m.t === 'pi') { // perfil público: título, status, contadores, sparring, gênero, aniversário, idioma, país e sequências (muda de vez em quando)
       if (d.length > 1200) return;
@@ -1288,7 +1289,7 @@ wss.on('connection', (ws, req) => {
       if (!p.hid) others(id, { t: 'kc', id, c: p.c });
     } else if (m.t === 'q') {
       if (!m.e || typeof m.e !== 'object' || d.length > 20000) return;
-      p.e = { h: m.e.h, s: m.e.s, d: m.e.d };
+      p.e = { h: m.e.h, s: m.e.s, d: m.e.d, hat: typeof m.e.hat === 'string' && /^hat_0[1-5]$/.test(m.e.hat) ? m.e.hat : '' };
       if (!p.hid) others(id, { t: 'q', id, e: p.e });
     } else if (m.t === 'c' || m.t === 'cl') {
       const x = String(m.x || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100), now = Date.now();
