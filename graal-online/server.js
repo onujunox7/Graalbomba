@@ -294,7 +294,7 @@ const guestOf = req => { const v = readCookie(req, 'ggid'); return GID_RE.test(v
 const ensureGuest = id => ensurePid(ACC[id] || (ACC[id] = { id, guest: true, name: 'Visitante', av: null, at: Date.now(), last: Date.now(), data: {} }));
 const avatarOf = a => a.guest ? 'https://cdn.discordapp.com/embed/avatars/0.png' : a.av ? 'https://cdn.discordapp.com/avatars/' + a.id + '/' + a.av + '.png?size=64' : 'https://cdn.discordapp.com/embed/avatars/' + Number((BigInt(a.id) >> 22n) % 6n) + '.png';
 const nickOf = n => String(n).replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12) || 'Jogador';
-const accMsg = a => ({ t: 'acc', guest: !!a.guest, pid: pidOf(a), id: a.id, name: a.name, av: avatarOf(a), data: a.data || {} });
+const accMsg = a => ({ t: 'acc', guest: !!a.guest, pid: pidOf(a), id: a.id, name: a.name, av: avatarOf(a), data: accountData(a.data || {},economy.peek(a.id)) });
 /* códigos de login do app: 8 letras/números sem ambiguidade, 5 min, uso único, no máximo 500 pendentes */
 const APPCODES = new Map();
 function appCode(id) {
@@ -624,7 +624,7 @@ const srv = http.createServer((req, res) => {
   if (url === '/auth/logout') { const sid = sessionOf(req), pl = sid && ACTIVE_ACC.get(sid); if (pl) { if (pl.svTm) clearTimeout(pl.svTm); if (pl.svD) { applySv(pl, pl.svD); pl.svD = null } ACTIVE_ACC.delete(sid); pl.acc = null; sendTo(pl.ws, { t: 'out' }); setTimeout(() => { try { pl.ws.close() } catch (e) { } }, 200) } res.writeHead(302, { Location: '/?logout=1', 'Set-Cookie': [ck(req, 'gsid', '', 0), ck(req, 'gst', '', 0)], 'Cache-Control': 'no-store' }); return res.end() }
   if (url === '/api/acc' && req.method === 'GET') { // progresso da conta entregue ANTES do jogo começar (o navegador aplica antes de carregar o jogo)
     const id = sessionOf(req), a = id && ACC[id];
-    if (a) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ on: true, id: a.id, pid: pidOf(a), data: a.data || {} })) }
+    if (a) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ on: true, id: a.id, pid: pidOf(a), data: accountData(a.data || {},economy.peek(a.id)) })) }
     const g = guestOf(req) || newGid(), ga = ACC[g]; // sem Discord: conta de visitante (o cookie é renovado a cada visita)
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Set-Cookie': ck(req, 'ggid', g, GUEST_DAYS * 86400) });
     return res.end(JSON.stringify({ on: true, id: g, guest: true, data: (ga && ga.data) || {} }));
@@ -700,12 +700,12 @@ const srv = http.createServer((req, res) => {
   }
 
   /* arquivos do PWA/APK (manifest, service worker, ícones e o assetlinks.json do Android) */
-  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url) || url === '/assets/bluechoco.png' || url === '/assets/aetheria-login-background.png' || url === '/assets/aetheria-login-background.webp')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/economy-client.js' || url === '/manifest.webmanifest' || url === '/sw.js' || /^\/vendor\/[a-z0-9.\-]+\.js$/.test(url) || url === '/.well-known/assetlinks.json' || /^\/icons\/[a-z0-9-]+\.png$/.test(url) || url === '/assets/bluechoco.png' || url === '/assets/aetheria-login-background.png' || url === '/assets/aetheria-login-background.webp')) {
     const f = path.join(__dirname, 'public', url);
     const ct = url.endsWith('.webp') ? 'image/webp' : url.endsWith('.png') ? 'image/png' : url.endsWith('.js') ? 'application/javascript; charset=utf-8' : url.endsWith('.json') ? 'application/json' : 'application/manifest+json; charset=utf-8';
     return fs.readFile(f, (e, d) => {
       if (e) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('não encontrado') }
-      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': url === '/sw.js' ? 'no-cache' : 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }); res.end(req.method === 'HEAD' ? undefined : d);
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': (url === '/sw.js' || url === '/economy-client.js') ? 'no-cache' : 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }); res.end(req.method === 'HEAD' ? undefined : d);
     });
   }
 
@@ -740,6 +740,35 @@ let nid = 1; const P = new Map();
 // Uma única conexão ativa por conta Discord: impede que uma aba/dispositivo antigo
 // sobrescreva o progresso mais recente depois de uma nova entrada.
 const ACTIVE_ACC = new Map();
+const {Economy,accountData,protectSave,merchant,offers}=require('./economy');
+const {RewardWorld}=require('./reward-world');
+const {CombatRewards}=require('./combat-rewards');
+const economy=new Economy(pgPool),rewardWorld=new RewardWorld(path.join(__dirname,'reward-data'));
+const combatRewards=new CombatRewards(economy);
+const economicSession=p=>!!p.acc&&ACTIVE_ACC.get(p.acc)===p&&p.ws.readyState===1;
+async function economicRequest(p,m){
+ const account=p.acc,authorized=()=>p.acc===account&&economicSession(p);
+ const reply=result=>{if(authorized())sendTo(p.ws,{t:'eco',rid:m.rid,op:m.op,account,...result});};
+ if(!authorized()||!p.economyClient||typeof m.rid!=='string'||!/^[a-f0-9]{32}$/.test(m.rid))return;
+ const now=Date.now();if(now-(p.ecoWindow||0)>1000){p.ecoWindow=now;p.ecoCount=0;}if(++p.ecoCount>30){reply({ok:false,code:'busy'});return;}
+ if(p.ecoBusy){reply({ok:false,code:'busy'});return;}
+ p.ecoBusy=true;
+ try{
+  let result;
+  if(m.op==='sync')result={state:await economy.ensure(account)};
+  else if(m.op==='catalog')result={items:offers(merchant(p,m,NP.a)),x:m.x,y:m.y,state:await economy.ensure(account)};
+  else if(m.op==='buy')result=await economy.purchase(p,m,NP.a,authorized);
+  else if(m.op==='equip')result=await economy.equip(p,m,authorized);
+  else if(m.op==='hit')result=await combatRewards.hit(p,m,SP.add,authorized);
+  else if(m.op==='consume')result=await economy.consume(p,m,authorized);
+  else if(m.op==='bush'||m.op==='chest'){rewardWorld.refresh(cfg);result=await economy.reward(p,m,rewardWorld,authorized);}
+  else throw Object.assign(new Error('invalid_request'),{code:'invalid_request'});
+  if(result.effect&&!result.duplicate){if(result.effect==='heal')p.hp=p.hm;else if(result.effect.startsWith('hp:'))p.hp=Math.min(p.hm,p.hp+Number(result.effect.slice(3)));}
+  if(m.op==='hit'&&!result.duplicate)spBroadcast({t:'mr',sid:result.sid,hp:result.hp,dead:result.dead,by:p.id,damage:result.damage});
+  reply({ok:true,...result});
+ }catch(e){const safe=new Set(['busy','invalid_request','session_changed','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
+ finally{p.ecoBusy=false;}
+}
 function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
   const a = p.acc && ACC[p.acc];
   if (!a || ACTIVE_ACC.get(p.acc) !== p || !d || typeof d !== 'object') return;
@@ -750,7 +779,7 @@ function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
   if (!Object.keys(out).length) return;
   if (out.graal_pos_v1 !== undefined && out.graal_pos_v1.length > 400) delete out.graal_pos_v1; // posição é um JSON minúsculo
   const slow = Object.keys(out).every(k => k === 'graal_pos_v1');
-  p.svT = Date.now(); a.data = Object.assign(a.data || {}, out); a.last = p.svT; saveACC(a.id, slow);
+  p.svT = Date.now(); a.data = Object.assign(a.data || {}, protectSave(out,accountData(a.data||{},economy.peek(a.id)))); a.last = p.svT; saveACC(a.id, slow);
 }
 /* Saiu (fechou, celular matou o app, a internet caiu): o servidor já recebe a posição do jogador o tempo todo, então grava a ÚLTIMA posição conhecida na conta.
    No mundo aberto só vale perto do último ponto salvo pelo navegador (se teleportou, mantém o que o navegador salvou); dentro de casa grava a posição do interior. */
@@ -1011,7 +1040,7 @@ wss.on('connection', (ws, req) => {
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
-  sendTo(ws, { t: 'id', id, v: 3 });
+  sendTo(ws, { t: 'id', id, v: 3, economy: 1 });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
@@ -1066,7 +1095,11 @@ wss.on('connection', (ws, req) => {
   ws.on('message', d => {
     let m; try { m = JSON.parse(d) } catch (e) { return }
     if (!m || typeof m !== 'object') return;
-    if (m.t === 'hi') { // identidade do navegador (segredo aleatório; o servidor só guarda o hash)
+    if (m.t === 'eco') { economicRequest(p,m).catch(()=>{}); return; }
+    if (m.t === 'hi') {
+      p.economyClient=m.economy===1;
+      if(!p.economyClient){sendTo(ws,{t:'kick',r:'Atualize o jogo ou recarregue a página para usar as compras e recompensas validadas.'});setTimeout(()=>ws.close(),100);return;}
+      // identidade do navegador (segredo aleatório; o servidor só guarda o hash)
       if (p.uh || typeof m.uid !== 'string' || !/^[a-f0-9]{32}$/.test(m.uid)) return;
       p.uh = sha(m.uid);
       for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
@@ -1130,8 +1163,8 @@ wss.on('connection', (ws, req) => {
       if (!tg) return note('Jogador não encontrado.');
       if (c === 'tp') { if (tg === p) return; sendTo(ws, { t: 'cmd', c: 'tp', x: tg.x, y: tg.y }); return }
       if (c === 'heal') { sendTo(tg.ws, { t: 'cmd', c: 'heal' }); note('Curou ' + nameOf(tg)); return }
-      if (c === 'gl') { sendTo(tg.ws, { t: 'cmd', c: 'gl', v: num(m.v, 1, 100000) | 0 }); note('Glims enviados para ' + nameOf(tg)); return }
-      if (c === 'lvl') { sendTo(tg.ws, { t: 'cmd', c: 'lvl', v: num(m.v, 1, 50) | 0 }); note('Níveis enviados para ' + nameOf(tg)); return }
+      if (c === 'gl') { const target=tg.acc; economy.credit(target,num(m.v,1,100000)|0,crypto.randomBytes(16).toString('hex'),()=>economicSession(p)&&p.role>=1&&tg.acc===target&&economicSession(tg)).then(result=>{sendTo(tg.ws,{t:'eco',account:target,op:'credit',ok:true,...result});note('Glims enviados para '+nameOf(tg));}).catch(()=>note('Não foi possível salvar os Glims.')); return }
+      if (c === 'lvl') { const target=tg.acc,amount=num(m.v,1,50)|0;economy.transact(target,crypto.randomBytes(16).toString('hex'),'admin-level:'+amount,state=>{state.lvl=Math.min(999,state.lvl+amount);},()=>economicSession(p)&&p.role>=1&&tg.acc===target&&economicSession(tg)).then(result=>{sendTo(tg.ws,{t:'eco',account:target,op:'level',ok:true,...result});note('Níveis enviados para '+nameOf(tg));}).catch(()=>note('Não foi possível salvar os níveis.')); return }
       if (c === 'mobs') { sendTo(tg.ws, { t: 'cmd', c: 'mobs' }); note('Monstros de ' + nameOf(tg) + ' renasceram'); return }
       if (c === 'op') {
         if (!owner || tg.role === 2) return;
@@ -1199,7 +1232,7 @@ wss.on('connection', (ws, req) => {
       BCUT.set(k, now + BUSH_MS); others(id, { t: 'bc', x, y, l: BUSH_MS }); return;
     }
     if (m.t === 'ty') { p.ty = m.v ? 1 : 0; return } // chat aberto: mostra balão "..." na cabeça
-    if (m.t === 'dr') { // item solto no chão
+    if (m.t === 'dr') { return; // rewards are created by the server, never client drop amounts
       const now = Date.now(); if (now - (p.drW || 0) > 1000) { p.drW = now; p.drN = 0 } if (++p.drN > 40) return;
       if (typeof m.id !== 'string' || !/^\d{1,9}-\d{1,9}$/.test(m.id) || DROPS.has(m.id)) return;
       const x = Math.round(num(m.x, -1e6, 1e6)), y = Math.round(num(m.y, -1e6, 1e6)), v = num(m.v, 0, 5000) | 0, pop = m.pop ? 1 : 0;
@@ -1216,15 +1249,18 @@ wss.on('connection', (ws, req) => {
       else othersSame(p, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
       return;
     }
-    if (m.t === 'dp') { // item pego
+    if (m.t === 'dp') { return; // legacy untrusted drops cannot grant currency
       if (typeof m.id !== 'string' || !DROPS.delete(m.id)) return;
       others(id, { t: 'dp', id: m.id }); return;
     }
     if (m.t === 'ms') { // estado dos monstros: só o anfitrião manda; vai para todos os outros
       if (p.id !== HOST || d.length > 20000 || !Array.isArray(m.e) || m.e.length > 300) return;
-      others(id, { t: 'ms', n: m.n | 0, e: m.e }); return;
+      combatRewards.observe(m.e,SP.add);
+      const states=[];
+      for(const entry of m.e){if(!Array.isArray(entry))continue;const spawn=SP.add[entry[0]],health=spawn&&combatRewards.state(spawn);if(!health)continue;const pos=combatRewards.positions.get(spawn.id)||spawn;states.push([entry[0],pos.x,pos.y,health.hp,((entry[4]|0)&14)|(health.hp<=0?1:0),Math.max(0,Math.min(3,entry[5]|0))]);}
+      spBroadcast({t:'ms',n:SP.add.length,e:states}); return;
     }
-    if (m.t === 'mh') { // golpe em monstro de quem não é anfitrião: vai só para o anfitrião
+    if (m.t === 'mh') { return; // server-authoritative hit requests replace legacy damage reports.  golpe em monstro de quem não é anfitrião: vai só para o anfitrião
       const now = Date.now(); if (now - (p.mhW || 0) > 1000) { p.mhW = now; p.mhN = 0 } if (++p.mhN > 60) return;
       const h = HOST && HOST !== p.id && P.get(HOST); if (h) sendTo(h.ws, { t: 'mh', i: m.i | 0, d: num(m.d, 0, 2000), kx: num(m.kx, -1, 1), ky: num(m.ky, -1, 1) }); return;
     }
@@ -1279,6 +1315,11 @@ wss.on('connection', (ws, req) => {
       } else { p.in = 0; p.il = null } // voltou ao mundo aberto
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
+      if(m.hp===0&&!p.diedAt)p.diedAt=Date.now();
+      if(p.hp===0&&m.hp>0&&p.diedAt&&Date.now()-p.diedAt>=4000&&economicSession(p)){
+        const account=p.acc,death=p.diedAt;p.diedAt=0;
+        economy.transact(account,crypto.createHash('sha256').update(account+':respawn:'+death).digest('hex').slice(0,32),'respawn',state=>{state.b=Math.max(state.b,10);state.a=Math.max(state.a,20);},()=>p.acc===account&&economicSession(p)).then(result=>sendTo(ws,{t:'eco',account,op:'refill',ok:true,...result})).catch(()=>{});
+      }
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
       p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = num(m.mt, 0, 9) | 0; /* 0 a pé · skin da montaria + 1 */ p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) othersSame(p, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
@@ -1289,7 +1330,7 @@ wss.on('connection', (ws, req) => {
       if (!p.hid) others(id, { t: 'kc', id, c: p.c });
     } else if (m.t === 'q') {
       if (!m.e || typeof m.e !== 'object' || d.length > 20000) return;
-      p.e = { h: m.e.h, s: m.e.s, d: m.e.d, hat: typeof m.e.hat === 'string' && /^hat_0[1-5]$/.test(m.e.hat) ? m.e.hat : '' };
+      p.e = { h: m.e.h, s: m.e.s, d: m.e.d, hat: economy.peek(p.acc)?.hats.includes(m.e.hat) ? m.e.hat : '' };
       if (!p.hid) others(id, { t: 'q', id, e: p.e });
     } else if (m.t === 'c' || m.t === 'cl') {
       const x = String(m.x || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100), now = Date.now();
@@ -1323,7 +1364,7 @@ setInterval(() => {
   }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(() => {
+Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');

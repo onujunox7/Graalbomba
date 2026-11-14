@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8"><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1","graal_mount_owned","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
+<html lang="pt-BR"><head><meta charset="utf-8"><script src="economy-client.js"></script><script>/* logout: apaga a cópia local da conta ANTES do jogo ler o localStorage */try{if(/[?&]logout=1/.test(location.search)){["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1","graal_mount_owned","graal_acc_owner"].forEach(function(k){localStorage.removeItem(k)});sessionStorage.removeItem("graal_acc_rl")}}catch(e){}</script><script>/* conta: busca o progresso salvo e aplica no navegador ANTES do jogo começar (evita o jogo salvar nível 1 por cima da conta) */
 (function(){try{if(location.protocol==='file:')return;var x=new XMLHttpRequest();x.open('GET','/api/acc',false);x.send();if(x.status!==200)return;var j=JSON.parse(x.responseText);if(!j||!j.on||!j.id)return;
 var K=["graal_nick","graal_classic_save_v1","graal_classic_zelda_v1","graal_skin_v2","graal_equip_v1","graal_playtime","graal_profile_v1","graal_custom_v1","graal_pos_v1","graal_npc_bag_v1","graal_mount_owned"];
 var id=String(j.id),ow=localStorage.getItem('graal_acc_owner');if(ow&&ow!==id)K.forEach(function(k){localStorage.removeItem(k)});
@@ -426,7 +426,7 @@ html.ae-portal #pad {position:fixed !important;z-index:10;bottom:8px;left:8px;}
 #aeTouchConfig #aeTouchClose {background:#a3d5bb; border-color:#467963}
 #aeTouchOpen {min-width:40px !important}
 </style>
-</head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
+<style>#npsL .ic{font-size:30px;min-width:40px}#npsL .r{padding:10px;gap:10px;border:1px solid #40636a;border-radius:8px;margin-bottom:6px}#npsL button{min-height:34px}#nps{max-width:calc(100vw - 16px)}</style></head><body><div id="aeEntry" role="dialog" aria-modal="true" aria-labelledby="aeEntryTitle">
   <section class="ae-panel">
     <h1 id="aeEntryTitle" class="ae-title">AETHERIA</h1>
     <div class="ae-subtitle">ONLINE</div>
@@ -1127,7 +1127,7 @@ const DIAG=1.2;
 let SLD=0; /* distância 'normal' (SPD*dt*gm) do passo do player: ao deslizar na parede na diagonal, o eixo livre anda a velocidade normal, nem mais lenta nem mais rápida */
 let NPC={x:0,y:0},shop=0,showMap=1,MM=null,CH=[],GR=null;
 const ITEMS=[{n:'Poção de vida (+30 HP)',c:()=>10,ok:()=>P.pot<9,f:()=>P.pot++},{n:'Afiar espada (+4 dano)',c:()=>30+20*P.up,ok:()=>P.up<5,f:()=>{P.up++;P.dmg+=4}},{n:'Curar tudo agora',c:()=>15,ok:()=>P.hp<P.hpM,f:()=>P.hp=P.hpM}];
-function buy(i){const it=ITEMS[i],t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c});if(!it.ok())return t('Indisponível','#ffb05a');if(P.gl<it.c())return t('Glims insuficientes','#ff5a5a');P.gl-=it.c();it.f();saveGame();t('Comprado!','#5aff7a')}
+function buy(i){if(window.MPNET?.live()){MPNET.note("Use uma loja de NPC publicada para comprar.");return;}const it=ITEMS[i],t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c});if(!it.ok())return t('Indisponível','#ffb05a');if(P.gl<it.c())return t('Glims insuficientes','#ff5a5a');P.gl-=it.c();it.f();saveGame();t('Comprado!','#5aff7a')}
 let P,SK,drops,fx,cam={x:0,y:0},last=0,T=0;
 const CAMS={ok:0,w:0,z:1,k:16,classic:true}; /* classic: câmera travada no jogador, como no Graal Classic */
 try{const _q=new URLSearchParams(location.search).get('cam')||localStorage.getItem('graal_cam');if(_q==='suave')CAMS.classic=false}catch(e){}
@@ -1179,7 +1179,7 @@ function swordCovers(tx,ty,r,FV){const dx=tx-P.x,dy=ty-P.y,f=dx*FV[0]+dy*FV[1],l
  if(Math.hypot(dx,dy)<=r+bodyR(P)+4)return true; /* colado/encostado no jogador (centro dentro do corpo): sempre acerta; antes f>0 falhava */
  return f>-r*.4&&Math.abs(l)<=SWORD_HALF_W+r*.3&&f-r<=swordReach(FV)}
  function swordHit(){const FV={Left:[-1,0],Right:[1,0],Up:[0,-1],Down:[0,1]}[P.face]||[0,1];try{window.PRF&&PRF.sword(FV)}catch(e){}if(window.GSPAR&&GSPAR.active)return;
- for(const s of SK)if(!s.dead&&!(s.imm>0)&&swordCovers(s.x,s.y,bodyR(s),FV)){s.imm=.5;const r=Math.max(0,calcDmg(P,P.dmg)-calcDef(s,s.def));s.hp-=r;s.hurt=.25;s.combat=1;kb(s,P.x,P.y,190);dmgText(s,r,'#fff');if(s.hp<=0)killSk(s)}}
+ for(const s of SK)if(!s.dead&&!(s.imm>0)&&swordCovers(s.x,s.y,bodyR(s),FV)){if(ECON.hit(s))continue;s.imm=.5;const r=Math.max(0,calcDmg(P,P.dmg)-calcDef(s,s.def));s.hp-=r;s.hurt=.25;s.combat=1;kb(s,P.x,P.y,190);dmgText(s,r,'#fff');if(s.hp<=0)killSk(s)}}
 function startAtk(){const now=performance.now()/1000,gap=now-(P.lastAtk||0);P.lastAtk=now; /* quanto mais rápido o clique, mais curto o golpe */
  P.atkLen=Math.max(ATK_MIN,Math.min(ATK_T,gap));P.atk=P.atkLen;P.anim=0;P.hitPend=1;P.akc=(P.akc|0)+1}
 /* portais entre o mundo original e o novo mapa: [E] para atravessar */
@@ -1208,8 +1208,8 @@ function updatePlayer(dt){P.glv=0;
  P.hurt=Math.max(0,P.hurt-dt);kbTick(P,dt);
  if(window.GSPAR&&GSPAR.preparing){P.walk=0;P.atk=0;P.dash=0;atkPress=0;return}
   if(!(window.GSPAR&&GSPAR.active)&&HZ&&!P.dead&&HZ[Math.floor(P.y/8)*D.W+Math.floor(P.x/8)]){hzT-=dt;if(hzT<=0){hzT=.8;hurtPlayer(Math.max(1,Math.round(P.hpM*.05)))}}else hzT=0;
-  if(keys['q']){keys['q']=0;if(!(window.GSPAR&&GSPAR.active)&&P.pot>0&&P.hp<P.hpM){P.pot--;const h=Math.min(P.hpM-P.hp,30);P.hp+=h;fx.push({x:P.x,y:P.y-18,txt:'+'+h+' HP',t:1,c:'#ff8aff'})}}
-  if(keys['e']){keys['e']=0;if(!(window.GSPAR&&GSPAR.active)){if(shop)shop=0;else if(dist(P,NPC)<34)shop=1;else if(portalUse()){}else{const c=CH.find(c=>!c.open&&dist(P,c)<28);if(c){c.open=1;questEvent('chest');const v=ri(10,40);P.gl+=v;fx.push({x:c.x,y:c.y-22,txt:'+'+v+' Glims',t:1.5,c:'#5aff7a'});if(Math.random()<.35&&P.pot<9){P.pot++;fx.push({x:c.x,y:c.y-32,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}}}}
+  if(keys['q']){keys['q']=0;if(!(window.GSPAR&&GSPAR.active)&&P.pot>0&&P.hp<P.hpM){if(ECON.enabled){ECON.request("consume",{kind:"pot"});return;}P.pot--;const h=Math.min(P.hpM-P.hp,30);P.hp+=h;fx.push({x:P.x,y:P.y-18,txt:'+'+h+' HP',t:1,c:'#ff8aff'})}}
+  if(keys['e']){keys['e']=0;if(!(window.GSPAR&&GSPAR.active)){if(shop)shop=0;else if(dist(P,NPC)<34)shop=1;else if(portalUse()){}else{const c=CH.find(c=>!c.open&&dist(P,c)<28);if(c){if(ECON.chest(c))return;c.open=1;questEvent('chest');const v=ri(10,40);P.gl+=v;fx.push({x:c.x,y:c.y-22,txt:'+'+v+' Glims',t:1.5,c:'#5aff7a'});if(Math.random()<.35&&P.pot<9){P.pot++;fx.push({x:c.x,y:c.y-32,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}}}}
  if(shop){if(dist(P,NPC)>50)shop=0;for(let i=0;i<3;i++)if(keys[''+(i+1)]){keys[''+(i+1)]=0;buy(i)}atkPress=0;P.walk=0;return}
  let dx=(keys['arrowright']||keys['d']?1:0)-(keys['arrowleft']||keys['a']?1:0),dy=(keys['arrowdown']||keys['s']?1:0)-(keys['arrowup']||keys['w']?1:0);
  const JV=window.JOYV,an=!!(JV&&JV.on);if(an){dx=JV.x;dy=JV.y}let fdx=dx,fdy=dy;const lrBoth=!an&&!!((keys['arrowright']||keys['d'])&&(keys['arrowleft']||keys['a'])); /* A+D juntos: anda pra cima/baixo olhando pra DIREITA */
@@ -1252,7 +1252,7 @@ function updatePlayer(dt){P.glv=0;
  P.rm+=dt;if(P.rm>=10){P.rm=0;if(P.mp<P.mpM)P.mp=Math.min(P.mpM,P.mp+5)}
  P.stMsg=Math.max(0,(P.stMsg||0)-dt);if(P.stR>0)P.stR-=dt;else if(P.st<P.stM)P.st=Math.min(P.stM,P.st+P.stM*.09*dt); /* vigor volta sozinho, depois de ~1,3 s sem esquiva */
 }
-function killSk(s){try{window.PRF&&PRF.kill(s)}catch(e){}s.dead=1;s.hp=0;s.rt=MON_RESPAWN;s.combat=0;P.exp+=s.xp||(s.el?35:10);P.kills++;questEvent('kill');if(s.el)questEvent('elite');if(s.k)questEvent('mon');levelCheck();saveGame();const g0=ri(0,10)*(s.el?3:1);if(g0>0)glimDrop(s.x,s.y+8,g0,0);if(Math.random()<(s.el?.6:.2)&&P.pot<9){P.pot++;fx.push({x:s.x,y:s.y-26,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}
+function killSk(s){if(ECON.enabled)return;try{window.PRF&&PRF.kill(s)}catch(e){}s.dead=1;s.hp=0;s.rt=MON_RESPAWN;s.combat=0;P.exp+=s.xp||(s.el?35:10);P.kills++;questEvent('kill');if(s.el)questEvent('elite');if(s.k)questEvent('mon');levelCheck();saveGame();const g0=ri(0,10)*(s.el?3:1);if(g0>0)glimDrop(s.x,s.y+8,g0,0);if(Math.random()<(s.el?.6:.2)&&P.pot<9){P.pot++;fx.push({x:s.x,y:s.y-26,txt:'+1 poção',t:1.5,c:'#ff8aff'})}}
 /* KNOCKBACK: empurrão suave (velocidade que decai) ao levar hit; vale para player e monstros */
 function kb(e,fx_,fy_,pw){const dx=e.x-fx_,dy=e.y-fy_,d=Math.hypot(dx,dy)||1;e.kvx=dx/d*pw;e.kvy=dy/d*pw;e.fl=e===P?.12:.5}
 function kbTick(e,dt){if(e.fl>0)e.fl-=dt;if(e.imm>0)e.imm-=dt;if(!(e.kvx||e.kvy))return;if(e.dead||(e===P&&P.dash>0)){e.kvx=e.kvy=0;return}
@@ -1649,7 +1649,7 @@ const QUESTS=[
  {t:'Derrote 6 criaturas de Hyrule',k:'mon',n:6,xp:70,gl:120},
  {t:'Derrote 15 inimigos',k:'kill',n:15,xp:80,gl:150}];
 let Q={i:0,n:0};
-function questEvent(k){
+function questEvent(k){if(ECON.enabled)return;
  const q=QUESTS[Q.i];if(!q||q.k!==k)return;
  if(++Q.n<q.n)return;
  P.exp+=q.xp;P.gl+=q.gl;Q.i++;Q.n=0;
@@ -2290,7 +2290,7 @@ const zSave=()=>{try{localStorage.setItem(ZK,JSON.stringify(ZL))}catch(e){}};
 try{const o=JSON.parse(localStorage.getItem(ZK)||'null');if(o&&Number.isFinite(o.b)&&Number.isFinite(o.a)){ZL.b=o.b;ZL.a=o.a}}catch(e){}
 const say=(x,y,m,c)=>fx.push({x,y,txt:m,t:1.3,c});
 const hurtP=v=>{if(P.dead||P.inv>0||(window.ADMX&&(ADMX.god||ADMX.spec)))return;v=Math.ceil(hpBase(P)/6);P.inv=.12;P.fl=.12;P.hp-=v;P.hurt=.15;if(window.__sendU)window.__sendU();dmgText(P,v,'#ff5a5a');if(P.hp<=0){P.hp=0;P.dead=1;P.rt=5;fx.push({x:P.x,y:P.y-24,txt:'Você morreu... renascendo',t:3,c:'#ff5a5a'})}};
-const hitSk=(s,m,kx,ky)=>{if(s.dead||s.imm>0)return;s.imm=.5;let r=Math.round(calcDmg(P,P.dmg)*m)-calcDef(s,s.def||0);if(!(r>=3))r=3;s.hp-=r;s.hurt=.25;s.combat=1;{const d=Math.max(1,Math.hypot(kx,ky));s.kvx=kx/d*190;s.kvy=ky/d*190;s.fl=.5;s.hkx=kx/d;s.hky=ky/d}dmgText(s,r,'#ffb05a');if(s.hp<=0)killSk(s)};
+const hitSk=(s,m,kx,ky)=>{if(s.dead||s.imm>0)return;if(ECON.hit(s,m===.9?'a':m===1.2?'throw':'b'))return;s.imm=.5;let r=Math.round(calcDmg(P,P.dmg)*m)-calcDef(s,s.def||0);if(!(r>=3))r=3;s.hp-=r;s.hurt=.25;s.combat=1;{const d=Math.max(1,Math.hypot(kx,ky));s.kvx=kx/d*190;s.kvy=ky/d*190;s.fl=.5;s.hkx=kx/d;s.hky=ky/d}dmgText(s,r,'#ffb05a');if(s.hp<=0)killSk(s)};
 const sd=(px,py,a,b)=>{const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((px-a[0])*dx+(py-a[1])*dy)/(dx*dx+dy*dy||1)));return Math.hypot(px-a[0]-t*dx,py-a[1]-t*dy)};
 function scanBush(){if(typeof GWD==='undefined'||!GWD)return;BUSH.clear();const T=GWD.tiles;for(let l=0;l<GNX*GNY;l++){const o=l*4096,bx=(l%GNX)*64,by=((l/GNX)|0)*64;for(let y=0;y<63;y++)for(let x=0;x<63;x++){const i=o+y*64+x;if(T[i]===2&&T[i+1]===3&&T[i+64]===18&&T[i+65]===19){const cx=bx+x,cy=by+y;BUSH.set(cy*D.W+cx,[cx,cy])}}};if(window.__edBushMerge)window.__edBushMerge(BUSH)}
 window.__bushScan=scanBush;
@@ -2356,7 +2356,7 @@ function breakBush(x,y,quiet,o){
 /* chance de cair Glim ao cortar arbusto + valor sorteado (verde 1, azul 5, vermelho 30, amarelo 100) */
 const GRALAT_CHANCE=.5;
 function glimRoll(){const r=Math.random();return r<.65?1:r<.90?5:r<.99?30:100}
-function bushLoot(x,y){
+function bushLoot(x,y){if(ECON.enabled)return;
  if(Math.random()<GRALAT_CHANCE)dpush({x,y:y-3,v:glimRoll(),t:0,pop:1,vx:0});
  const q=Math.random();
  if(q<.12)ppush({x:x-6,y,k:'h',t:20});else if(q<.22)ppush({x:x+6,y,k:'b',t:20});else if(q<.34)ppush({x:x,y:y+6,k:'a',t:20});
@@ -2410,7 +2410,7 @@ function groupGrow(G){
 }
 window.__bushRespClear=(x,y,w,h)=>{for(let i=RESP.length-1;i>=0;i--){const r=RESP[i],G=r.G,rx=G?G.x:r.cx,ry=G?G.y:r.cy,rw=G?G.tw:2,rh=G?G.th:2;if(rx<x+w&&rx+rw>x&&ry<y+h&&ry+rh>y)RESP.splice(i,1)}};
 function cutBush(k){
- const b=BUSH.get(k);if(!b)return;
+ const b=BUSH.get(k);if(!b)return;if(ECON.enabled)ECON.request("bush",{x:b[0],y:b[1]});
  if(b[2]){const G=b[2];groupFx(G);eraseGroup(G);bushLoot(G.x*8+G.tw*4,G.y*8+G.th*4);return}
  BUSH.delete(k);const[cx,cy]=b;bushErase(cx,cy);
  const x=cx*8+8,y=cy*8+8;
@@ -2467,7 +2467,7 @@ function fireLine(x,y,dx,dy){const e={x,y,dx,dy};EX.push({x,y,t:FDUR,ln:1,dx,dy}
 function actTick(dt){
  if(!ACT)return;if(P.dead||shop){ACT=null;return}
  ACT.t+=dt;const{dx,dy}=ACT;
- if(ACT.k==='p'&&!ACT.done&&ACT.t>=.08){ACT.done=1;if(ZL.b>0){ZL.b--;let bx=P.x+dx*14,by=P.y+dy*14;if(solidAt(bx,by-3)){bx=P.x;by=P.y}bpush({x:bx,y:by,sx:bx,sy:by,tx:bx,ty:by,fl:0,z:0,t:1.8});zSave()}}
+ if(ACT.k==='p'&&!ACT.done&&ACT.t>=.08){ACT.done=1;if(ZL.b>0){if(ECON.enabled)ECON.request("consume",{kind:"b"});ZL.b--;let bx=P.x+dx*14,by=P.y+dy*14;if(solidAt(bx,by-3)){bx=P.x;by=P.y}bpush({x:bx,y:by,sx:bx,sy:by,tx:bx,ty:by,fl:0,z:0,t:1.8});zSave()}}
  if(!ACT.done&&ACT.t>=.16&&(ACT.k==='f'||ACT.k==='b')){ACT.done=1;
   if(ACT.k==='f')apush({x:P.x+dx*8,y:P.y-8+dy*8,vx:dx*240,vy:dy*240,t:.8});
   else{let tx=P.x,ty=P.y;for(let i=1;i<=5;i++){const nx=P.x+dx*i*9,ny=P.y+dy*i*9;if(solidAt(nx,ny-3))break;tx=nx;ty=ny}bpush({x:P.x,y:P.y,sx:P.x,sy:P.y,tx,ty,fl:.3,z:0,t:1.8})}}
@@ -2481,7 +2481,7 @@ const _u=update;update=function(dt){
   if(!(window.GSPAR&&GSPAR.active)&&P.atk>0&&!prevAtk)cutFront(dx,dy);
  prevAtk=P.atk>0?1:0;
   if(keys['b']){keys['b']=0;if(!(window.GSPAR&&GSPAR.active)&&!P.dead&&!shop&&!ACT&&!CARRY&&!(P.atk>0)){if(window.MOUNT&&MOUNT.on)say(P.x,P.y-20,'Desmonte pra usar bomba','#ffb05a');else if(ZL.b>0){ACT={k:'p',t:0,len:.2,dx,dy,done:0}}else say(P.x,P.y-20,'Sem bombas','#ffb05a')}}
-  if(keys['f']){keys['f']=0;if(!(window.GSPAR&&GSPAR.active)&&!P.dead&&!shop&&!ACT&&!CARRY&&!(P.atk>0)){if(window.MOUNT&&MOUNT.on)say(P.x,P.y-20,'Desmonte pra usar o arco','#ffb05a');else if(ZL.a>0){ZL.a--;ACT={k:'f',t:0,len:.3,dx,dy,done:0};zSave()}else say(P.x,P.y-20,'Sem flechas','#ffb05a')}}
+  if(keys['f']){keys['f']=0;if(!(window.GSPAR&&GSPAR.active)&&!P.dead&&!shop&&!ACT&&!CARRY&&!(P.atk>0)){if(window.MOUNT&&MOUNT.on)say(P.x,P.y-20,'Desmonte pra usar o arco','#ffb05a');else if(ZL.a>0){if(ECON.enabled)ECON.request("consume",{kind:"a"});ZL.a--;ACT={k:'f',t:0,len:.3,dx,dy,done:0};zSave()}else say(P.x,P.y-20,'Sem flechas','#ffb05a')}}
  for(let i=BO.length-1;i>=0;i--){const b=BO[i];b.t-=dt;if(b.fl>0)b.hard=0;else if(!b.hard&&!bombOverP(b))b.hard=1;else if(b.hard&&bombOverP(b))b.hard=0;if(b.fl>0){b.fl=Math.max(0,b.fl-dt);const u=1-b.fl/.3;b.x=b.sx+(b.tx-b.sx)*u;b.y=b.sy+(b.ty-b.sy)*u;b.z=Math.sin(Math.PI*u)*16}else b.z=0;if(b.t<=0){BO.splice(i,1);if(b.rm)EX.push({x:b.x,y:b.y,t:FDUR});else boom(b.x,b.y)}}
  for(let i=AR.length-1;i>=0;i--){const a=AR[i];a.t-=dt;a.x+=a.vx*dt;a.y+=a.vy*dt;let hit=a.t<=0||solidAt(a.x,a.y);
   if(!hit&&!a.rm)for(const s of SK)if(!s.dead&&Math.hypot(s.x-a.x,s.y-8-a.y)<10){hitSk(s,.9,a.vx,a.vy);hit=1;break}
@@ -3302,9 +3302,10 @@ function myUid(){let u=null;try{u=localStorage.getItem('graal_uid')}catch(e){}
  if(!/^[a-f0-9]{32}$/.test(u||'')){const a=new Uint8Array(16);crypto.getRandomValues(a);u=[...a].map(b=>b.toString(16).padStart(2,'0')).join('');try{localStorage.setItem('graal_uid',u)}catch(e){}}return u}
 function conn(){try{ws=new WebSocket(url())}catch(e){return}
  ws.onopen=()=>{on=1;lastSk='';lastCk=null;window.EQX.dirty=1;
-  try{ws.send(JSON.stringify({t:'hi',uid:myUid()}));const tk=localStorage.getItem('graal_admin_token')||(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?'-':''); /* '-' = tentativa do dono em localhost quando não há ADMIN_TOKEN (o servidor só aceita se for loopback) */
+  try{ws.send(JSON.stringify({t:'hi',uid:myUid(),economy:1}));const tk=localStorage.getItem('graal_admin_token')||(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?'-':''); /* '-' = tentativa do dono em localhost quando não há ADMIN_TOKEN (o servidor só aceita se for loopback) */
   if(tk)ws.send(JSON.stringify({t:'auth',token:tk}))}catch(e){}};
  ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}
+  if(m.t==='eco'||m.t==='mr'){ECON.net(m);return}if(m.t==='id'||m.t==='acc')ECON.net(m);
   if(m.t==='id'){myId=m.id;srvV=m.v||1;if(m.v!==3)MSG.push({id:null,nm:'⚠',x:'servidor desatualizado: troque o server.js no GitHub',t:performance.now()+25000});return}
   if(m.t==='k'){SKN.set(m.id,{bi:mk(m.bs),hi:mk(m.hs),c:(SKN.get(m.id)||{}).c||null});return}
   if(m.t==='kc'){const o=SKN.get(m.id)||{};o.c=window.MPX?window.MPX.fixCols(m.c):null;SKN.set(m.id,o);return}
@@ -5924,7 +5925,7 @@ const sortSK=()=>{if(typeof SK==='undefined'||!SK)return;SK.sort((a,b)=>ordK(a)-
 /* ---- aplica no jogo (usado pelo servidor e pelo modo local) ---- */
 function apply(){ /* reconstrói os monstros personalizados a partir do DB (idempotente) */
  if(typeof SK==='undefined'||!SK)return;
- tagOi();
+ tagOi();if(online&&ECON.enabled)SK.length=0;
  for(let i=SK.length-1;i>=0;i--)if(SK[i].cu)SK.splice(i,1);
  if(DB.rem.length){const set=new Set(DB.rem);for(let i=SK.length-1;i>=0;i--)if(!SK[i].cu&&set.has(key(SK[i])))SK.splice(i,1)}
  DB.add.forEach(a=>{const m=mkOne(a);if(m){m.cu=1;m.ca=a;SK.push(m)}});
@@ -6140,9 +6141,9 @@ updateSk=function(s,dt){
  const o=nearest(s);if(!o)return _upd(s,dt); /* o alvo mais perto sou eu */
  const real=P,px=Object.create(real);px.x=o.x;px.y=o.y;px.dead=0;px.inv=0;px.hp=1e9;px.hurt=0;px.mp=1e9;
  P=px;try{_upd(s,dt)}finally{P=real}
- if(px.hp<1e9)MPNET.send({t:'mp',pid:o.id,dk:s.dmgK||1}); /* o monstro bateu no jogador remoto: ele calcula o dano com os próprios atributos */
+ if(px.hp<1e9||px.mp<1e9)MPNET.send({t:'mp',pid:o.id,dk:s.dmgK||1,mpd:px.mp<1e9?1:0}); /* envia o golpe e, se for Bolha, o dreno de MP */
 };
-setInterval(()=>{if(!HOST||!live()||!RPm.size||!P||document.hidden)return;
+setInterval(()=>{if(!HOST||!live()||(!RPm.size&&!ECON.enabled)||!P||document.hidden)return;
  const pts=[P,...RPm.values()],e=[];
  for(let i=0;i<SK.length;i++){const s=SK[i];let nr=0;for(const q of pts)if(Math.abs(s.x-q.x)<700&&Math.abs(s.y-q.y)<600){nr=1;break}if(!nr)continue;
   e.push([i,Math.round(s.x),Math.round(s.y),Math.round(s.hp),(s.dead?1:0)|(s.walk?2:0)|(s.combat?4:0)|(s.hurt>0?8:0),FC.indexOf(s.face)])}
@@ -6150,7 +6151,7 @@ setInterval(()=>{if(!HOST||!live()||!RPm.size||!P||document.hidden)return;
 function net(m){
  if(m.t==='host'){HOST=m.v===1;return}
  if(m.t==='ms'){
-  if(HOST||m.n!==SK.length||!Array.isArray(m.e))return;const t=now();
+  if((HOST&&!ECON.enabled)||m.n!==SK.length||!Array.isArray(m.e))return;const t=now();
   for(const a of m.e){const s=SK[a[0]];if(!s||a.length<6)continue;
    if(t-(s.lm||0)<400)continue; /* acabei de bater: deixa o meu golpe valer um instante */
    if(a[4]&1){if(!s.dead){s.dead=1;s.combat=0}s.hp=0;if(!(s.rt>0))s.rt=MON_RESPAWN;s.x=a[1];s.y=a[2];s.nb=null}
@@ -6162,7 +6163,7 @@ function net(m){
   s.hp-=Math.min(d,9999);s.hurt=.25;s.combat=1;{const kx=+m.kx||0,ky=+m.ky||0,n=Math.hypot(kx,ky);if(n>.01){s.kvx=kx/n*190;s.kvy=ky/n*190;s.fl=.5}}dmgText(s,Math.round(d),'#ffb05a');
   if(s.hp<=0){REMK=1;try{killSk(s)}finally{REMK=0}}return}
  if(m.t==='mp'){ /* um monstro bateu em mim */
-  if(P&&!P.dead&&!(P.inv>0))hurtPlayer(Math.ceil(hpBase(P)/6*Math.min(20,+m.dk||1)),SK.filter(q=>!q.dead&&Math.hypot(q.x-P.x,q.y-P.y)<48).sort((a,b)=>Math.hypot(a.x-P.x,a.y-P.y)-Math.hypot(b.x-P.x,b.y-P.y))[0])}
+  if(P&&!P.dead&&!(P.inv>0)){hurtPlayer(Math.ceil(hpBase(P)/6*Math.min(20,+m.dk||1)),SK.filter(q=>!q.dead&&Math.hypot(q.x-P.x,q.y-P.y)<48).sort((a,b)=>Math.hypot(a.x-P.x,a.y-P.y)-Math.hypot(b.x-P.x,b.y-P.y))[0]);if(m.mpd){const n=Math.min(P.mp,10);P.mp-=n;if(n)fx.push({x:P.x,y:P.y-30,txt:'-'+n+' MP',t:1,c:'#6aa8ff'})}}}
 }
 /* ITENS NO CHÃO COMPARTILHADOS: quem solta avisa (dr), quem pega avisa (dp); o servidor lembra o que está no chão para quem entra depois (dall) */
 const DRP=window.DRP={n:0,
@@ -7380,7 +7381,7 @@ const EFF={
 };
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* item de catálogo ou personalizado → {ic,n,ok,f,lbl} */
-const def=i=>{if(i.t!=='x')return CAT[i.t];const E=EFF[i.e];
+const def=i=>{if(i.t==='hat')return{ic:'🧢',n:'Acessório '+i.id.slice(-2),ok:()=>!ECON.state?.hats.includes(i.id),f:()=>{},lbl:'Acessório do personagem'};if(i.t!=='x')return CAT[i.t]||{ic:'?',n:'Item indisponível',ok:()=>false,f:()=>{}};const E=EFF[i.e];
  return{ic:i.ic||'🎁',n:i.nm,ok:E.ok,f:()=>E.f(i.v,i),lbl:E.l(i.v)+(i.e==='none'?' · tem '+(bag()[i.nm]|0):'')}};
 const HUES=[['Azul-verde',160],['Original',0],['Verde',90],['Roxo',260],['Rosa',320],['Laranja',30]];
 const num=(v,a,b,d)=>{v=Math.round(+v);return Number.isFinite(v)?Math.max(a,Math.min(b,v)):d};
@@ -7391,7 +7392,7 @@ const ln=(a,m)=>(Array.isArray(a)?a:[]).map(x=>String(x||'').trim().slice(0,100)
 const pick=a=>a&&a.length?a[Math.floor(Math.random()*a.length)]:'';
 const clean=n=>{if(!n||!Number.isFinite(+n.x)||!Number.isFinite(+n.y))return null;const seen={},it=[];
  (Array.isArray(n.it)?n.it:[]).forEach(i=>{if(!i||it.length>=24)return;
-  if(i.t==='x'){if(EFF[i.e])it.push({t:'x',ic:String(i.ic||'🎁').slice(0,4),nm:(String(i.nm||'Item').trim().slice(0,22))||'Item',c:num(i.c,0,99999,10),e:i.e,v:num(i.v,1,9999,1)})}
+  if(i.t==='hat'&&/^hat_0[1-5]$/.test(i.id)){it.push({t:'hat',id:i.id,c:num(i.c,0,99999,10)});}else if(i.t==='x'){if(EFF[i.e])it.push({t:'x',ic:String(i.ic||'🎁').slice(0,4),nm:(String(i.nm||'Item').trim().slice(0,22))||'Item',c:num(i.c,0,99999,10),e:i.e,v:num(i.v,1,9999,1)})}
   else if(CAT[i.t]&&!seen[i.t]){seen[i.t]=1;it.push({t:i.t,c:num(i.c,0,99999,CAT[i.t].c),q:CAT[i.t].qv?num(i.q,1,99,1):1})}});
  return{id:0,x:Math.round(+n.x),y:Math.round(+n.y),nm:String(n.nm||'Vendedor').slice(0,18),hue:snapHue(n.hue),it,fl:ln(n.fl,8),fb:ln(n.fb,5),eq:{h:okEq(n.eq&&n.eq.h,0),d:okEq(n.eq&&n.eq.d,6)},sk:(n.sk&&Number.isFinite(+n.sk.b)&&Number.isFinite(+n.sk.h))?{b:num(n.sk.b,0,9999,0),h:num(n.sk.h,0,9999,0)}:null}};
 let DB=[],lid=0;
@@ -7512,21 +7513,24 @@ try{const o=JSON.parse(localStorage.getItem(POSK)||'null');if(o&&Number.isFinite
  hd.addEventListener('pointerup',end);hd.addEventListener('pointercancel',end)}
 
 /* ---------- loja (todos os jogadores) ---------- */
-let shopN=null,shopTm=0,shopSig='';
+let shopN=null,shopTm=0,shopSig='',pendingBuy='';
 const sig=()=>shopN?P.gl+'|'+shopN.it.map(i=>(def(i).ok()?1:0)+(def(i).lb?':'+def(i).lb():'')+(def(i).h?':'+def(i).h():'')+(i.t==='x'&&i.e==='none'?'.'+(bag()[i.nm]|0):'')).join(','):'';
 function renderShop(force){
  if(!shopN)return;const s=sig();if(!force&&s===shopSig)return;shopSig=s;
  $('npsT').textContent=shopN.nm;$('npsG').textContent=P.gl+' Glims';
  $('npsL').innerHTML=shopN.it.length?shopN.it.map((i,k)=>{const C=def(i),ok=C.ok(),has=P.gl>=i.c||!!(C.fr&&C.fr());
-  return'<div class="r"><span class="ic">'+esc(C.ic)+'</span><span class="nm">'+esc(C.n)+(i.t==='x'?' <small>'+esc(C.lbl)+'</small>':(i.q>1||C.h)?' <small>'+(i.q>1?'x'+i.q:'')+(C.h?(i.q>1?' · ':'')+'tem '+C.h():'')+'</small>':'')+'</span><span class="pr">'+i.c+' g</span><button data-i="'+k+'"'+(ok&&has?'':' disabled')+'>'+(!ok?(C.lb?'Indisponível':'MÁX'):has?(C.lb?C.lb():'Comprar'):'Sem Glims')+'</button></div>'}).join(''):'<div class="em">Este NPC não vende nada ainda.</div>'}
+  return'<div class="r"><span class="ic">'+esc(C.ic)+'</span><span class="nm">'+esc(C.n)+(i.t==='x'?' <small>'+esc(C.lbl)+'</small>':(i.q>1||C.h)?' <small>'+(i.q>1?'x'+i.q:'')+(C.h?(i.q>1?' · ':'')+'tem '+C.h():'')+'</small>':'')+'</span><span class="pr">'+i.c+' g</span><button data-i="'+k+'"'+(ok&&has&&!pendingBuy&&ECON.enabled?'':' disabled')+'>'+(!ok?(C.lb?'Indisponível':'MÁX'):has?(C.lb?C.lb():'Comprar'):'Sem Glims')+'</button></div>'}).join(''):'<div class="em">Este NPC não vende nada ainda.</div>'}
 const setSay=t=>{$('npsS').textContent=t||''};
-function openShop(n){shopN=n;setSay(pick(n.fl));renderShop(1);$('nps').style.display='flex';clearInterval(shopTm);shopTm=setInterval(()=>renderShop(0),250)}
+function openShop(n){shopN=n;if(ECON.enabled)ECON.request('catalog',{x:n.x,y:n.y},m=>{if(m.ok&&shopN&&shopN.x===m.x&&shopN.y===m.y){shopN={...shopN,it:m.items};renderShop(1)}});setSay(pick(n.fl));renderShop(1);$('nps').style.display='flex';clearInterval(shopTm);shopTm=setInterval(()=>renderShop(0),250)}
 function closeShop(){setSay('');shopN=null;shopSig='';$('nps').style.display='none';clearInterval(shopTm)}
 function buy(k){
- const it=shopN&&shopN.it[k];if(!it)return;const C=def(it),t=(m,c)=>fx.push({x:P.x,y:P.y-24,txt:m,t:1.5,c});
- if(!C.ok())return t('Indisponível','#ffb05a');
- if(P.gl<it.c&&!(C.fr&&C.fr()))return t('Glims insuficientes','#ff5a5a');
- if(!(C.fr&&C.fr()))P.gl-=it.c;C.f(it.q);saveGame();t(C.lb?'Pronto!':'Comprado!','#5aff7a');if(shopN.fb&&shopN.fb.length)setSay(pick(shopN.fb));renderShop(1)}
+ if(pendingBuy||!shopN)return;
+ const item=shopN.it[k];if(!item)return;
+ if(!ECON.enabled){setSay('Atualize o servidor para liberar compras validadas.');return;}
+ if(!item.quote){openShop(shopN);setSay('Consultando preço. Selecione Comprar novamente.');return;}
+ pendingBuy=ECON.request('buy',{x:shopN.x,y:shopN.y,index:k,quote:item.quote},m=>{pendingBuy='';setSay(m.ok?'Compra confirmada!':({insufficient_glims:'Glims insuficientes',already_owned:'Você já possui este item',shop_changed:'A loja mudou. Abra novamente.',shop_out_of_range:'Chegue mais perto do vendedor'}[m.code]||'Compra não concluída'));renderShop(1)});
+ setSay(pendingBuy?'Confirmando compra no servidor…':'Aguarde a conexão.');renderShop(1);
+}
 $('npsL').addEventListener('click',e=>{const b=e.target.closest('button[data-i]');if(b&&!b.disabled)buy(+b.dataset.i)});
 $('npsX').onclick=closeShop;
 /* lista de NPCs vinda do servidor (ao entrar e quando outro admin muda) */
