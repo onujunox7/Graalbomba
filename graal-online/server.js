@@ -809,6 +809,9 @@ const HEXC = /^#[0-9a-f]{6}$/i;
 const COLS = c => Array.isArray(c) && c.length === 5 && c.some(x => typeof x === 'string' && HEXC.test(x)) ? c.map(x => typeof x === 'string' && HEXC.test(x) ? x.toLowerCase() : null) : null;
 const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
+const parties = require('./party')({ players: P, send: sendTo,
+  authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+setInterval(() => parties.tick(), 1000).unref();
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
 setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; c.pingAt = Date.now(); try { c.ping() } catch (e) { } } }, 10000);
 /* anfitrião dos monstros: o jogador online mais antigo (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
@@ -1021,6 +1024,7 @@ function requestSpar(p, join) {
 function setHidden(p, h, sp) {
   removeSparQueue(p.id);
   if (p.spar) finishSpar(p.spar, 0, 'cancelled');
+  if (h || sp) parties.disconnect(p.id);
   const was = !!p.hid; p.hid = (h || sp) ? 1 : 0; p.spec = sp ? 1 : 0;
   if (p.hid && !was) others(p.id, { t: 'l', id: p.id });          // some da tela de todo mundo
   else if (!p.hid && was) {                                        // volta a aparecer: reenvia skin/equipamento/perfil/posição
@@ -1065,7 +1069,7 @@ wss.on('connection', (ws, req) => {
 
   { // mesmo aparelho (cookie ggid) já online com OUTRA identidade (ex.: acabou de sair da conta Discord): remove o antigo na hora, sem esperar o fechamento do socket
     const dev = guestOf(req);
-    if (dev) { p.dev = dev; for (const o of [...P.values()]) if (o !== p && o.dev === dev) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } }
+    if (dev) { p.dev = dev; for (const o of [...P.values()]) if (o !== p && o.dev === dev) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } }
   }
   { // conectou com a sessão do Discord: a identidade (bans/admins) passa a ser a conta, e o progresso vem do servidor
     const sid = sessionOf(req);
@@ -1102,7 +1106,7 @@ wss.on('connection', (ws, req) => {
       // identidade do navegador (segredo aleatório; o servidor só guarda o hash)
       if (p.uh || typeof m.uid !== 'string' || !/^[a-f0-9]{32}$/.test(m.uid)) return;
       p.uh = sha(m.uid);
-      for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
+      for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
       const bn = banOf(p.uh); if (bn) { sendTo(ws, { t: 'kick', r: banMsg(bn) }); setTimeout(() => ws.close(), 100); return }
       const ku = KICKED.get(p.uh);
       if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + fmtDur(ku - Date.now()) + '.' }); setTimeout(() => ws.close(), 100); return }
@@ -1116,6 +1120,7 @@ wss.on('connection', (ws, req) => {
       else { p.authFails++; if (p.authFails >= 5) ws.close() }
       return;
     }
+    if (m.t === 'party') { parties.handle(p, m); return }
     if (m.t === 'spq') { requestSpar(p, !!m.join); return }
     if (m.t === 'spa') { // área do botão de spar: só admin/dono pode alterar; salva no config persistente e avisa todos
       if (p.role < 1) return;
@@ -1341,7 +1346,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
-  ws.on('close', () => { removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
+  ws.on('close', () => { parties.disconnect(id); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
   ws.on('error', () => { });
 });
 
