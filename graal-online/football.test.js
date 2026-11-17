@@ -24,7 +24,7 @@ function fixture(count = 2) {
   const latest = (id = 1, op = 'state') => messages.get(id).findLast(m => m.op === op);
   function start(ids = [...players.keys()]) {
     for (const id of ids) request(id, 'join', { version: 1 });
-    advance(ids.length >= 6 ? 50 : 10000);
+    advance(ids.length >= 10 ? 50 : 10000);
     assert.equal(latest(ids[0]).phase, 'kickoff');
     advance(3000);
     assert.equal(latest(ids[0]).phase, 'playing');
@@ -39,15 +39,15 @@ function fixture(count = 2) {
   return { football, players, messages, request, advance, latest, start, move };
 }
 
-test('fila autenticada inicia dois times e limita cada time a três jogadores', () => {
-  const f = fixture(6);
+test('fila autenticada inicia dois times e limita cada time a cinco jogadores', () => {
+  const f = fixture(10);
   f.start();
   const state = f.latest();
-  assert.equal(state.players.length, 6);
-  assert.equal(state.players.filter(p => p.team === 0).length, 3);
-  assert.equal(state.players.filter(p => p.team === 1).length, 3);
+  assert.equal(state.players.length, 10);
+  assert.equal(state.players.filter(p => p.team === 0).length, 5);
+  assert.equal(state.players.filter(p => p.team === 1).length, 5);
   assert.equal(state.remaining, 300000);
-  for (let id = 1; id <= 6; id++) assert.deepEqual(f.latest(id), state);
+  for (let id = 1; id <= 10; id++) assert.deepEqual(f.latest(id), state);
 });
 
 test('um jogador espera, entrada repetida não duplica e saída cancela fila', () => {
@@ -201,13 +201,13 @@ test('jogador desconectado ou sessão revogada não fica preso na partida', () =
 });
 
 test('partidas simultâneas ficam isoladas e reconectar exige nova entrada', () => {
-  const f = fixture(12);
-  for (let id = 1; id <= 12; id++) f.request(id, 'join', { version: 1 });
+  const f = fixture(20);
+  for (let id = 1; id <= 20; id++) f.request(id, 'join', { version: 1 });
   f.advance(50);
   f.advance(50);
-  assert.notEqual(f.players.get(1).football, f.players.get(7).football);
-  assert.equal(f.latest(1).players.length, 6);
-  assert.equal(f.latest(7).players.length, 6);
+  assert.notEqual(f.players.get(1).football, f.players.get(11).football);
+  assert.equal(f.latest(1).players.length, 10);
+  assert.equal(f.latest(11).players.length, 10);
   f.football.disconnect(1);
   assert.equal(f.football.has(f.players.get(1)), false);
   f.request(1, 'get');
@@ -389,4 +389,38 @@ test('estado publica a velocidade da bola em campo separado e o atrito a leva ao
   const rest = f.latest().bv;
   assert.equal(Math.hypot(rest.x, rest.y), 0);
   assert.deepEqual(f.latest().score, [0, 0]);
+});
+
+
+test('dez jogadores têm posições únicas, finitas e dentro do campo em cada time', () => {
+  const f = fixture(10);
+  f.start();
+  const state = f.latest();
+  assert.equal(new Set(state.players.map(p => p.x + ',' + p.y)).size, 10);
+  for (const p of state.players) {
+    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y));
+    assert.ok(p.x >= FIELD.x + 8 && p.x <= FIELD.x + FIELD.w - 8);
+    assert.ok(p.y >= FIELD.y + 8 && p.y <= FIELD.y + FIELD.h - 8);
+  }
+  assert.ok(FIELD.goal >= 5 * 24, 'gol acomoda cinco jogadores de 24 unidades');
+});
+
+test('gol ampliado aceita chute além da abertura antiga e fundo rebate fora da nova abertura', () => {
+  for (const offset of [60, 110]) {
+    const f = fixture();
+    f.start();
+    f.move(2, 0, 1, 20);
+    f.move(1, 1, 0, 12);
+    const target = {x: FIELD.x + FIELD.w + 10, y: FIELD.y + FIELD.h / 2 + offset};
+    const ball = f.latest().ball;
+    const distance = Math.hypot(target.x - ball.x, target.y - ball.y);
+    f.request(1, 'kick', {dx: (target.x-ball.x)/distance, dy: (target.y-ball.y)/distance});
+    let bounced = false;
+    for(let i=0; i<70; i++) {
+      f.advance(50);
+      if(f.latest().bv.x < 0) bounced = true;
+    }
+    assert.deepEqual(f.latest().score, offset === 60 ? [1,0] : [0,0]);
+    if(offset === 110) assert.ok(bounced, 'bola rebate no fundo fora do gol');
+  }
 });

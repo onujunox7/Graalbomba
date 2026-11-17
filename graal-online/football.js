@@ -1,6 +1,7 @@
 'use strict';
 
-const FIELD = Object.freeze({ x: 512, y: 1024, w: 448, h: 264, goal: 72 });
+const FIELD = Object.freeze({ x: 512, y: 1024, w: 576, h: 384, goal: 160 });
+const TEAM_SIZE = 5;
 const STEP = 50;
 const DURATION = 300000;
 const RADIUS = 5;
@@ -80,7 +81,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     for (const entry of match.entries.values()) {
       const index = slots[entry.team]++;
       entry.x = FIELD.x + FIELD.w / 2 + (entry.team === 0 ? -SPAWN : SPAWN);
-      entry.y = FIELD.y + FIELD.h / 2 + [0, -54, 54][index];
+      entry.y = FIELD.y + FIELD.h / 2 + [0, -64, 64, -128, 128][index];
       entry.dx = 0;
       entry.dy = 0;
       entry.inputAt = 0;
@@ -232,7 +233,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   // Colisão círculo × círculo entre a bola e um corpo (jogador ou trave).
   // O corpo tem massa infinita: a bola reflete a velocidade relativa com restituição
   // e perde um pouco de velocidade tangencial (atrito). Um jogador correndo "conduz" a bola.
-  function collide(ball, px, py, pvx, pvy, radius, bounce) {
+  function collide(ball, px, py, pvx, pvy, radius, bounce, cap = Infinity) {
     const minimum = radius + RADIUS;
     let nx = ball.x - px;
     let ny = ball.y - py;
@@ -348,7 +349,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       changed = true;
     }
     if (changed) queueState();
-    if (queue.size >= 2 && (queue.size >= 6 || time >= queueUntil)) start([...queue].slice(0, 6));
+    if (queue.size >= 2 && (queue.size >= TEAM_SIZE * 2 || time >= queueUntil)) start([...queue].slice(0, TEAM_SIZE * 2));
     for (const match of matches.values()) {
       for (const entry of [...match.entries.values()]) {
         const p = players.get(entry.id);
