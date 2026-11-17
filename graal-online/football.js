@@ -233,7 +233,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   // Colisão círculo × círculo entre a bola e um corpo (jogador ou trave).
   // O corpo tem massa infinita: a bola reflete a velocidade relativa com restituição
   // e perde um pouco de velocidade tangencial (atrito). Um jogador correndo "conduz" a bola.
-  function collide(ball, px, py, pvx, pvy, radius, bounce, cap = Infinity) {
+  function collide(ball, px, py, pvx, pvy, radius, bounce, dribble = false) {
     const minimum = radius + RADIUS;
     let nx = ball.x - px;
     let ny = ball.y - py;
@@ -247,11 +247,29 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       nx /= distance;
       ny /= distance;
     }
-    ball.x = px + nx * minimum;
-    ball.y = py + ny * minimum;
     const rvx = ball.vx - pvx;
     const rvy = ball.vy - pvy;
     const normal = rvx * nx + rvy * ny;
+    const bodySpeed = Math.hypot(pvx, pvy);
+    // Condução frontal mantém a linha de movimento e o afastamento lateral existente.
+    // A separação radial e a restituição amplificavam pequenos contatos fora do centro.
+    if (dribble && bodySpeed > 0 &&
+        (nx * pvx + ny * pvy) / bodySpeed >= 0.5 &&
+        Math.hypot(ball.vx, ball.vy) <= bodySpeed * 1.5) {
+      const dx = pvx / bodySpeed;
+      const dy = pvy / bodySpeed;
+      const lateral = (ball.x - px) * -dy + (ball.y - py) * dx;
+      const forward = Math.sqrt(Math.max(0, minimum * minimum - lateral * lateral));
+      ball.x = px + dx * forward - dy * lateral;
+      ball.y = py + dy * forward + dx * lateral;
+      if (normal < 0) {
+        ball.vx = pvx * 1.1;
+        ball.vy = pvy * 1.1;
+      }
+      return;
+    }
+    ball.x = px + nx * minimum;
+    ball.y = py + ny * minimum;
     if (normal >= 0) return; // já está se afastando
     const tangent = rvx * -ny + rvy * nx;
     const outward = -normal * bounce;
@@ -277,7 +295,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       const t = i / SUBSTEPS;
       for (const body of motion) {
         collide(ball, body.x0 + (body.x1 - body.x0) * t, body.y0 + (body.y1 - body.y0) * t,
-          body.vx, body.vy, BODY, BOUNCE_BODY);
+          body.vx, body.vy, BODY, BOUNCE_BODY, true);
       }
       collidePosts(ball);
       if (ball.y < FIELD.y + RADIUS || ball.y > FIELD.y + FIELD.h - RADIUS) {

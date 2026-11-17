@@ -424,3 +424,28 @@ test('gol ampliado aceita chute além da abertura antiga e fundo rebate fora da 
     if(offset === 110) assert.ok(bounced, 'bola rebate no fundo fora do gol');
   }
 });
+
+test('condução reta com contato fora do centro mantém a linha da bola', () => {
+  const f = fixture();
+  f.start();
+  f.move(2, 0, 1, 20);
+  const line = f.latest().ball.y;
+  f.move(1, 0, 1, 1);
+  f.move(1, 1, 0, 35);
+  assert.ok(Math.abs(f.latest().ball.y - line) < 1, 'desvio lateral na condução: ' + (f.latest().ball.y - line));
+  assert.ok(f.latest().ball.x > FIELD.x + FIELD.w / 2 + 50, 'a bola precisa seguir sendo conduzida');
+});
+
+test('condução mantém a linha nos dois lados e com aproximação acima ou abaixo da bola', () => {
+  for (const runner of [1, 2]) {
+    for (const offset of [-1, 1]) {
+      const f = fixture();
+      f.start();
+      f.move(runner === 1 ? 2 : 1, 0, 1, 20);
+      const line = f.latest().ball.y;
+      f.move(runner, 0, offset, 1);
+      f.move(runner, runner === 1 ? 1 : -1, 0, 35);
+      assert.ok(Math.abs(f.latest().ball.y - line) < 1, 'condução desvia de sua linha');
+    }
+  }
+});
