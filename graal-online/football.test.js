@@ -19,7 +19,12 @@ function fixture(count = 2) {
     viewPlayer: p => ({ id: p.id, nm: p.nm, x: p.x, y: p.y, an: p.an }),
     send: (ws, data) => messages.get(ws.id).push(structuredClone(data))
   });
-  const request = (id, op, data = {}) => football.handle(players.get(id), { op, ...data });
+  const choices = new Map();
+  const request = (id, op, data = {}) => {
+    const positions = ['attacker', 'attacker', 'midfielder', 'midfielder', 'keeper'];
+    const choice = choices.get(id) || { team: (id - 1) % 2, position: positions[Math.floor((id - 1) / 2) % 5] };
+    football.handle(players.get(id), { op, ...(op === 'join' && data.version === 1 ? choice : {}), ...data });
+  };
   const advance = ms => { time += ms; football.tick(); };
   const latest = (id = 1, op = 'state') => messages.get(id).findLast(m => m.op === op);
   function start(ids = [...players.keys()]) {
@@ -36,7 +41,7 @@ function fixture(count = 2) {
     }
     request(id, 'move', { dx: 0, dy: 0 });
   }
-  return { football, players, messages, request, advance, latest, start, move };
+  return { football, players, messages, request, advance, latest, start, move, choices };
 }
 
 test('fila autenticada inicia dois times e limita cada time a cinco jogadores', () => {
@@ -202,8 +207,9 @@ test('jogador desconectado ou sessão revogada não fica preso na partida', () =
 
 test('partidas simultâneas ficam isoladas e reconectar exige nova entrada', () => {
   const f = fixture(20);
-  for (let id = 1; id <= 20; id++) f.request(id, 'join', { version: 1 });
+  for (let id = 1; id <= 10; id++) f.request(id, 'join', { version: 1 });
   f.advance(50);
+  for (let id = 11; id <= 20; id++) f.request(id, 'join', { version: 1 });
   f.advance(50);
   assert.notEqual(f.players.get(1).football, f.players.get(11).football);
   assert.equal(f.latest(1).players.length, 10);
@@ -503,4 +509,428 @@ test('bola solta depois de sair do alcance não volta ao jogador quando ele vira
   const p=f.players.get(1);
   const b=f.latest().ball;
   assert.ok(Math.hypot(b.x-p.x,b.y-p.y)>70, 'bola distante voltou ao jogador');
+});
+
+test('trocas rápidas integradas no comando de 50 ms conservam condução e movimento contínuo', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,20);
+  const directions=[[1/6,-1/6],[-1/6,-1/6],[-1/6,1/6],[1/6,1/6],[0,0]];
+  let previous=f.latest().ball;
+  for(let index=0;index<100;index++) {
+    const [dx,dy]=directions[index%directions.length];
+    const state=f.latest();
+    f.request(1,'move',{match:state.match,round:state.round,seq:index+1,dx,dy});
+    f.advance(50);
+    const current=f.latest();
+    const p=f.players.get(1);
+    const gap=Math.hypot(current.ball.x-p.x,current.ball.y-p.y);
+    assert.ok(gap<=22, 'bola disparou na troca rápida '+index+', distância='+gap);
+    assert.ok(Math.hypot(current.ball.x-previous.x,current.ball.y-previous.y)<=18, 'bola saltou entre estados');
+    assert.ok(Math.hypot(current.bv.x,current.bv.y)<=187.5, 'troca rápida gerou velocidade de chute');
+    previous=current.ball;
+  }
+});
+
+test('cancelamento de movimentos opostos conserva intenção de condução no mesmo comando', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,20);
+  const directions=[[1,0],[0,-1],[-1,0],[0,1]];
+  for(let index=0;index<40;index++) {
+    const [x,y]=directions[index%directions.length];
+    const state=f.latest();
+    f.request(1,'move',{match:state.match,round:state.round,seq:index+1,dx:0,dy:0,facing:{x,y}});
+    f.advance(50);
+    const p=f.players.get(1);
+    const b=f.latest().ball;
+    assert.ok(Math.hypot(b.x-p.x,b.y-p.y)<=22, 'bola escapou com comandos opostos cancelados, passo '+index);
+  }
+});
+
+test('direção final inválida não consome sequência e comandos anteriores continuam aceitos', () => {
+  const f=fixture();
+  f.start();
+  const state=f.latest();
+  const base={match:state.match,round:state.round,seq:1,dx:1,dy:0};
+  const before=f.players.get(1).x;
+  for(const facing of [null, [], 'right', {x:Infinity,y:0}, {x:'1',y:0}, {x:1}, {x:99,y:0}]) f.request(1,'move',{...base,facing});
+  f.advance(50);
+  assert.equal(f.players.get(1).x,before);
+  f.request(1,'get');
+  assert.equal(f.latest().players[0].ack,0);
+  f.request(1,'move',{...base,facing:{x:1,y:0}});
+  f.advance(50);
+  f.request(1,'move',{...base,seq:2});
+  f.advance(50);
+  assert.equal(f.players.get(1).x,before+12.5);
+  assert.equal(f.latest().players[0].ack,2);
+});
+
+test('duzentos comandos de trocas rápidas com médias de seis quadros mantêm a bola próxima', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,20);
+  let seed=4271;
+  const directions=[[1,0],[0,1],[-1,0],[0,-1]];
+  let previous=f.latest().ball;
+  for(let index=0;index<200;index++) {
+    let dx=0,dy=0,x=0,y=0;
+    for(let frame=0;frame<6;frame++) {
+      seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+      [x,y]=directions[(seed>>>16)%4];
+      dx+=x/6;dy+=y/6;
+    }
+    const state=f.latest();
+    f.request(1,'move',{match:state.match,round:state.round,seq:index+1,dx,dy,facing:{x,y}});
+    f.advance(50);
+    const current=f.latest();
+    const p=f.players.get(1);
+    assert.ok(Math.hypot(current.ball.x-p.x,current.ball.y-p.y)<=22,'perdeu bola no comando '+index);
+    assert.ok(Math.hypot(current.ball.x-previous.x,current.ball.y-previous.y)<=18,'salto no comando '+index);
+    assert.ok(Math.hypot(current.bv.x,current.bv.y)<=187.5,'impulso de chute no comando '+index);
+    previous=current.ball;
+  }
+});
+
+function keeperRole(f,id,enabled) {
+  const state=f.latest(id);
+  f.request(id,'position',{match:state.match,round:state.round,position:enabled?'keeper':'attacker'});
+}
+
+function keeperSave(count=2,inside=true) {
+  const f=fixture(count);
+  f.start();
+  keeperRole(f,1,true);
+  f.move(1,-1,0,inside?25:16);
+  f.move(2,-1,0,12);
+  f.request(2,'kick',{dx:-1,dy:0});
+  for(let i=0;i<45 && !f.latest().holder;i++) f.advance(50);
+  return f;
+}
+
+function throwBall(f,id=1,extra={}) {
+  const state=f.latest(id);
+  f.request(id,'kick',{match:state.match,round:state.round,hold:state.hold,dx:1,dy:0,...extra});
+}
+
+test('cada time tem um goleiro escolhido pelo próprio jogador', () => {
+  const f=fixture(4);
+  f.start();
+  assert.equal(f.latest().holder,0);
+  keeperRole(f,1,true);
+  keeperRole(f,3,true);
+  keeperRole(f,2,true);
+  assert.equal(f.latest().players.filter(p=>p.team===0&&p.keeper).length,1);
+  assert.equal(f.latest().players.filter(p=>p.team===1&&p.keeper).length,1);
+  assert.equal(f.latest(3,'error').op,'error');
+  keeperRole(f,1,false);
+  keeperRole(f,3,true);
+  assert.equal(f.latest().players.find(p=>p.id===3).keeper,true);
+});
+
+test('goleiro segura contato na própria área e posse fica protegida contra todos os jogadores', () => {
+  const f=keeperSave(4);
+  assert.equal(f.latest().holder,1);
+  const hold=f.latest().hold;
+  f.move(2,-1,0,38);
+  f.move(3,-1,0,24);
+  f.move(3,0,1,10);
+  for(const id of [2,3,4]) {
+    throwBall(f,id);
+    f.advance(50);
+    assert.equal(f.latest().holder,1);
+    assert.equal(f.latest().hold,hold);
+  }
+  assert.deepEqual(f.latest().bv,{x:0,y:0});
+  assert.deepEqual(f.latest().score,[0,0]);
+  keeperRole(f,1,false);
+  assert.equal(f.latest().players.find(p=>p.id===1).keeper,true);
+});
+
+test('captura exige goleiro dentro da área e chute antigo não solta posse protegida', () => {
+  const outside=keeperSave(2,false);
+  assert.equal(outside.latest().holder,0);
+  const f=keeperSave();
+  assert.equal(f.latest().holder,1);
+  f.request(1,'kick',{dx:1,dy:0});
+  assert.equal(f.latest().holder,1);
+  throwBall(f,1,{hold:0});
+  assert.equal(f.latest().holder,1);
+  throwBall(f);
+  assert.equal(f.latest().holder,0);
+  assert.ok(f.latest().bv.x>260);
+});
+
+test('goleiro pode andar com bola dentro da área e lançamento libera a movimentação', () => {
+  const f=keeperSave();
+  assert.equal(f.latest().holder,1);
+  f.move(1,1,1,60);
+  assert.ok(f.players.get(1).x<=FIELD.x+56-8);
+  assert.ok(f.players.get(1).y<=FIELD.y+FIELD.h/2+FIELD.goal/2+34-8);
+  assert.equal(f.latest().ball.x,f.players.get(1).x);
+  assert.equal(f.latest().ball.y,f.players.get(1).y-12);
+  throwBall(f);
+  assert.equal(f.latest().holder,0);
+  f.move(1,1,0,10);
+  assert.ok(f.players.get(1).x>FIELD.x+56);
+});
+
+test('saída de goleiro com posse libera a bola e a vaga do time', () => {
+  const f=keeperSave(4);
+  assert.equal(f.latest().holder,1);
+  f.football.disconnect(1);
+  assert.equal(f.latest(3).holder,0);
+  keeperRole(f,3,true);
+  assert.equal(f.latest(3).players.find(p=>p.id===3).keeper,true);
+});
+
+
+test('nova defesa invalida lançamento atrasado de uma posse anterior', () => {
+  const f=keeperSave();
+  f.move(2,-1,0,38);
+  const oldHold=f.latest().hold;
+  throwBall(f);
+  assert.equal(f.latest().holder,0);
+  f.advance(50);
+  f.advance(50);
+  assert.equal(f.latest().holder,1);
+  assert.ok(f.latest().hold>oldHold);
+  throwBall(f,1,{hold:oldHold});
+  assert.equal(f.latest().holder,1);
+  throwBall(f);
+  assert.equal(f.latest().holder,0);
+});
+
+test('lançamento sequenciado espera movimento e só o dono atual pode soltar a bola', () => {
+  const f=keeperSave();
+  const state=f.latest();
+  f.request(2,'kick',{match:state.match,round:state.round,after:0,hold:state.hold,dx:1,dy:0});
+  f.request(1,'move',{match:state.match,round:state.round,seq:1,dx:0,dy:0});
+  f.request(1,'kick',{match:state.match,round:state.round,after:1,hold:state.hold,dx:1,dy:0});
+  assert.equal(f.latest().holder,1);
+  f.advance(50);
+  assert.equal(f.latest().holder,0);
+  assert.ok(f.latest().bv.x>260);
+  assert.equal(f.latest().players.find(p=>p.id===1).ack,1);
+});
+
+test('goleiro fora da própria área não captura a bola na área adversária', () => {
+  const f=fixture();
+  f.start();
+  keeperRole(f,1,true);
+  f.move(1,0,-1,20);
+  f.move(1,1,0,54);
+  f.move(1,0,1,20);
+  f.move(2,0,-1,20);
+  f.move(2,-1,0,29);
+  f.move(2,0,1,20);
+  f.move(2,1,0,12);
+  f.request(2,'kick',{dx:1,dy:0});
+  for(let i=0;i<45;i++) f.advance(50);
+  assert.equal(f.latest().holder,0);
+  assert.deepEqual(f.latest().score,[0,0]);
+});
+
+test('atribuição de posição valida partida, rodada e papel e identifica a própria sessão', () => {
+  const f=fixture(4);
+  f.start();
+  const state=f.latest();
+  for(const extra of [{position:1},{position:'invalid'},{match:'other'},{round:state.round-1}]) {
+    f.request(1,'position',{match:state.match,round:state.round,position:'keeper',...extra});
+  }
+  assert.equal(f.latest().players.filter(p=>p.keeper).length,0);
+  f.request(1,'position',{match:state.match,round:state.round,position:'keeper',id:2,team:1});
+  assert.equal(f.latest().players.find(p=>p.id===1).keeper,true);
+  assert.equal(f.latest().players.find(p=>p.id===2).keeper,false);
+});
+
+test('lançamento de posse inexistente não vira um chute comum', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,12);
+  throwBall(f,1,{hold:123});
+  assert.deepEqual(f.latest().bv,{x:0,y:0});
+  f.request(1,'kick',{dx:1,dy:0});
+  assert.ok(f.latest().bv.x>260);
+});
+
+test('gol reinicia posse e coloca goleiro na sua área mantendo a função', () => {
+  const f=fixture();
+  f.start();
+  keeperRole(f,1,true);
+  f.move(1,0,-1,20);
+  f.move(2,-1,0,12);
+  f.request(2,'kick',{dx:-1,dy:0});
+  for(let i=0;i<55;i++) f.advance(50);
+  assert.deepEqual(f.latest().score,[0,1]);
+  assert.equal(f.latest().holder,0);
+  assert.equal(f.latest().hold,0);
+  assert.equal(f.latest().players.find(p=>p.id===1).keeper,true);
+  assert.equal(f.players.get(1).x,FIELD.x+24);
+});
+
+test('entrar na fila exige time e posição explícitos e rejeita valores inválidos', () => {
+  const f=fixture();
+  for(const choice of [{},{team:0},{position:'attacker'},{team:2,position:'attacker'},
+    {team:'0',position:'attacker'},{team:0,position:'defender'},{team:0,position:'__proto__'}]) {
+    f.football.handle(f.players.get(1),{op:'join',version:1,...choice});
+    assert.equal(f.football.has(f.players.get(1)),false);
+  }
+  f.request(1,'get');
+  assert.equal(f.latest(1,'queue').selection,1);
+  assert.equal(f.latest(1,'queue').count,0);
+});
+
+test('time e posição escolhidos são preservados na partida e na formação', () => {
+  const f=fixture(4);
+  const choices=[{team:1,position:'midfielder'},{team:0,position:'keeper'},
+    {team:1,position:'attacker'},{team:0,position:'midfielder'}];
+  for(let i=0;i<choices.length;i++)f.request(i+1,'join',{version:1,...choices[i]});
+  f.advance(10000);
+  const state=f.latest();
+  for(let i=0;i<choices.length;i++) {
+    const p=state.players.find(p=>p.id===i+1);
+    assert.equal(p.team,choices[i].team);
+    assert.equal(p.position,choices[i].position);
+    assert.equal(p.keeper,choices[i].position==='keeper');
+  }
+  assert.equal(state.players.find(p=>p.id===2).x,FIELD.x+24);
+  assert.ok(state.players.find(p=>p.id===1).x>state.players.find(p=>p.id===3).x);
+});
+
+test('dez vagas completam dois atacantes, dois meias e um goleiro por time e iniciam imediatamente', () => {
+  const f=fixture(10);
+  const positions=['attacker','attacker','midfielder','midfielder','keeper'];
+  for(let id=1;id<=10;id++) f.request(id,'join',{version:1,team:id<=5?0:1,position:positions[(id-1)%5]});
+  f.advance(50);
+  const state=f.latest();
+  assert.equal(state.phase,'kickoff');
+  assert.equal(state.players.length,10);
+  for(const team of [0,1]) {
+    assert.equal(state.players.filter(p=>p.team===team&&p.position==='attacker').length,2);
+    assert.equal(state.players.filter(p=>p.team===team&&p.position==='midfielder').length,2);
+    assert.equal(state.players.filter(p=>p.team===team&&p.position==='keeper').length,1);
+  }
+  assert.equal(new Set(state.players.map(p=>p.x+','+p.y)).size,10);
+});
+
+test('só um time na fila espera adversário e equipes menores começam após dez segundos', () => {
+  const f=fixture(3);
+  f.request(1,'join',{version:1,team:0,position:'attacker'});
+  f.request(2,'join',{version:1,team:0,position:'midfielder'});
+  f.advance(20000);
+  assert.equal(f.latest(),undefined);
+  assert.equal(f.latest(2,'queue').starts,0);
+  f.request(3,'join',{version:1,team:1,position:'keeper'});
+  f.advance(9999);
+  assert.equal(f.latest(),undefined);
+  f.advance(1);
+  assert.equal(f.latest().phase,'kickoff');
+  assert.equal(f.latest().players.length,3);
+});
+
+test('vaga concorrida é reservada uma vez e troca inválida conserva a escolha anterior', () => {
+  const f=fixture(3);
+  f.request(1,'join',{version:1,team:0,position:'attacker'});
+  f.request(2,'join',{version:1,team:0,position:'attacker'});
+  f.request(3,'join',{version:1,team:1,position:'keeper'});
+  f.request(3,'join',{version:1,team:0,position:'attacker'});
+  f.request(3,'get');
+  let state=f.latest(3,'queue');
+  assert.equal(state.joined,true);
+  assert.equal(state.team,1);
+  assert.equal(state.position,'keeper');
+  assert.equal(state.teams[0].attacker,2);
+  assert.equal(state.teams[1].keeper,1);
+  f.request(1,'leave');
+  f.request(3,'join',{version:1,team:0,position:'attacker'});
+  state=f.latest(3,'queue');
+  assert.equal(state.team,0);
+  assert.equal(state.position,'attacker');
+  assert.equal(state.teams[1].keeper,0);
+  assert.equal(state.starts,0);
+});
+
+test('trocar posição durante a partida respeita vagas e mantém o time escolhido', () => {
+  const f=fixture(6);
+  const positions=['attacker','attacker','midfielder','midfielder','keeper'];
+  for(let id=1;id<=5;id++) f.request(id,'join',{version:1,team:0,position:positions[id-1]});
+  f.request(6,'join',{version:1,team:1,position:'attacker'});
+  f.advance(10000);f.advance(3000);
+  let state=f.latest();
+  f.request(5,'position',{match:state.match,round:state.round,position:'attacker',team:1});
+  assert.equal(f.latest().players.find(p=>p.id===5).position,'keeper');
+  f.request(2,'leave');
+  state=f.latest();
+  f.request(5,'position',{match:state.match,round:state.round,position:'attacker',team:1});
+  assert.equal(f.latest().players.find(p=>p.id===5).team,0);
+  assert.equal(f.latest().players.find(p=>p.id===5).position,'attacker');
+  state=f.latest();
+  f.request(3,'position',{match:state.match,round:state.round,position:'keeper'});
+  assert.equal(f.latest().players.find(p=>p.id===3).keeper,true);
+});
+
+test('fila reserva exatamente duas vagas de atacante, duas de meia e uma de goleiro por time', () => {
+  const f=fixture(6);
+  const positions=['attacker','attacker','midfielder','midfielder','keeper'];
+  for(let id=1;id<=5;id++) f.request(id,'join',{version:1,team:0,position:positions[id-1]});
+  for(const position of ['attacker','midfielder','keeper']) {
+    f.request(6,'join',{version:1,team:0,position});
+    assert.equal(f.football.has(f.players.get(6)),false);
+  }
+  f.request(6,'get');
+  assert.deepEqual(f.latest(6,'queue').teams[0],{attacker:2,midfielder:2,keeper:1});
+  f.request(6,'join',{version:1,team:1,position:'keeper'});
+  assert.equal(f.football.has(f.players.get(6)),true);
+  assert.equal(f.latest(6,'queue').teams[1].keeper,1);
+});
+
+test('a camisa escolhida reserva a vaga exata e publica o ocupante da escalação', () => {
+  const f=fixture(3);
+  f.request(1,'join',{version:1,team:0,position:'attacker',slot:1});
+  assert.equal(f.latest(1,'queue').slot,1);
+  assert.equal(f.latest(1,'queue').formation,1);
+  assert.equal(f.latest(1,'queue').lineups[0][0].id,1);
+  assert.equal(f.latest(1,'queue').lineups[0][0].nm,'Player 1');
+  f.request(2,'join',{version:1,team:0,position:'attacker',slot:1});
+  assert.equal(f.football.has(f.players.get(2)),false);
+  f.request(2,'join',{version:1,team:0,position:'attacker',slot:0});
+  f.request(3,'join',{version:1,team:1,position:'keeper',slot:0});
+  f.advance(10000);
+  assert.equal(f.latest().players.find(p=>p.id===1).slot,1);
+  assert.equal(f.latest().players.find(p=>p.id===1).y,FIELD.y+FIELD.h/2-64);
+  assert.equal(f.latest().players.find(p=>p.id===2).slot,0);
+});
+
+test('vagas inválidas ou ocupadas preservam a reserva e clientes por função continuam aceitos', () => {
+  const f=fixture(3);
+  f.request(1,'join',{version:1,team:0,position:'midfielder',slot:1});
+  f.request(2,'join',{version:1,team:0,position:'midfielder',slot:0});
+  for(const slot of [-1,2,1.5,'1',null,true]) f.request(1,'join',{version:1,team:0,position:'midfielder',slot});
+  f.request(1,'join',{version:1,team:0,position:'midfielder',slot:0});
+  f.request(1,'get');
+  assert.equal(f.latest(1,'queue').slot,1);
+  f.request(1,'join',{version:1,team:0,position:'midfielder'});
+  assert.equal(f.latest(1,'queue').slot,1);
+  f.request(3,'join',{version:1,team:1,position:'keeper'});
+  assert.equal(f.latest(3,'queue').slot,0);
+});
+
+test('troca de camisa durante a partida respeita a vaga e preserva o time', () => {
+  const f=fixture();
+  f.start();
+  let state=f.latest();
+  const before=f.players.get(1).x;
+  f.request(1,'position',{match:state.match,round:state.round,position:'attacker',slot:1,team:1});
+  state=f.latest();
+  assert.equal(state.players.find(p=>p.id===1).slot,1);
+  assert.equal(state.players.find(p=>p.id===1).team,0);
+  assert.equal(f.players.get(1).x,before);
+  f.request(1,'position',{match:state.match,round:state.round,position:'keeper',slot:1});
+  assert.equal(f.latest().players.find(p=>p.id===1).position,'attacker');
 });

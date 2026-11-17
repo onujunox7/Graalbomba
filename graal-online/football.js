@@ -2,6 +2,7 @@
 
 const FIELD = Object.freeze({ x: 512, y: 1024, w: 576, h: 384, goal: 160 });
 const TEAM_SIZE = 5;
+const POSITIONS = Object.freeze({ attacker: 2, midfielder: 2, keeper: 1 });
 const STEP = 50;
 const DURATION = 300000;
 const RADIUS = 5;
@@ -10,6 +11,7 @@ const SPEED = 125;
 const TURN_RATE = 14;       // radianos por segundo durante uma curva com a bola
 
 // Física da bola (px, segundos). Jogadores são corpos cinemáticos de massa infinita.
+const AREA_DEPTH = 56;
 const BODY = 6;            // raio do corpo do jogador
 const POST = 2;            // raio da trave
 const REACH = 22;          // alcance máximo do chute
@@ -25,7 +27,7 @@ const BOUNCE_POST = 0.6;   // restituição nas traves
 const GRIP = 0.2;          // atrito tangencial no contato
 
 module.exports = function createFootball({ players, send, authorized, viewPlayer, now = Date.now }) {
-  const queue = new Set();
+  const queue = new Map();
   const matches = new Map();
   const members = new Map();
   const rates = new Map();
@@ -38,26 +40,43 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   const emit = (p, data) => { if (p && p.ws.readyState === 1) send(p.ws, { t: 'football', ...data }); };
   const error = (p, message) => emit(p, { op: 'error', message });
 
+  function freeSlot(entries, team, position, exclude) {
+    const used = new Set([...entries].filter(([id, entry]) => id !== exclude && entry.team === team && entry.position === position).map(([, entry]) => entry.slot));
+    for (let slot = 0; slot < POSITIONS[position]; slot++) if (!used.has(slot)) return slot;
+    return -1;
+  }
+
+  function queuePacket(id) {
+    const teams = [{ attacker: 0, midfielder: 0, keeper: 0 }, { attacker: 0, midfielder: 0, keeper: 0 }];
+    const lineups = [[], []];
+    for (const [memberId, choice] of queue) {
+      teams[choice.team][choice.position]++;
+      lineups[choice.team].push({ id: memberId, nm: String(players.get(memberId)?.nm || 'Jogador'), ...choice });
+    }
+    const choice = queue.get(id);
+    return { op: 'queue', selection: 1, formation: 1, lineups, slot: choice ? choice.slot : -1, count: queue.size, starts: Math.max(0, queueUntil - now()),
+      joined: !!choice, team: choice ? choice.team : -1, position: choice ? choice.position : '', teams };
+  }
+
   function queueState() {
-    if (queue.size < 2) queueUntil = 0;
+    const teams = new Set([...queue.values()].map(choice => choice.team));
+    if (teams.size < 2) queueUntil = 0;
     else if (!queueUntil) queueUntil = now() + 10000;
-    for (const id of queue) emit(players.get(id), {
-      op: 'queue', count: queue.size, starts: Math.max(0, queueUntil - now()), joined: true
-    });
+    for (const id of queue.keys()) emit(players.get(id), queuePacket(id));
   }
 
   function roster(match) {
     return [...match.entries.values()].filter(entry => players.has(entry.id)).map(entry => {
       const p = players.get(entry.id);
-      return { ...viewPlayer(p), x: entry.x, y: entry.y, team: entry.team, ack: entry.ack };
+      return { ...viewPlayer(p), x: entry.x, y: entry.y, team: entry.team, position: entry.position, slot: entry.slot, ack: entry.ack, keeper: entry.position === 'keeper' };
     });
   }
 
   function state(match) {
     const time = now();
     return {
-      op: 'state', match: match.id, movement: 2, round: match.round,
-      phase: match.phase, field: FIELD, score: [...match.score],
+      op: 'state', match: match.id, movement: 2, selection: 1, formation: 1, round: match.round,
+      phase: match.phase, field: FIELD, score: [...match.score], holder: match.holder, hold: match.hold,
       remaining: match.ends ? Math.max(0, match.ends - time) : DURATION,
       wait: Math.max(0, match.until - time), ball: { x: match.ball.x, y: match.ball.y },
       bv: { x: Math.round(match.ball.vx * 10) / 10, y: Math.round(match.ball.vy * 10) / 10 },
@@ -76,14 +95,65 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     match.sent = now();
   }
 
+  function keeperArea(team) {
+    return { x: team === 0 ? FIELD.x : FIELD.x + FIELD.w - AREA_DEPTH,
+      y: FIELD.y + FIELD.h / 2 - FIELD.goal / 2 - 34, w: AREA_DEPTH, h: FIELD.goal + 68 };
+  }
+
+  function insideArea(team, x, y) {
+    const area = keeperArea(team);
+    return x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h;
+  }
+
+  function updateHeldBall(match) {
+    const keeper = match.entries.get(match.holder);
+    if (!keeper) { match.holder = 0; return false; }
+    match.ball.x = keeper.x;
+    match.ball.y = keeper.y - BODY - RADIUS - 1;
+    match.ball.vx = 0;
+    match.ball.vy = 0;
+    return true;
+  }
+
+  function catchBall(match, motion, t) {
+    for (const body of motion) {
+      if (!body.keeper) continue;
+      const x = body.x0 + (body.x1 - body.x0) * t;
+      const y = body.y0 + (body.y1 - body.y0) * t;
+      if (!insideArea(body.team, x, y) || !insideArea(body.team, match.ball.x, match.ball.y) ||
+          Math.hypot(match.ball.x - x, match.ball.y - y) > BODY + RADIUS) continue;
+      // O contato pode ocorrer antes do fim do passo de movimento.
+      const keeper = match.entries.get(body.id);
+      const limits = keeperArea(body.team);
+      keeper.x = Math.max(limits.x + 8, Math.min(limits.x + limits.w - 8, keeper.x));
+      keeper.y = Math.max(limits.y + 8, Math.min(limits.y + limits.h - 8, keeper.y));
+      const player = players.get(body.id);
+      player.x = keeper.x;
+      player.y = keeper.y;
+      match.holder = body.id;
+      match.hold++;
+      match.control = null;
+      for (const entry of match.entries.values()) entry.pendingKick = null;
+      updateHeldBall(match);
+      return true;
+    }
+    return false;
+  }
+
   function reset(match) {
     match.control = null;
+    match.holder = 0;
+    match.hold = 0;
     match.round = (match.round || 0) + 1;
-    const slots = [0, 0];
     for (const entry of match.entries.values()) {
-      const index = slots[entry.team]++;
-      entry.x = FIELD.x + FIELD.w / 2 + (entry.team === 0 ? -SPAWN : SPAWN);
-      entry.y = FIELD.y + FIELD.h / 2 + [0, -64, 64, -128, 128][index];
+      const index = entry.slot;
+      const depth = entry.position === 'midfielder' ? SPAWN + 64 : SPAWN;
+      entry.x = FIELD.x + FIELD.w / 2 + (entry.team === 0 ? -depth : depth);
+      entry.y = FIELD.y + FIELD.h / 2 + (entry.position === 'midfielder' ? [-80, 80][index] : [0, -64][index]);
+      if (entry.position === 'keeper') {
+        entry.x = entry.team === 0 ? FIELD.x + 24 : FIELD.x + FIELD.w - 24;
+        entry.y = FIELD.y + FIELD.h / 2;
+      }
       entry.dx = 0;
       entry.dy = 0;
       entry.inputAt = 0;
@@ -107,8 +177,9 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     };
     for (let index = 0; index < ids.length; index++) {
       const p = players.get(ids[index]);
+      const choice = queue.get(p.id);
       queue.delete(p.id);
-      const entry = { id: p.id, team: index % 2, kickAt: -Infinity,
+      const entry = { id: p.id, team: choice.team, position: choice.position, slot: choice.slot, kickAt: -Infinity,
         back: { x: p.x, y: p.y, an: p.an, in: p.in || 0, il: p.il || null } };
       match.entries.set(p.id, entry);
       members.set(p.id, match);
@@ -126,6 +197,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function finish(match, reason, winner) {
     if (match.phase === 'finished') return;
     match.phase = 'finished';
+    match.holder = 0;
     match.reason = reason;
     match.winner = winner;
     match.until = now() + 4000;
@@ -134,6 +206,11 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
 
   function returnPlayer(match, entry, reason) {
     const p = players.get(entry.id);
+    if (match.holder === entry.id) {
+      match.holder = 0;
+      match.ball.vx = 0;
+      match.ball.vy = 0;
+    }
     members.delete(entry.id);
     match.entries.delete(entry.id);
     if (!p) return;
@@ -148,7 +225,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     const queued = queue.delete(id);
     if (queued) queueState();
     const match = members.get(id);
-    if (!match) { emit(p, { op: 'queue', joined: false, count: queue.size, starts: 0 }); return; }
+    if (!match) { emit(p, queuePacket(id)); return; }
     returnPlayer(match, match.entries.get(id), reason);
     if (!match.entries.size) { matches.delete(match.id); return; }
     const teams = [0, 0];
@@ -159,17 +236,25 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
 
   function kick(p, match, m) {
     const entry = match.entries.get(p.id);
-    if (match.phase !== 'playing' || now() - entry.kickAt < 350 ||
+    const throwing = match.holder === p.id;
+    if (m.hold !== undefined && !throwing) return;
+    if (match.holder && (!throwing || m.hold !== match.hold || m.match !== match.id || m.round !== match.round)) return;
+    if (match.phase !== 'playing' || (!throwing && now() - entry.kickAt < 350) ||
       !Number.isFinite(m.dx) || !Number.isFinite(m.dy)) return;
     const length = Math.hypot(m.dx, m.dy);
     const distance = Math.hypot(entry.x - match.ball.x, entry.y - match.ball.y);
     if (length < 0.01 || length > 1.21 || distance > REACH) return;
     entry.kickAt = now();
     match.control = null;
+    if (throwing) {
+      match.holder = 0;
+      match.ball.x = entry.x + m.dx / length * (BODY + RADIUS + 1);
+      match.ball.y = entry.y + m.dy / length * (BODY + RADIUS + 1);
+    }
     // Quanto mais colado na bola, mais forte o chute.
     const contact = BODY + RADIUS;
     const far = Math.min(1, Math.max(0, (distance - contact) / (REACH - contact)));
-    const power = KICK_MAX - far * (KICK_MAX - KICK_MIN);
+    const power = throwing ? KICK_MAX : KICK_MAX - far * (KICK_MAX - KICK_MIN);
     match.ball.vx = m.dx / length * power;
     match.ball.vy = m.dy / length * power;
     snapshot(match);
@@ -185,26 +270,52 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     const match = members.get(p.id);
     if (m.op === 'get') {
       if (match) return emit(p, state(match));
-      return emit(p, { op: 'queue', joined: queue.has(p.id), count: queue.size, starts: Math.max(0, queueUntil - time) });
+      return emit(p, queuePacket(p.id));
     }
     if (m.op === 'join') {
       if (m.version !== 1) return error(p, 'Atualize o jogo para jogar futebol.');
       if (match) return emit(p, state(match));
-      if (queue.has(p.id)) return emit(p, { op: 'queue', joined: true, count: queue.size, starts: Math.max(0, queueUntil - time) });
+      if (!Number.isInteger(m.team) || m.team < 0 || m.team > 1 || typeof m.position !== 'string' || !Object.hasOwn(POSITIONS, m.position)) {
+        return error(p, 'Escolha o time e a posição antes de entrar na fila.');
+      }
       if (!eligible(p)) return error(p, 'Entre a pé, vivo e sem carregar itens, no mundo principal e fora do Spar.');
-      queue.add(p.id);
+      const previous = queue.get(p.id);
+      const samePosition = previous && previous.team === m.team && previous.position === m.position;
+      const slot = m.slot === undefined ? (samePosition ? previous.slot : freeSlot(queue.entries(), m.team, m.position, p.id)) : m.slot;
+      if (!Number.isInteger(slot) || slot < 0 || slot >= POSITIONS[m.position]) return error(p, 'Essa vaga não está disponível nesse time.');
+      const occupied = [...queue.entries()].some(([id, choice]) => id !== p.id && choice.team === m.team && choice.position === m.position && choice.slot === slot);
+      if (occupied) return error(p, 'Essa vaga acabou de ser ocupada. Escolha outra posição no campo.');
+      if (samePosition && previous.slot === slot) return emit(p, queuePacket(p.id));
+      queue.set(p.id, { team: m.team, position: m.position, slot });
       queueState();
       return;
     }
     if (!match) return;
     if ((m.match !== undefined && m.match !== match.id) || (m.round !== undefined && m.round !== match.round)) return;
+    if (m.op === 'position') {
+      if (m.match !== match.id || m.round !== match.round || typeof m.position !== 'string' ||
+          !Object.hasOwn(POSITIONS, m.position) || match.phase === 'finished') return;
+      const entry = match.entries.get(p.id);
+      if (entry.position === m.position && (m.slot === undefined || m.slot === entry.slot)) return emit(p, state(match));
+      if (match.holder === p.id) return error(p, 'Lance a bola antes de trocar de posição.');
+      const slot = m.slot === undefined ? freeSlot(match.entries.entries(), entry.team, m.position, p.id) : m.slot;
+      if (!Number.isInteger(slot) || slot < 0 || slot >= POSITIONS[m.position]) return error(p, 'Essa vaga não está disponível no seu time.');
+      const occupied = [...match.entries.values()].some(other => other.id !== p.id && other.team === entry.team && other.position === m.position && other.slot === slot);
+      if (occupied) return error(p, 'Essa vaga já está ocupada no seu time.');
+      entry.position = m.position;
+      entry.slot = slot;
+      snapshot(match);
+      return;
+    }
+    if (m.op === 'keeper') return error(p, 'Escolha a posição no menu do futebol.');
     if (m.op === 'kick') {
+      if (match.holder && match.holder !== p.id) return;
       if (m.after === undefined) return kick(p, match, m);
       const entry = match.entries.get(p.id);
       if (match.phase !== 'playing' || !Number.isSafeInteger(m.after) || m.after < entry.ack ||
         m.after > entry.received || !Number.isFinite(m.dx) || !Number.isFinite(m.dy) ||
         Math.hypot(m.dx, m.dy) < 0.01 || Math.hypot(m.dx, m.dy) > 1.21) return;
-      entry.pendingKick = { after: m.after, dx: m.dx, dy: m.dy };
+      entry.pendingKick = { after: m.after, dx: m.dx, dy: m.dy, hold: m.hold, match: m.match, round: m.round };
       return;
     }
     if (m.op === 'move' && Number.isFinite(m.dx) && Number.isFinite(m.dy) && Math.hypot(m.dx, m.dy) <= 1.21) {
@@ -213,9 +324,13 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
         // Cada seq descreve 50 ms. A simulação consome um comando por passo.
         if (match.phase !== 'playing' || m.match !== match.id || m.round !== match.round ||
           !Number.isSafeInteger(m.seq) || m.seq !== entry.received + 1 || m.seq > 1e9 || entry.inputs.length >= 20) return;
+        const facing = m.facing;
+        if (facing !== undefined && (!facing || typeof facing !== 'object' || Array.isArray(facing) ||
+          !Number.isFinite(facing.x) || !Number.isFinite(facing.y) || Math.hypot(facing.x, facing.y) > 1.21)) return;
         entry.sequenced = true;
         entry.received = m.seq;
-        entry.inputs.push({ seq: m.seq, dx: m.dx, dy: m.dy });
+        entry.inputs.push({ seq: m.seq, dx: m.dx, dy: m.dy,
+          facing: facing === undefined ? null : { x: facing.x, y: facing.y } });
         return;
       }
       if (entry.sequenced) return;
@@ -306,15 +421,21 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     let ox = ball.x - startX;
     let oy = ball.y - startY;
     const distance = Math.hypot(ox, oy);
-    if (distance > REACH || (speed > 0 && Math.hypot(ball.vx, ball.vy) > speed * 1.5)) {
+    if (distance > REACH || (speed > 0 && Math.hypot(ball.vx, ball.vy) > SPEED * 1.5)) {
       match.control = null;
       return false;
     }
-    if (!speed) return false;
-    const dx = body.vx / speed;
-    const dy = body.vy / speed;
+    const facingX = body.facing ? body.facing.x : body.vx;
+    const facingY = body.facing ? body.facing.y : body.vy;
+    const facingLength = Math.hypot(facingX, facingY);
+    if (!facingLength) return false;
+    const dx = facingX / facingLength;
+    const dy = facingY / facingLength;
     const angle = Math.atan2(control.dx * dy - control.dy * dx, control.dx * dx + control.dy * dy);
-    if (Math.abs(angle) < 1e-6) return false;
+    // Trocas dentro do mesmo comando podem cancelar o deslocamento sem soltar a condução.
+    const settle = body.facing && Math.hypot(ball.vx, ball.vy) > speed * 1.5;
+    const mixed = body.facing && Math.hypot(body.vx - body.facing.x * SPEED, body.vy - body.facing.y * SPEED) > 0.1;
+    if (Math.abs(angle) < 1e-6 && !settle && !mixed) return false;
     const turn = Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, angle));
     const cos = Math.cos(turn);
     const sin = Math.sin(turn);
@@ -333,6 +454,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   }
 
   function stepBall(match, motion) {
+    if (match.holder && updateHeldBall(match)) return;
     const ball = match.ball;
     const dt = STEP / 1000 / SUBSTEPS;
     for (let i = 1; i <= SUBSTEPS; i++) {
@@ -340,6 +462,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       const carrier = match.control && motion.find(body => body.id === match.control.id);
       const steering = match.control && steerDribble(match, carrier, t, dt);
       if (!steering) { ball.x += ball.vx * dt; ball.y += ball.vy * dt; }
+      if (catchBall(match, motion, t)) return;
       for (const body of motion) {
         if (steering && body === carrier) continue;
         const contact = collide(ball, body.x0 + (body.x1 - body.x0) * t, body.y0 + (body.y1 - body.y0) * t,
@@ -389,8 +512,9 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       if (input) entry.ack = input.seq;
       const x0 = entry.x;
       const y0 = entry.y;
-      entry.x = Math.max(FIELD.x + 8, Math.min(FIELD.x + FIELD.w - 8, entry.x + dx * SPEED * STEP / 1000));
-      entry.y = Math.max(FIELD.y + 8, Math.min(FIELD.y + FIELD.h - 8, entry.y + dy * SPEED * STEP / 1000));
+      const limits = match.holder === entry.id ? keeperArea(entry.team) : FIELD;
+      entry.x = Math.max(limits.x + 8, Math.min(limits.x + limits.w - 8, entry.x + dx * SPEED * STEP / 1000));
+      entry.y = Math.max(limits.y + 8, Math.min(limits.y + limits.h - 8, entry.y + dy * SPEED * STEP / 1000));
       p.x = entry.x;
       p.y = entry.y;
       p.uT = now();
@@ -399,7 +523,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       }
       p.an = (dx || dy ? 'Run_' : 'Idle_') + (entry.facing || (entry.team === 0 ? 'Right' : 'Left'));
       // Velocidade real (já limitada pelas bordas) para a colisão com a bola.
-      motion.push({ id: entry.id, x0, y0, x1: entry.x, y1: entry.y,
+      motion.push({ id: entry.id, keeper: entry.position === 'keeper', team: entry.team, x0, y0, x1: entry.x, y1: entry.y, facing: input ? input.facing : null,
         vx: (entry.x - x0) * 1000 / STEP, vy: (entry.y - y0) * 1000 / STEP });
     }
     for (const entry of match.entries.values()) {
@@ -415,13 +539,13 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function tick() {
     const time = now();
     let changed = false;
-    for (const id of queue) if (!eligible(players.get(id))) {
+    for (const id of queue.keys()) if (!eligible(players.get(id))) {
       queue.delete(id);
-      emit(players.get(id), { op: 'queue', joined: false, count: queue.size, starts: 0 });
+      emit(players.get(id), queuePacket(id));
       changed = true;
     }
     if (changed) queueState();
-    if (queue.size >= 2 && (queue.size >= TEAM_SIZE * 2 || time >= queueUntil)) start([...queue].slice(0, TEAM_SIZE * 2));
+    if (queueUntil && (queue.size === TEAM_SIZE * 2 || time >= queueUntil)) start([...queue.keys()]);
     for (const match of matches.values()) {
       for (const entry of [...match.entries.values()]) {
         const p = players.get(entry.id);

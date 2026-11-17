@@ -86,13 +86,71 @@ async function waitFor(predicate, timeout = 18000) {
   throw new Error('Timed out waiting for multiplayer state');
 }
 
-if (require.main === module && process.argv.includes('--serve')) {
+if (require.main === module && (process.argv.includes('--serve') || process.argv.includes('--serve-keeper'))) {
   fixture().then(async f => {
     const bot = await f.connect();
-    bot.send({ t: 'football', op: 'join', version: 1 });
+    bot.send({ t: 'football', op: 'join', version: 1, team: 1, position: 'attacker' });
+    let botTimer = null;
+    if (process.argv.includes('--serve-keeper')) {
+      let stage = 'wait';
+      let blockedAttempts = 0;
+      let saves = 0;
+      let launches = 0;
+      let held = false;
+      botTimer = setInterval(() => {
+        const state = bot.last('state');
+        if (!state || state.phase !== 'playing') return;
+        const self = state.players.find(p => p.id === bot.id);
+        const keeper = state.players.find(p => p.id !== bot.id && p.keeper);
+        if (!self || !keeper) return;
+        if (state.holder === keeper.id) {
+          if (!held) saves++;
+          held = true;
+          stage = 'holding';
+          const dx = state.ball.x - self.x;
+          const dy = state.ball.y - self.y;
+          const distance = Math.hypot(dx, dy);
+          bot.send({t:'football',op:'move',dx:distance > 3 ? dx / distance : 0,dy:distance > 3 ? dy / distance : 0});
+          if (distance <= 22) {
+            blockedAttempts++;
+            bot.send({t:'football',op:'kick',match:state.match,round:state.round,hold:state.hold,dx:-1,dy:0});
+          }
+          return;
+        }
+        if (held) {
+          held = false;
+          launches++;
+          stage = 'done';
+          console.log('KEEPER_FIXTURE saves=' + saves + ' blocked=' + blockedAttempts + ' launches=' + launches);
+        }
+        if (stage === 'done') { bot.send({t:'football',op:'move',dx:0,dy:0}); return; }
+        const areaReady = keeper.team === 1 ? keeper.x >= state.field.x + state.field.w - 40 : keeper.x <= state.field.x + 40;
+        if (!areaReady) return;
+        if (stage === 'wait' || stage === 'approach') {
+          stage = 'approach';
+          if (Math.hypot(state.ball.x - self.x, state.ball.y - self.y) < 20) {
+            bot.send({t:'football',op:'move',dx:0,dy:0});
+            bot.send({t:'football',op:'kick',dx:keeper.team === 1 ? 1 : -1,dy:0});
+            stage = 'shot';
+          } else {
+            bot.send({t:'football',op:'move',dx:keeper.team === 1 ? 1 : -1,dy:0});
+          }
+        }
+      },50);
+    }
+    if (!process.argv.includes('--serve-keeper')) {
+      let moves = 0;
+      botTimer = setInterval(() => {
+        if (bot.last('state')?.phase === 'playing' && moves < 18) {
+          bot.send({t:'football',op:'move',dx:0,dy:1});
+          moves++;
+          if (moves === 18) bot.send({t:'football',op:'move',dx:0,dy:0});
+        }
+      },50);
+    }
     fs.writeFileSync(process.env.FOOTBALL_PORT_FILE, String(f.port));
     console.log('FOOTBALL_SOCKET_FIXTURE_READY');
-    process.on('SIGTERM', async () => { await f.close(); process.exit(0); });
+    process.on('SIGTERM', async () => { if (botTimer) clearInterval(botTimer); await f.close(); process.exit(0); });
   }).catch(error => { console.error(error); process.exit(1); });
 } else {
   test('production routing and two real WebSocket clients share ball, score and return state', { timeout: 25000 }, async t => {
@@ -101,7 +159,7 @@ if (require.main === module && process.argv.includes('--serve')) {
     const blue = await f.connect();
     const red = await f.connect();
     const outsider = await f.connect();
-    for (const client of [blue, red]) client.send({ t: 'football', op: 'join', version: 1 });
+    for (const client of [blue, red]) client.send({ t: 'football', op: 'join', version: 1, team: client === blue ? 0 : 1, position: 'attacker' });
     await waitFor(() => blue.last('state')?.phase === 'playing');
     assert.equal(red.last('state').match, blue.last('state').match);
     const before = f.players.get(blue.id).x;
@@ -114,7 +172,7 @@ if (require.main === module && process.argv.includes('--serve')) {
     assert.ok(blue.messages.some(m => m.t === 'eco' && m.ok === false));
     assert.equal(outsider.last('state'), undefined, 'outsider received private match snapshots');
     f.contexts.get(outsider.id).SPAR_QUEUE.push(outsider.id);
-    outsider.send({ t: 'football', op: 'join', version: 1 });
+    outsider.send({ t: 'football', op: 'join', version: 1, team: 0, position: 'midfielder' });
     await waitFor(() => outsider.last('error'), 1000);
     assert.equal(f.football.has(f.players.get(outsider.id)), false, 'Spar queue player entered football');
     // O adversário sai da linha do chute: com colisão real, um jogador parado bloqueia a bola.
