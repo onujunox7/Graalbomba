@@ -449,3 +449,58 @@ test('condução mantém a linha nos dois lados e com aproximação acima ou aba
     }
   }
 });
+
+test('condução mantém bola próxima ao virar para cima, baixo, diagonal ou voltar', () => {
+  for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [Math.SQRT1_2, Math.SQRT1_2]]) {
+    const f = fixture();
+    f.start();
+    f.move(2, 0, 1, 20);
+    f.move(1, 1, 0, 20);
+    f.move(1, dx, dy, 10);
+    const p = f.players.get(1);
+    const b = f.latest().ball;
+    assert.ok(Math.hypot(b.x-p.x, b.y-p.y) <= 22, 'perdeu bola ao virar ' + [dx,dy] + ', distância=' + Math.hypot(b.x-p.x,b.y-p.y));
+    assert.ok((b.x-p.x)*dx+(b.y-p.y)*dy > 0, 'bola precisa terminar à frente na nova direção');
+  }
+});
+
+test('trocas repetidas de direção mantêm controle e uma liberação curta do dpad permite virar', () => {
+  const f = fixture();
+  f.start();
+  f.move(2, 0, 1, 20);
+  f.move(1, 1, 0, 20);
+  f.advance(50);
+  for (let lap=0; lap<3; lap++) {
+    for (const [dx,dy] of [[0,-1],[-1,0],[0,1],[1,0]]) {
+      f.move(1,dx,dy,7);
+      const p=f.players.get(1);
+      const b=f.latest().ball;
+      assert.ok(Math.hypot(b.x-p.x,b.y-p.y)<=22, 'bola escapou em trocas consecutivas');
+    }
+  }
+});
+
+test('chute solta a condução e virar depois não puxa a bola chutada', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,20);
+  f.request(1,'kick',{dx:1,dy:0});
+  f.move(1,0,-1,10);
+  const p=f.players.get(1);
+  const b=f.latest().ball;
+  assert.ok(Math.hypot(b.x-p.x,b.y-p.y)>50, 'controle continua preso após chute');
+  assert.ok(f.latest().bv.x>200, 'virada alterou velocidade do chute');
+});
+
+test('bola solta depois de sair do alcance não volta ao jogador quando ele vira', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,20);
+  for(let step=0;step<20;step++) f.advance(50);
+  f.move(1,0,-1,10);
+  const p=f.players.get(1);
+  const b=f.latest().ball;
+  assert.ok(Math.hypot(b.x-p.x,b.y-p.y)>70, 'bola distante voltou ao jogador');
+});
