@@ -256,7 +256,7 @@ test('servidor anuncia movimento com confirmação e aceita clientes anteriores'
   assert.equal(f.latest().round, 1);
   assert.equal(f.latest().players[0].ack, 0);
   f.move(1, 1, 0, 2);
-  assert.equal(f.players.get(1).x, FIELD.x + 112.5);
+  assert.equal(f.players.get(1).x, FIELD.x + FIELD.w / 2 - 92 + 12.5);
 });
 
 test('confirma só comandos simulados e nunca executa o mesmo comando duas vezes', () => {
@@ -373,7 +373,7 @@ test('jogador correndo empurra a bola para frente e não fica sobreposto a ela',
   const state = f.latest();
   const runner = f.players.get(1).x;
   assert.ok(state.ball.x > center + 20, 'a bola precisa ter sido empurrada');
-  assert.ok(state.ball.x >= runner + 9.9, 'a bola não pode ficar dentro do jogador');
+  assert.ok(state.ball.x >= runner + 10.9, 'a bola não pode ficar dentro do jogador');
 });
 
 test('estado publica a velocidade da bola em campo separado e o atrito a leva ao repouso', () => {

@@ -1,9 +1,10 @@
 'use strict';
 
-const FIELD = Object.freeze({ x: 512, y: 1024, w: 384, h: 224, goal: 64 });
+const FIELD = Object.freeze({ x: 512, y: 1024, w: 448, h: 264, goal: 72 });
 const STEP = 50;
 const DURATION = 300000;
-const RADIUS = 4;
+const RADIUS = 5;
+const SPAWN = 92;          // distância do centro do campo até o ponto de saída de cada time
 const SPEED = 125;
 
 // Física da bola (px, segundos). Jogadores são corpos cinemáticos de massa infinita.
@@ -64,7 +65,12 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
 
   function snapshot(match) {
     const data = state(match);
-    for (const entry of match.entries.values()) emit(players.get(entry.id), data);
+    for (const entry of match.entries.values()) {
+      const p = players.get(entry.id);
+      // Ping (ida e volta, ms) medido pelo servidor: o cliente usa para alinhar a correção da bola.
+      const rtt = p && p.ws && Number.isFinite(p.ws.pingMs) ? Math.min(600, Math.max(0, Math.round(p.ws.pingMs))) : 0;
+      emit(p, { ...data, rtt });
+    }
     match.sent = now();
   }
 
@@ -73,7 +79,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     const slots = [0, 0];
     for (const entry of match.entries.values()) {
       const index = slots[entry.team]++;
-      entry.x = FIELD.x + (entry.team === 0 ? 100 : FIELD.w - 100);
+      entry.x = FIELD.x + FIELD.w / 2 + (entry.team === 0 ? -SPAWN : SPAWN);
       entry.y = FIELD.y + FIELD.h / 2 + [0, -54, 54][index];
       entry.dx = 0;
       entry.dy = 0;
@@ -376,7 +382,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       } else {
         match.stepped = time;
       }
-      if (time - match.sent >= 100) snapshot(match);
+      if (time - match.sent >= 50) snapshot(match);
     }
   }
 
