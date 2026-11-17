@@ -31,14 +31,15 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function roster(match) {
     return [...match.entries.values()].filter(entry => players.has(entry.id)).map(entry => {
       const p = players.get(entry.id);
-      return { ...viewPlayer(p), x: entry.x, y: entry.y, team: entry.team };
+      return { ...viewPlayer(p), x: entry.x, y: entry.y, team: entry.team, ack: entry.ack };
     });
   }
 
   function state(match) {
     const time = now();
     return {
-      op: 'state', match: match.id, phase: match.phase, field: FIELD, score: [...match.score],
+      op: 'state', match: match.id, movement: 2, round: match.round,
+      phase: match.phase, field: FIELD, score: [...match.score],
       remaining: match.ends ? Math.max(0, match.ends - time) : DURATION,
       wait: Math.max(0, match.until - time), ball: { x: match.ball.x, y: match.ball.y },
       players: roster(match), reason: match.reason || '', winner: match.winner ?? -1
@@ -52,6 +53,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   }
 
   function reset(match) {
+    match.round = (match.round || 0) + 1;
     const slots = [0, 0];
     for (const entry of match.entries.values()) {
       const index = slots[entry.team]++;
@@ -60,6 +62,11 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       entry.dx = 0;
       entry.dy = 0;
       entry.inputAt = 0;
+      entry.inputs = [];
+      entry.received = 0;
+      entry.ack = 0;
+      entry.sequenced = false;
+      entry.pendingKick = null;
       const p = players.get(entry.id);
       p.x = entry.x;
       p.y = entry.y;
@@ -159,9 +166,28 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       return;
     }
     if (!match) return;
-    if (m.op === 'kick') return kick(p, match, m);
+    if ((m.match !== undefined && m.match !== match.id) || (m.round !== undefined && m.round !== match.round)) return;
+    if (m.op === 'kick') {
+      if (m.after === undefined) return kick(p, match, m);
+      const entry = match.entries.get(p.id);
+      if (match.phase !== 'playing' || !Number.isSafeInteger(m.after) || m.after < entry.ack ||
+        m.after > entry.received || !Number.isFinite(m.dx) || !Number.isFinite(m.dy) ||
+        Math.hypot(m.dx, m.dy) < 0.01 || Math.hypot(m.dx, m.dy) > 1.21) return;
+      entry.pendingKick = { after: m.after, dx: m.dx, dy: m.dy };
+      return;
+    }
     if (m.op === 'move' && Number.isFinite(m.dx) && Number.isFinite(m.dy) && Math.hypot(m.dx, m.dy) <= 1.21) {
       const entry = match.entries.get(p.id);
+      if (m.seq !== undefined) {
+        // Cada seq descreve 50 ms. A simulação consome um comando por passo.
+        if (match.phase !== 'playing' || m.match !== match.id || m.round !== match.round ||
+          !Number.isSafeInteger(m.seq) || m.seq !== entry.received + 1 || m.seq > 1e9 || entry.inputs.length >= 20) return;
+        entry.sequenced = true;
+        entry.received = m.seq;
+        entry.inputs.push({ seq: m.seq, dx: m.dx, dy: m.dy });
+        return;
+      }
+      if (entry.sequenced) return;
       entry.dx = m.dx;
       entry.dy = m.dy;
       entry.inputAt = time;
@@ -204,9 +230,11 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function step(match) {
     for (const entry of match.entries.values()) {
       const p = players.get(entry.id);
-      const fresh = now() - entry.inputAt <= 250;
-      const dx = fresh ? entry.dx : 0;
-      const dy = fresh ? entry.dy : 0;
+      const input = entry.sequenced ? entry.inputs.shift() : null;
+      const fresh = !entry.sequenced && now() - entry.inputAt <= 250;
+      const dx = input ? input.dx : (fresh ? entry.dx : 0);
+      const dy = input ? input.dy : (fresh ? entry.dy : 0);
+      if (input) entry.ack = input.seq;
       entry.x = Math.max(FIELD.x + 8, Math.min(FIELD.x + FIELD.w - 8, entry.x + dx * SPEED * STEP / 1000));
       entry.y = Math.max(FIELD.y + 8, Math.min(FIELD.y + FIELD.h - 8, entry.y + dy * SPEED * STEP / 1000));
       p.x = entry.x;
@@ -225,6 +253,13 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
         match.ball.y = entry.y + dy / length * 13;
         match.ball.vx = dx * SPEED;
         match.ball.vy = dy * SPEED;
+      }
+    }
+    for (const entry of match.entries.values()) {
+      if (entry.pendingKick && entry.ack >= entry.pendingKick.after) {
+        const request = entry.pendingKick;
+        entry.pendingKick = null;
+        kick(players.get(entry.id), match, request);
       }
     }
     stepBall(match);

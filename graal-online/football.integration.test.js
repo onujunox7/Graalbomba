@@ -24,7 +24,13 @@ async function fixture() {
   const contexts = new Map();
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
-  const send = (ws, data) => { if (ws.readyState === 1) ws.send(typeof data === 'string' ? data : JSON.stringify(data)); };
+  const latency = Math.max(0, Number(process.env.FOOTBALL_TEST_LATENCY_MS) || 0);
+  const send = (ws, data) => {
+    const bytes = typeof data === 'string' ? data : JSON.stringify(data);
+    const deliver = () => { if (ws.readyState === 1) ws.send(bytes); };
+    if (latency) setTimeout(deliver, latency);
+    else deliver();
+  };
   const football = createFootball({ players, send, viewPlayer: pstate, authorized: p => p.allowed });
   const sameLine = source.split('\n').find(line => line.startsWith('const othersSame ='));
   let nextId = 1;

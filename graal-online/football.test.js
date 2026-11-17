@@ -241,3 +241,103 @@ test('chute tem cooldown e ocultação do jogador encerra sua participação', (
   f.advance(50);
   assert.equal(f.players.get(1).football, undefined);
 });
+
+function command(f, seq, dx = 1, dy = 0) {
+  const state = f.latest();
+  return { seq, dx, dy, match: state.match, round: state.round };
+}
+
+test('servidor anuncia movimento com confirmação e aceita clientes anteriores', () => {
+  const f = fixture();
+  f.start();
+  assert.equal(f.latest().movement, 2);
+  assert.equal(f.latest().round, 1);
+  assert.equal(f.latest().players[0].ack, 0);
+  f.move(1, 1, 0, 2);
+  assert.equal(f.players.get(1).x, FIELD.x + 112.5);
+});
+
+test('confirma só comandos simulados e nunca executa o mesmo comando duas vezes', () => {
+  const f = fixture();
+  f.start();
+  const before = f.players.get(1).x;
+  f.request(1, 'move', command(f, 1));
+  f.request(1, 'move', command(f, 1));
+  f.request(1, 'get');
+  assert.equal(f.latest().players[0].ack, 0);
+  f.advance(50);
+  f.request(1, 'get');
+  assert.equal(f.latest().players[0].ack, 1);
+  assert.equal(f.players.get(1).x, before + 6.25);
+  for (let i = 0; i < 10; i++) f.advance(50);
+  assert.equal(f.players.get(1).x, before + 6.25);
+});
+
+test('direções e sequência precisam ser válidas e pertencer à partida e rodada atuais', () => {
+  const f = fixture();
+  f.start();
+  const before = f.players.get(1).x;
+  for (const seq of [0, -1, 2, 1.5, Infinity, '1', null]) f.request(1, 'move', command(f, seq));
+  f.request(1, 'move', { ...command(f, 1), match: 'other-match' });
+  f.request(1, 'move', { ...command(f, 1), round: 0 });
+  f.request(1, 'move', { seq: 1, dx: 1, dy: 0 });
+  f.request(1, 'move', command(f, 1, 100));
+  f.advance(100);
+  assert.equal(f.players.get(1).x, before);
+  f.request(1, 'move', command(f, 1));
+  f.advance(50);
+  assert.equal(f.players.get(1).x, before + 6.25);
+});
+
+test('rajada de comandos respeita passo fixo, fila limitada e repetição após fila cheia', () => {
+  const f = fixture();
+  f.start();
+  const before = f.players.get(1).x;
+  for (let seq = 1; seq <= 21; seq++) f.request(1, 'move', command(f, seq));
+  f.advance(50);
+  assert.equal(f.players.get(1).x, before + 6.25);
+  f.request(1, 'move', command(f, 21));
+  f.advance(50);
+  f.request(1, 'get');
+  assert.equal(f.latest().players[0].ack, 2);
+  for (let i = 0; i < 19; i++) f.advance(50);
+  f.request(1, 'get');
+  assert.equal(f.latest().players[0].ack, 21);
+  assert.equal(f.players.get(1).x, before + 21 * 6.25);
+});
+
+test('cliente com confirmação não ganha movimento extra por pacotes legados', () => {
+  const f = fixture();
+  f.start();
+  const before = f.players.get(1).x;
+  f.request(1, 'move', command(f, 1));
+  f.request(1, 'move', { dx: -1, dy: 0 });
+  for (let i = 0; i < 10; i++) f.advance(50);
+  assert.equal(f.players.get(1).x, before + 6.25);
+});
+
+test('gol invalida comandos e chutes atrasados da rodada anterior', () => {
+  const f = fixture();
+  f.start();
+  const old = command(f, 1);
+  f.move(1, 1, 0, 12);
+  f.request(1, 'kick', { dx: 1, dy: 0 });
+  for (let i = 0; i < 50; i++) f.advance(50);
+  assert.equal(f.latest().round, old.round + 1);
+  f.advance(2500);
+  const before = f.players.get(1).x;
+  f.request(1, 'move', old);
+  f.request(1, 'kick', { ...old, after: 0 });
+  f.advance(100);
+  assert.equal(f.players.get(1).x, before);
+  assert.deepEqual(f.latest().score, [1, 0]);
+});
+
+test('chute aguarda a simulação dos movimentos anteriores antes de validar proximidade', () => {
+  const f = fixture();
+  f.start();
+  for (let seq = 1; seq <= 12; seq++) f.request(1, 'move', command(f, seq));
+  f.request(1, 'kick', { ...command(f, 0), after: 12 });
+  for (let i = 0; i < 60; i++) f.advance(50);
+  assert.deepEqual(f.latest().score, [1, 0]);
+});
