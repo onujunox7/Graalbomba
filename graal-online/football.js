@@ -6,6 +6,21 @@ const DURATION = 300000;
 const RADIUS = 4;
 const SPEED = 125;
 
+// Física da bola (px, segundos). Jogadores são corpos cinemáticos de massa infinita.
+const BODY = 6;            // raio do corpo do jogador
+const POST = 2;            // raio da trave
+const REACH = 22;          // alcance máximo do chute
+const KICK_MIN = 260;      // chute de longe
+const KICK_MAX = 330;      // chute colado na bola
+const MAX_BALL = 380;      // velocidade máxima da bola
+const SUBSTEPS = 4;        // sub-passos por passo de 50 ms (evita atravessar jogadores)
+const ROLL_DAMP = 0.55;    // resistência proporcional à velocidade (1/s)
+const ROLL_DRAG = 22;      // atrito de rolamento constante (px/s²)
+const BOUNCE_WALL = 0.65;  // restituição nas laterais e no fundo
+const BOUNCE_BODY = 0.35;  // restituição no corpo do jogador
+const BOUNCE_POST = 0.6;   // restituição nas traves
+const GRIP = 0.2;          // atrito tangencial no contato
+
 module.exports = function createFootball({ players, send, authorized, viewPlayer, now = Date.now }) {
   const queue = new Set();
   const matches = new Map();
@@ -42,6 +57,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       phase: match.phase, field: FIELD, score: [...match.score],
       remaining: match.ends ? Math.max(0, match.ends - time) : DURATION,
       wait: Math.max(0, match.until - time), ball: { x: match.ball.x, y: match.ball.y },
+      bv: { x: Math.round(match.ball.vx * 10) / 10, y: Math.round(match.ball.vy * 10) / 10 },
       players: roster(match), reason: match.reason || '', winner: match.winner ?? -1
     };
   }
@@ -137,10 +153,15 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     if (match.phase !== 'playing' || now() - entry.kickAt < 350 ||
       !Number.isFinite(m.dx) || !Number.isFinite(m.dy)) return;
     const length = Math.hypot(m.dx, m.dy);
-    if (length < 0.01 || length > 1.21 || Math.hypot(entry.x - match.ball.x, entry.y - match.ball.y) > 22) return;
+    const distance = Math.hypot(entry.x - match.ball.x, entry.y - match.ball.y);
+    if (length < 0.01 || length > 1.21 || distance > REACH) return;
     entry.kickAt = now();
-    match.ball.vx = m.dx / length * 260;
-    match.ball.vy = m.dy / length * 260;
+    // Quanto mais colado na bola, mais forte o chute.
+    const contact = BODY + RADIUS;
+    const far = Math.min(1, Math.max(0, (distance - contact) / (REACH - contact)));
+    const power = KICK_MAX - far * (KICK_MAX - KICK_MIN);
+    match.ball.vx = m.dx / length * power;
+    match.ball.vy = m.dy / length * power;
     snapshot(match);
   }
 
@@ -202,32 +223,84 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     snapshot(match);
   }
 
-  function stepBall(match) {
+  // Colisão círculo × círculo entre a bola e um corpo (jogador ou trave).
+  // O corpo tem massa infinita: a bola reflete a velocidade relativa com restituição
+  // e perde um pouco de velocidade tangencial (atrito). Um jogador correndo "conduz" a bola.
+  function collide(ball, px, py, pvx, pvy, radius, bounce) {
+    const minimum = radius + RADIUS;
+    let nx = ball.x - px;
+    let ny = ball.y - py;
+    let distance = Math.hypot(nx, ny);
+    if (distance >= minimum) return;
+    if (distance < 1e-6) {
+      const speed = Math.hypot(pvx, pvy);
+      nx = speed ? pvx / speed : 1;
+      ny = speed ? pvy / speed : 0;
+    } else {
+      nx /= distance;
+      ny /= distance;
+    }
+    ball.x = px + nx * minimum;
+    ball.y = py + ny * minimum;
+    const rvx = ball.vx - pvx;
+    const rvy = ball.vy - pvy;
+    const normal = rvx * nx + rvy * ny;
+    if (normal >= 0) return; // já está se afastando
+    const tangent = rvx * -ny + rvy * nx;
+    const outward = -normal * bounce;
+    const slide = tangent * (1 - GRIP);
+    ball.vx = pvx + nx * outward + -ny * slide;
+    ball.vy = pvy + ny * outward + nx * slide;
+  }
+
+  function collidePosts(ball) {
+    const middle = FIELD.y + FIELD.h / 2;
+    for (const x of [FIELD.x, FIELD.x + FIELD.w]) {
+      collide(ball, x, middle - FIELD.goal / 2, 0, 0, POST, BOUNCE_POST);
+      collide(ball, x, middle + FIELD.goal / 2, 0, 0, POST, BOUNCE_POST);
+    }
+  }
+
+  function stepBall(match, motion) {
     const ball = match.ball;
-    const speed = Math.hypot(ball.vx, ball.vy);
-    const count = Math.max(1, Math.ceil(speed * STEP / 1000 / 2));
-    const dt = STEP / 1000 / count;
-    for (let i = 0; i < count; i++) {
+    const dt = STEP / 1000 / SUBSTEPS;
+    for (let i = 1; i <= SUBSTEPS; i++) {
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
+      const t = i / SUBSTEPS;
+      for (const body of motion) {
+        collide(ball, body.x0 + (body.x1 - body.x0) * t, body.y0 + (body.y1 - body.y0) * t,
+          body.vx, body.vy, BODY, BOUNCE_BODY);
+      }
+      collidePosts(ball);
       if (ball.y < FIELD.y + RADIUS || ball.y > FIELD.y + FIELD.h - RADIUS) {
         ball.y = Math.max(FIELD.y + RADIUS, Math.min(FIELD.y + FIELD.h - RADIUS, ball.y));
-        ball.vy *= -0.7;
+        ball.vy *= -BOUNCE_WALL;
+        ball.vx *= 0.96;
       }
       const mouth = Math.abs(ball.y - FIELD.y - FIELD.h / 2) <= FIELD.goal / 2 - RADIUS;
       if (mouth && ball.x > FIELD.x + FIELD.w + RADIUS) { goal(match, 0); return; }
       if (mouth && ball.x < FIELD.x - RADIUS) { goal(match, 1); return; }
       if (!mouth && (ball.x < FIELD.x + RADIUS || ball.x > FIELD.x + FIELD.w - RADIUS)) {
         ball.x = Math.max(FIELD.x + RADIUS, Math.min(FIELD.x + FIELD.w - RADIUS, ball.x));
-        ball.vx *= -0.7;
+        ball.vx *= -BOUNCE_WALL;
+        ball.vy *= 0.96;
       }
     }
-    const friction = Math.max(0, speed - 100 * STEP / 1000) / (speed || 1);
-    ball.vx *= friction;
-    ball.vy *= friction;
+    // Atrito de rolamento: proporcional à velocidade + constante, até parar.
+    const speed = Math.hypot(ball.vx, ball.vy);
+    if (speed > 0) {
+      const seconds = STEP / 1000;
+      const slowed = Math.min(MAX_BALL, speed * Math.exp(-ROLL_DAMP * seconds));
+      const next = Math.max(0, slowed - ROLL_DRAG * seconds);
+      const scale = next < 1 ? 0 : next / speed;
+      ball.vx *= scale;
+      ball.vy *= scale;
+    }
   }
 
   function step(match) {
+    const motion = [];
     for (const entry of match.entries.values()) {
       const p = players.get(entry.id);
       const input = entry.sequenced ? entry.inputs.shift() : null;
@@ -235,6 +308,8 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       const dx = input ? input.dx : (fresh ? entry.dx : 0);
       const dy = input ? input.dy : (fresh ? entry.dy : 0);
       if (input) entry.ack = input.seq;
+      const x0 = entry.x;
+      const y0 = entry.y;
       entry.x = Math.max(FIELD.x + 8, Math.min(FIELD.x + FIELD.w - 8, entry.x + dx * SPEED * STEP / 1000));
       entry.y = Math.max(FIELD.y + 8, Math.min(FIELD.y + FIELD.h - 8, entry.y + dy * SPEED * STEP / 1000));
       p.x = entry.x;
@@ -244,16 +319,9 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
         entry.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'Right' : 'Left') : (dy > 0 ? 'Down' : 'Up');
       }
       p.an = (dx || dy ? 'Run_' : 'Idle_') + (entry.facing || (entry.team === 0 ? 'Right' : 'Left'));
-      const bx = match.ball.x - entry.x;
-      const by = match.ball.y - entry.y;
-      const distance = Math.hypot(bx, by);
-      if (distance < 13 && (dx || dy) && now() - entry.kickAt > 150) {
-        const length = Math.hypot(dx, dy);
-        match.ball.x = entry.x + dx / length * 13;
-        match.ball.y = entry.y + dy / length * 13;
-        match.ball.vx = dx * SPEED;
-        match.ball.vy = dy * SPEED;
-      }
+      // Velocidade real (já limitada pelas bordas) para a colisão com a bola.
+      motion.push({ x0, y0, x1: entry.x, y1: entry.y,
+        vx: (entry.x - x0) * 1000 / STEP, vy: (entry.y - y0) * 1000 / STEP });
     }
     for (const entry of match.entries.values()) {
       if (entry.pendingKick && entry.ack >= entry.pendingKick.after) {
@@ -262,7 +330,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
         kick(players.get(entry.id), match, request);
       }
     }
-    stepBall(match);
+    stepBall(match, motion);
   }
 
   function tick() {

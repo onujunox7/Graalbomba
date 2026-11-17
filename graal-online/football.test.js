@@ -113,6 +113,7 @@ test('comandos não finitos e velocidades forjadas são recusados', () => {
 test('chute exige proximidade e gol é contado uma vez, igual nos dois clientes', () => {
   const f = fixture();
   f.start();
+  f.move(2, 0, 1, 12); // o adversário sai da linha do chute: agora ele bloqueia a bola
   const centered = f.latest().ball;
   f.request(1, 'kick', { dx: 1, dy: 0 });
   f.advance(100);
@@ -131,6 +132,7 @@ test('chute exige proximidade e gol é contado uma vez, igual nos dois clientes'
 test('gol no outro lado conta para o time vermelho', () => {
   const f = fixture();
   f.start();
+  f.move(1, 0, 1, 12); // o adversário sai da linha do chute
   f.move(2, -1, 0, 12);
   f.request(2, 'kick', { dx: -1, dy: 0 });
   for (let i = 0; i < 50; i++) f.advance(50);
@@ -319,6 +321,7 @@ test('cliente com confirmação não ganha movimento extra por pacotes legados',
 test('gol invalida comandos e chutes atrasados da rodada anterior', () => {
   const f = fixture();
   f.start();
+  f.move(2, 0, 1, 12); // o adversário sai da linha do chute
   const old = command(f, 1);
   f.move(1, 1, 0, 12);
   f.request(1, 'kick', { dx: 1, dy: 0 });
@@ -336,8 +339,54 @@ test('gol invalida comandos e chutes atrasados da rodada anterior', () => {
 test('chute aguarda a simulação dos movimentos anteriores antes de validar proximidade', () => {
   const f = fixture();
   f.start();
+  f.move(2, 0, 1, 12); // o adversário sai da linha do chute
   for (let seq = 1; seq <= 12; seq++) f.request(1, 'move', command(f, seq));
   f.request(1, 'kick', { ...command(f, 0), after: 12 });
   for (let i = 0; i < 60; i++) f.advance(50);
   assert.deepEqual(f.latest().score, [1, 0]);
+});
+
+test('a bola colide com o corpo de um jogador parado e rebate sem atravessá-lo', () => {
+  const f = fixture();
+  f.start();
+  f.move(1, 1, 0, 12);
+  f.request(1, 'kick', { dx: 1, dy: 0 });
+  const blocker = f.players.get(2).x;
+  let rebounded = false;
+  for (let i = 0; i < 40; i++) {
+    f.advance(50);
+    const state = f.latest();
+    assert.ok(state.ball.x < blocker, 'a bola não pode passar do corpo do jogador');
+    if (state.bv.x < 0) rebounded = true;
+  }
+  assert.ok(rebounded);
+  assert.deepEqual(f.latest().score, [0, 0]);
+});
+
+test('jogador correndo empurra a bola para frente e não fica sobreposto a ela', () => {
+  const f = fixture();
+  f.start();
+  f.move(2, 0, 1, 12); // o adversário sai da frente
+  const center = f.latest().ball.x;
+  f.move(1, 1, 0, 20);
+  f.advance(50);
+  const state = f.latest();
+  const runner = f.players.get(1).x;
+  assert.ok(state.ball.x > center + 20, 'a bola precisa ter sido empurrada');
+  assert.ok(state.ball.x >= runner + 9.9, 'a bola não pode ficar dentro do jogador');
+});
+
+test('estado publica a velocidade da bola em campo separado e o atrito a leva ao repouso', () => {
+  const f = fixture();
+  f.start();
+  assert.deepEqual(Object.keys(f.latest().ball), ['x', 'y']);
+  f.move(1, 1, 0, 12);
+  f.request(1, 'kick', { dx: 0, dy: -1 });
+  const launched = f.latest().bv;
+  const speed = Math.hypot(launched.x, launched.y);
+  assert.ok(speed >= 260 && speed <= 330, 'potência do chute dentro dos limites: ' + speed);
+  for (let i = 0; i < 400; i++) f.advance(50);
+  const rest = f.latest().bv;
+  assert.equal(Math.hypot(rest.x, rest.y), 0);
+  assert.deepEqual(f.latest().score, [0, 0]);
 });

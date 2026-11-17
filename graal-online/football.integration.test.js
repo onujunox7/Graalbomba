@@ -117,6 +117,12 @@ if (require.main === module && process.argv.includes('--serve')) {
     outsider.send({ t: 'football', op: 'join', version: 1 });
     await waitFor(() => outsider.last('error'), 1000);
     assert.equal(f.football.has(f.players.get(outsider.id)), false, 'Spar queue player entered football');
+    // O adversário sai da linha do chute: com colisão real, um jogador parado bloqueia a bola.
+    for (let i = 0; i < 12; i++) {
+      red.send({ t: 'football', op: 'move', dx: 0, dy: 1 });
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    red.send({ t: 'football', op: 'move', dx: 0, dy: 0 });
     for (let i = 0; i < 12; i++) {
       blue.send({ t: 'football', op: 'move', dx: 1, dy: 0 });
       await new Promise(resolve => setTimeout(resolve, 50));
