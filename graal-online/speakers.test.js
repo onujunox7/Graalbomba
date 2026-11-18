@@ -76,6 +76,7 @@ function fixture(playlistTracks=[{id:'A'.repeat(22),title:'First song',artist:'F
   const messages = new Map();
   const cache = new Map();
   const saves = [];
+  const preparations = [];
   for (let id = 1; id <= 4; id++) {
     players.set(id, { id, role: id === 1 ? 1 : 0, ok: true, allowed: true,
       ws: { id, readyState: 1 }, x: 100, y: 100, in: 0 });
@@ -84,6 +85,7 @@ function fixture(playlistTracks=[{id:'A'.repeat(22),title:'First song',artist:'F
   const media = {
     maxBytes: 24 * 1024 * 1024,
     async resolve(url) {
+      preparations.push(youtubeId(url));
       if (blocked) await blocked.promise;
       const id = youtubeId(url);
       const key = crypto.createHash('sha256').update(id).digest('hex');
@@ -106,9 +108,50 @@ function fixture(playlistTracks=[{id:'A'.repeat(22),title:'First song',artist:'F
     blocked = { promise: new Promise(resolve => { release = resolve; }) };
     return () => { blocked = null; release(); };
   }
-  return { players, speakers, messages, saves, cache, request, state, latest, place, hold,
+  return { players, speakers, messages, saves, cache, preparations, request, state, latest, place, hold,
     advance(ms) { time += ms; speakers.tick(); } };
 }
+
+test('prepara a próxima durante a atual e avança sem aguardar outra conversão',async()=>{
+  const f=fixture(),id=await f.place();
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  const epoch=f.state().boxes[0].epoch;
+  const release=f.hold();f.advance(1000);
+  await new Promise(resolve=>setImmediate(resolve));
+  const during=f.state().boxes[0];
+  assert.equal(f.preparations.length,2,'A próxima deve começar a preparar antes do fim da atual');
+  assert.equal(during.playing,true);assert.equal(during.loading,false);assert.equal(during.epoch,epoch);
+  release();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.state().boxes[0].next.id,'bbbbbbbbbbb');
+  f.advance(9000);
+  assert.equal(f.state().boxes[0].current.id,'bbbbbbbbbbb');
+  assert.equal(f.state().boxes[0].playing,true);assert.equal(f.state().boxes[0].loading,false);
+  assert.equal(f.preparations.length,2,'Avanço não deve iniciar outro download da mesma faixa');
+});
+
+test('próxima durante preparo reutiliza o trabalho e parada não reinicia áudio',async()=>{
+  const f=fixture(),id=await f.place();
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  const release=f.hold();f.advance(1000);
+  await new Promise(resolve=>setImmediate(resolve));
+  const next=f.request(1,'next',{id});
+  await f.request(1,'stop',{id});
+  release();await next;
+  assert.equal(f.preparations.length,2);
+  assert.equal(f.state().boxes[0].playing,false);
+  assert.equal(f.state().boxes[0].offset,0);
+});
+
+test('excluir a próxima durante pré-carregamento não a recoloca na fila',async()=>{
+  const f=fixture(),id=await f.place();
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  const release=f.hold();f.advance(1000);
+  await f.request(1,'remove_track',{id,track:'spotify:'+'B'.repeat(22)});
+  release();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.state().boxes[0].queue.length,1);
+  assert.equal(f.state().boxes[0].current.id,'aaaaaaaaaaa');
+  assert.equal(f.state().boxes[0].playing,true);
+});
 
 test('somente cargo reconhecido pelo servidor cria, move, remove ou controla caixas', async () => {
   const f = fixture();

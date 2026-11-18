@@ -48,7 +48,10 @@ async function createFixture({ adminId = 1, latency = 0 } = {}) {
       cached.add(key);
       return { ...track };
     },
-    async matchSpotify(){cached.add(key);return {...track};},
+    async matchSpotify(song){
+      const result=song.title==='Segunda música'?{...track,id:'bbbbbbbbbbb',key:crypto.createHash('sha256').update('second:'+key).digest('hex')}:{...track};
+      cached.add(result.key);return result;
+    },
     file: value => cached.has(value) ? { path: sample, size: track.bytes } : null,
     prune: values => { if (!values.includes(key)) cached.delete(key); }
   };

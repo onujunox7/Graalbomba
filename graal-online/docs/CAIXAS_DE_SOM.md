@@ -7,9 +7,9 @@ No **Painel admin → Som**, o admin ou dono pode colocar várias caixas, mover 
 1. Entre no mapa como admin e vá ao local desejado.
 2. Abra **Admin → Som → Colocar aqui**.
 3. Cole o link de um vídeo público gravado do YouTube e toque em **Adicionar música**. O servidor prepara o áudio; a primeira música começa automaticamente.
-4. Ajuste **Volume** de 0 a 100%. Use **Reproduzir**, **Pausar**, **Parar** e **Próxima** para controlar a caixa selecionada.
+4. Ajuste **Volume** de 0 a 100%. Use **Tocar**, **Pausa**, **Parar** e **Próx.** para controlar a caixa selecionada.
 5. Adicione outros links à fila. Escolha uma faixa para reproduzi-la ou removê-la. A fila avança e se repete automaticamente.
-6. Use o seletor de caixas para escolher qual controlar. **Mover aqui** leva essa caixa à posição atual do personagem; **Remover caixa** interrompe o áudio e retira a caixa do mapa para todos.
+6. Use o seletor de caixas para escolher qual controlar. **Mover** leva essa caixa à posição atual do personagem; **x** ao lado da caixa interrompe o áudio e retira a caixa do mapa para todos.
 
 O volume diminui com a distância e zera a 320 pixels da caixa. Quem chega depois ou volta ao alcance ouve o ponto atual da música. A posição do personagem determina a escuta, inclusive ao usar a câmera livre de admin. Interiores e salas de futebol/Spar têm escuta separada. A música ambiente baixa enquanto uma caixa é ouvida e volta ao se afastar.
 
@@ -53,14 +53,30 @@ Este ajuste pertence ao cliente Godot. Reinicie o teste para carregar os scripts
 
 ## Playlists do Spotify com áudio do YouTube
 
-Em **Admin → Som**, selecione a caixa, cole o link de uma playlist pública do Spotify no mesmo campo de links e toque em **Adicionar música / playlist**. Os nomes e artistas entram na fila imediatamente. Se a fila estava vazia, a primeira música é preparada e começa a tocar. A importação acrescenta músicas à fila existente e ignora faixas Spotify já presentes.
+Em **Admin → Som**, selecione a caixa, cole o link de uma playlist pública do Spotify no mesmo campo de links e toque em **+** no campo de links. Os nomes e artistas entram na fila imediatamente. Se a fila estava vazia, a primeira música é preparada e começa a tocar. A importação acrescenta músicas à fila existente e ignora faixas Spotify já presentes.
 
-O seletor **Músicas na fila** mostra todas as entradas importadas, mesmo antes de preparar o áudio. Escolha uma faixa pelo nome e toque em **Reproduzir**; o nome completo aparece abaixo do seletor. **Próxima** e o fim de cada faixa avançam pela fila; ela se repete ao terminar.
+A lista **Fila** mostra todas as entradas importadas, mesmo antes de preparar o áudio. Escolha uma faixa pelo nome e toque em **Tocar**; o nome e o artista aparecem na linha; a dica mostra o nome completo. **Próx.** e o fim de cada faixa avançam pela fila; ela se repete ao terminar.
 
 Spotify fornece somente os metadados públicos da lista. O servidor busca versões no YouTube, comparando título, artista e duração, e usa o mesmo conversor/cache da JBL. Não utiliza conta, cookies, áudio ou previews do Spotify. Uma correspondência pode ser uma gravação diferente; não há garantia de todas as faixas estarem disponíveis no YouTube. Quando uma faixa não pode ser preparada, o admin recebe o erro e pode escolher outra ou adicionar um link de vídeo.
 
-São até 100 músicas na fila de cada caixa, limitadas também às faixas exibidas pelo embed público do Spotify. Músicas inéditas são preparadas quando escolhidas ou quando chega sua vez, portanto pode haver espera antes de começar cada uma. Permanecem os limites de dois preparos simultâneos, 24 MB por faixa e 512 MB de cache compartilhado. As entradas ainda não preparadas e as correspondências já encontradas são persistidas; depois de reiniciar, a caixa volta pausada.
+São até 100 músicas na fila de cada caixa, limitadas também às faixas exibidas pelo embed público do Spotify. A próxima música é preparada em segundo plano enquanto a atual toca. A primeira faixa e uma seleção fora da sequência ainda podem precisar de preparo. Permanecem os limites de dois preparos simultâneos, 24 MB por faixa e 512 MB de cache compartilhado. As entradas ainda não preparadas e as correspondências já encontradas são persistidas; depois de reiniciar, a caixa volta pausada.
 
 A leitura usa a página pública de embed do Spotify com timeout e limite de tamanho. Playlists privadas não funcionam e mudanças no formato público podem exigir atualizar o importador. Links são canonicalizados para o host Spotify e somente IDs validados do YouTube chegam ao conversor.
 
 O servidor conserva o protocolo de áudio anterior para ouvintes com cliente antigo. Para importar e selecionar as 40 músicas pelo novo painel, use o cliente atualizado; no Android isso exige recompilar/distribuir o APK. Os controles independentes de volume do jogo/JBL são preservados.
+
+
+## Lista compacta da JBL
+
+Cada música aparece em uma linha com nome e artista pequenos, e um **x** à direita para excluir a própria faixa. O clique não depende de qual outra faixa está selecionada. Clique no nome e em **Tocar** para reproduzir. A lista tem rolagem, com duas ou três linhas visíveis conforme a orientação. Nomes longos usam reticências e dica completa.
+
+O **+** ao lado da caixa coloca outra caixa; **Mover** leva a selecionada para sua posição, e o **x** desse grupo retira a caixa do mapa. O **+** ao lado do campo de links adiciona o vídeo ou importa a playlist. Enter nesse campo também adiciona. A janela da aba Som é menor, com cabeçalho JBL e controles compactos.
+
+
+## Troca antecipada das músicas
+
+Enquanto a faixa atual toca, o servidor procura e converte a seguinte. O preparo em segundo plano preserva a reprodução, compartilha o mesmo trabalho quando o admin aperta Próx. e reserva capacidade para pedidos manuais. Falhas de antecipação não param a música atual e têm nova tentativa limitada.
+
+O cliente atualizado também baixa e decodifica a próxima faixa antes do fim da atual, reaproveitando esse áudio na mudança. O limite adicional de pré-carregamento é de 48 MB no cliente; os downloads da música atual têm prioridade. Sair do alcance, excluir faixas e desconectar liberam os recursos e descartam respostas antigas. A rede ou um vídeo indisponível ainda podem impedir que a próxima fique pronta a tempo.
+
+A antecipação no servidor beneficia clientes anteriores. Para antecipar também o download no aparelho, reinicie o cliente atualizado ou recompile/distribua o APK no Android.

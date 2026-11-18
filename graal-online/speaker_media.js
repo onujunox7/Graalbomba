@@ -193,7 +193,7 @@ module.exports = function createSpeakerMedia(directory) {
     return resolve('https://www.youtube.com/watch?v='+id);
   }
 
-  return { resolve, matchSpotify, file, cached, prune, maxBytes: MAX_AUDIO };
+  return { resolve, matchSpotify, file, cached, prune, canPrefetch:()=>workers===0, maxBytes: MAX_AUDIO };
 };
 module.exports.youtubeId = youtubeId;
 module.exports.MAX_AUDIO = MAX_AUDIO;

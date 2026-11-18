@@ -11,6 +11,8 @@ module.exports = function createSpeakers({ players, send, authorized, media, loa
   const boxes = new Map();
   const sent = new Map();
   const rates = new Map();
+  const preparing = new Map();
+  const prefetchRetry = new Map();
   let revision = 1;
   let serial = 0;
   let savedAt = 0;
@@ -42,12 +44,15 @@ module.exports = function createSpeakers({ players, send, authorized, media, loa
       if (!admin(p) && !near) continue;
       const entry = track(box);
       const current = audio(entry);
+      const following = box.tracks[(box.index+1)%box.tracks.length];
+      const next = box.playing && following && media.file(following.key) ? audio(following) : null;
       const data = {
         id: box.id, name: box.name, x: box.x, y: box.y, space: box.space,
         volume: box.volume, radius: RANGE, visible, audible: near, playing: box.playing,
         offset: progress(box), epoch: box.epoch, loading: box.loading,
         current: current ? { ...current, file: '/api/speaker/audio/' + current.key + '.mp3' } : null
       };
+      data.next = next ? {...next,file:'/api/speaker/audio/'+next.key+'.mp3'} : null;
       if (admin(p)) {
         // Existing clients keep receiving the prepared YouTube schema they understand.
         data.tracks = box.tracks.map(audio).filter(Boolean).slice(0,20);
@@ -118,6 +123,35 @@ module.exports = function createSpeakers({ players, send, authorized, media, loa
     box.epoch++;
   }
 
+  function prepareEntry(box,entry) {
+    if(media.file(entry.key))return Promise.resolve(entry);
+    const key=box.id+':'+entry.id;
+    const existing=preparing.get(key);
+    if(existing?.entry===entry)return existing.promise;
+    const promise=(async()=>{
+      const prepared=entry.spotifyId&&!entry.videoId
+        ? await media.matchSpotify({title:entry.title,artist:entry.artist,duration:entry.expectedDuration})
+        : await media.resolve('https://www.youtube.com/watch?v='+(entry.videoId||entry.id));
+      if(boxes.get(box.id)!==box)return null;
+      const index=box.tracks.indexOf(entry);
+      if(index<0)return null;
+      if(!cleanTrack(prepared)||(!entry.spotifyId&&prepared.id!==entry.id)||(entry.videoId&&prepared.id!==entry.videoId))throw new Error('A música preparada é inválida.');
+      const result=entry.spotifyId?{...entry,videoId:prepared.id,key:prepared.key,duration:prepared.duration,bytes:prepared.bytes}:prepared;
+      box.tracks[index]=result;changed();return result;
+    })().finally(()=>{
+      if(preparing.get(key)?.promise===promise)preparing.delete(key);
+      setImmediate(prune);
+    });
+    preparing.set(key,{entry,promise});return promise;
+  }
+
+  function prefetch(box) {
+    if(!box.playing||box.loading||box.tracks.length<2||(prefetchRetry.get(box.id)||0)>now()||media.canPrefetch?.()===false)return;
+    const entry=box.tracks[(box.index+1)%box.tracks.length];
+    if(media.file(entry.key)||preparing.get(box.id+':'+entry.id)?.entry===entry)return;
+    void prepareEntry(box,entry).catch(()=>{if(boxes.get(box.id)===box)prefetchRetry.set(box.id,now()+10000);});
+  }
+
   async function play(box, id, actor, offset) {
     const index = entryIndex(box,id);
     if (index < 0) throw new Error('Escolha uma música da fila.');
@@ -136,14 +170,10 @@ module.exports = function createSpeakers({ players, send, authorized, media, loa
     const epoch = box.epoch;
     changed();
     try {
-      const entry=box.tracks[index];
-      const prepared = entry.spotifyId && !entry.videoId
-        ? await media.matchSpotify({title:entry.title,artist:entry.artist,duration:entry.expectedDuration})
-        : await media.resolve('https://www.youtube.com/watch?v=' + (entry.videoId||entry.id));
-      if (boxes.get(box.id) !== box || (actor && !admin(actor))) return;
-      if (!cleanTrack(prepared) || (!entry.spotifyId && prepared.id!==entry.id) || (entry.videoId && prepared.id!==entry.videoId)) throw new Error('A música preparada é inválida.');
-      box.tracks[index] = entry.spotifyId ? {...entry,videoId:prepared.id,key:prepared.key,duration:prepared.duration,bytes:prepared.bytes} : prepared;
-      if (box.epoch === epoch) start(box, index, requestedOffset);
+      const prepared = await prepareEntry(box,box.tracks[index]);
+      if (!prepared || boxes.get(box.id) !== box || (actor && !admin(actor))) return;
+      const currentIndex=box.tracks.indexOf(prepared);
+      if (box.epoch === epoch && currentIndex>=0) start(box, currentIndex, requestedOffset);
     } finally {
       if (boxes.get(box.id) === box) { box.loading = false; changed(); }
       setImmediate(prune);
@@ -282,6 +312,10 @@ module.exports = function createSpeakers({ players, send, authorized, media, loa
       }
       void play(box, box.tracks[index].id, null, remaining).catch(e => { box.playing = false; changed();for(const p of players.values())if(admin(p))error(p,e.message||'Não foi possível preparar a próxima faixa. Escolha outra música.'); });
     }
+    const candidates=[...boxes.values()].filter(b=>b.playing&&!b.loading&&track(b));
+    candidates.sort((a,b)=>(track(a).duration-progress(a))-(track(b).duration-progress(b)));
+    for(const box of candidates)prefetch(box);
+    for(const id of prefetchRetry.keys())if(!boxes.has(id))prefetchRetry.delete(id);
     for (const p of players.values()) {
       if (!live(p)) continue;
       const data = snapshot(p);
