@@ -53,6 +53,16 @@ test('catálogo tem sete salas, chegada livre e paredes sólidas', () => {
   assert.equal(f.state().gates.boss_gate, false);
 });
 
+test('visitante aguardando presença recebe estado booleano completo', () => {
+  const f = fixture(), p = f.players.get(1);
+  delete p.ok;
+  f.command('get');
+  const message = JSON.parse(JSON.stringify(f.messages.get(1).at(-1)));
+  assert.equal(message.inside, false);
+  assert.equal(message.complete, false);
+  assert.deepEqual(message.enemies, []);
+});
+
 test('combate e chave são compartilhados entre jogadores', () => {
   const f = fixture();
   f.atObject('boss_gate'); f.command('interact', { id: 'boss_gate' });

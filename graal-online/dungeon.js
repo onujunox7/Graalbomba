@@ -16,7 +16,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
   let enemies, generation, key, gate, flames, solved, relic, completed, visited, emptyAt;
   let lastStep = now(), lastBroadcast = 0;
   const live = p => !!p && players.get(p.id) === p && p.ws.readyState === 1 && authorized(p);
-  const member = p => live(p) && p.ok && inMap(p);
+  const member = p => !!(live(p) && p.ok && inMap(p));
   const point = p => ({ x: p.ix - MAP.origin[0], y: p.iy - MAP.origin[1] });
   const emit = (p, data) => { if (live(p)) send(p.ws, { t: 'dungeon', generation, ...data }); };
   const guardsCleared = () => enemies.filter(e => e.room === 'guards').every(e => e.hp <= 0);
