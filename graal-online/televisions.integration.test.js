@@ -1,0 +1,35 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createFixture, waitFor } = require('./television_fixture');
+
+test('TV sincroniza tamanho e vídeo por rotas reais WebSocket e HTTP', { timeout: 20000 }, async t => {
+  const f = await createFixture();
+  t.after(() => f.close());
+  const admin = await f.connect(), viewer = await f.connect(), far = await f.connect();
+  f.players.get(far.id).x = 10000;
+  admin.send({ op: 'place' });
+  const id = await waitFor(() => admin.state()?.selected);
+  admin.send({ op: 'size', id, scale: 2.5 });
+  await waitFor(() => viewer.state()?.screens[0]?.scale === 2.5);
+  viewer.send({ op: 'remove', id, role: 2 });
+  await waitFor(() => viewer.messages.some(m => m.op === 'error'));
+  admin.send({ op: 'play', id, url: 'https://youtu.be/jNQXAC9IVRw' });
+  const screen = await waitFor(() => viewer.state()?.screens[0]?.playing && viewer.state().screens[0]);
+  assert.equal(far.state().screens.length, 0);
+  assert.equal(screen.source, '');
+  assert.equal(screen.key.length, 32);
+  assert(screen.offset < 0);
+  const endpoint = 'http://127.0.0.1:' + f.port + '/api/television/video/' + screen.key + '/000000.ogv';
+  const response = await fetch(endpoint);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'video/ogg');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString(), 'OggS');
+  assert.equal(bytes.length, screen.segments[0].bytes);
+  assert.equal((await fetch(endpoint, { method: 'HEAD' })).status, 200);
+  assert.equal((await fetch(endpoint.replace('000000.ogv', '999999.ogv'))).status, 404);
+  admin.send({ op: 'stop', id });
+  await waitFor(() => viewer.state()?.screens[0]?.playing === false);
+  assert.equal((await fetch(endpoint)).status, 404);
+});

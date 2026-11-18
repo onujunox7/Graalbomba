@@ -169,6 +169,16 @@ test('somente cargo reconhecido pelo servidor cria, move, remove ou controla cai
   assert.equal(f.state().boxes.length, 0);
 });
 
+test('caixa bloqueia entrada, permite escapar de sobreposição e isola salas',async()=>{
+  const f=fixture(),id=await f.place(),p=f.players.get(1);
+  assert.equal(f.speakers.blocksMove(p,{x:100,y:100},{x:100,y:99}),true);
+  assert.equal(f.speakers.blocksMove(p,{x:100,y:100},{x:101,y:100}),false);
+  assert.equal(f.speakers.blocksMove(p,{x:100,y:93},{x:110,y:93}),false);
+  p.football='other';assert.equal(f.speakers.blocksMove(p,{x:100,y:100},{x:100,y:99}),false);
+  p.football='';await f.request(1,'remove',{id});
+  assert.equal(f.speakers.blocksMove(p,{x:100,y:100},{x:100,y:99}),false);
+});
+
 test('playlist carrega os nomes de 40 faixas sem baixar todas e mantém protocolo anterior',async()=>{
   const songs=Array.from({length:40},(_,i)=>({id:String(i).padStart(22,'0'),title:'Song '+i,artist:'Artist '+i,duration:10}));
   const f=fixture(songs),id=await f.place();

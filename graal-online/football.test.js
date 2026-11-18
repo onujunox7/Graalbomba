@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const createFootball = require('./football');
 const { FIELD } = createFootball;
 
-function fixture(count = 2) {
+function fixture(count = 2,blocksMove = () => false) {
   let time = 1000;
   const players = new Map();
   const messages = new Map();
@@ -15,7 +15,7 @@ function fixture(count = 2) {
     messages.set(id, []);
   }
   const football = createFootball({
-    players, now: () => time, authorized: p => p.allowed,
+    players, now: () => time, authorized: p => p.allowed,blocksMove,
     viewPlayer: p => ({ id: p.id, nm: p.nm, x: p.x, y: p.y, an: p.an }),
     send: (ws, data) => messages.get(ws.id).push(structuredClone(data))
   });
@@ -53,6 +53,15 @@ test('fila autenticada inicia dois times e limita cada time a cinco jogadores', 
   assert.equal(state.players.filter(p => p.team === 1).length, 5);
   assert.equal(state.remaining, 300000);
   for (let id = 1; id <= 10; id++) assert.deepEqual(f.latest(id), state);
+});
+
+test('movimento respeita obstáculo dinâmico e desliza no eixo livre',()=>{
+  let wall=Infinity;
+  const f=fixture(2,(_p,from,to)=>to.x>from.x&&to.x>wall);f.start();
+  const p=f.players.get(1),start={x:p.x,y:p.y};wall=p.x+12;
+  f.move(1,1,0,10);assert.ok(p.x<=wall+0.001);
+  f.move(1,0,1,3);assert.ok(p.y>start.y);
+  const blocked=p.x;f.move(1,-1,0,3);assert.ok(p.x<blocked);
 });
 
 test('um jogador espera, entrada repetida não duplica e saída cancela fila', () => {

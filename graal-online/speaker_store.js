@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-module.exports = function createSpeakerStore(pool, filename, report = () => {}) {
+module.exports = function createSpeakerStore(pool, filename, report = () => {}, key = 'speakers') {
   let pending = null;
   let writing = false;
   let closed = false;
@@ -10,7 +10,7 @@ module.exports = function createSpeakerStore(pool, filename, report = () => {}) 
   async function load() {
     let disk = null;
     try { disk = JSON.parse(fs.readFileSync(filename, 'utf8')); } catch { }
-    const result = await pool.query({ text: "SELECT v, updated_at FROM graal_kv WHERE k = 'speakers'", query_timeout: 10000 });
+    const result = await pool.query({ text: "SELECT v, updated_at FROM graal_kv WHERE k = $1", values: [key], query_timeout: 10000 });
     const database = result.rows[0]?.v;
     return Number(disk?.savedAt || 0) > Number(database?.savedAt || 0) ? disk : (database || disk || { boxes: [] });
   }
@@ -23,8 +23,8 @@ module.exports = function createSpeakerStore(pool, filename, report = () => {}) 
       pending = null;
       try {
         await pool.query({
-          text: "INSERT INTO graal_kv (k,v,updated_at) VALUES ('speakers',$1::jsonb,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v,updated_at=EXCLUDED.updated_at WHERE graal_kv.updated_at <= EXCLUDED.updated_at",
-          values: [JSON.stringify(data), data.savedAt], query_timeout: 10000
+          text: "INSERT INTO graal_kv (k,v,updated_at) VALUES ($3,$1::jsonb,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v,updated_at=EXCLUDED.updated_at WHERE graal_kv.updated_at <= EXCLUDED.updated_at",
+          values: [JSON.stringify(data), data.savedAt, key], query_timeout: 10000
         });
       } catch {
         pending = pending || data;

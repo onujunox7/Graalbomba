@@ -26,7 +26,7 @@ const BOUNCE_BODY = 0.35;  // restituição no corpo do jogador
 const BOUNCE_POST = 0.6;   // restituição nas traves
 const GRIP = 0.2;          // atrito tangencial no contato
 
-module.exports = function createFootball({ players, send, authorized, viewPlayer, now = Date.now }) {
+module.exports = function createFootball({ players, send, authorized, viewPlayer, blocksMove = () => false, now = Date.now }) {
   const queue = new Map();
   const matches = new Map();
   const members = new Map();
@@ -513,8 +513,10 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       const x0 = entry.x;
       const y0 = entry.y;
       const limits = match.holder === entry.id ? keeperArea(entry.team) : FIELD;
-      entry.x = Math.max(limits.x + 8, Math.min(limits.x + limits.w - 8, entry.x + dx * SPEED * STEP / 1000));
-      entry.y = Math.max(limits.y + 8, Math.min(limits.y + limits.h - 8, entry.y + dy * SPEED * STEP / 1000));
+      const targetX=Math.max(limits.x + 8, Math.min(limits.x + limits.w - 8, entry.x + dx * SPEED * STEP / 1000));
+      const targetY=Math.max(limits.y + 8, Math.min(limits.y + limits.h - 8, entry.y + dy * SPEED * STEP / 1000));
+      if(!blocksMove(p,{x:entry.x,y:entry.y},{x:targetX,y:entry.y}))entry.x=targetX;
+      if(!blocksMove(p,{x:entry.x,y:entry.y},{x:entry.x,y:targetY}))entry.y=targetY;
       p.x = entry.x;
       p.y = entry.y;
       p.uT = now();

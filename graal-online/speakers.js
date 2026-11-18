@@ -329,6 +329,19 @@ module.exports = function createSpeakers({ players, send, authorized, media, loa
     for (const id of sent.keys()) if (!players.has(id)) { sent.delete(id); rates.delete(id); }
   }
 
-  return { handle, tick, restore, dump, state: snapshot, file: media.file, maxAudioBytes: media.maxBytes };
+  function blocksMove(p,from,to) {
+    const before={x:from.x-4.5,y:from.y-3,w:9,h:7},after={x:to.x-4.5,y:to.y-3,w:9,h:7};
+    const intersects=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+    const distance=(a,b)=>(a.x+a.w/2-b.x-b.w/2)**2+(a.y+a.h/2-b.y-b.h/2)**2;
+    for(const box of boxes.values()){
+      if(!sameSpace(space(p),box.space))continue;
+      const solid={x:box.x-15,y:box.y-11,w:30,h:8};
+      if(!intersects(after,solid))continue;
+      if(intersects(before,solid)&&distance(after,solid)>distance(before,solid))continue;
+      return true;
+    }
+    return false;
+  }
+  return { handle, tick, restore, dump, state: snapshot, blocksMove, file: media.file, maxAudioBytes: media.maxBytes };
 };
 module.exports.RANGE = RANGE;

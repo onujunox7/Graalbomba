@@ -582,6 +582,19 @@ const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'applic
 let IDX = null; // index.html em memória (bruto + gzip)
 const srv = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
+  if (url.startsWith('/api/television/video/')) {
+    const match = /^\/api\/television\/video\/([a-f0-9]{32})\/(\d{6})\.ogv$/.exec(url);
+    const info = match && (req.method === 'GET' || req.method === 'HEAD') ? televisions.file(match[1], Number(match[2])) : null;
+    if (!info) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'video/ogg', 'Content-Length': info.size,
+      'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+    if (req.method === 'HEAD') return res.end();
+    const video = fs.createReadStream(info.path);
+    video.on('error', () => res.destroy());
+    res.on('close', () => video.destroy());
+    video.pipe(res);
+    return;
+  }
   if (url.startsWith('/api/speaker/audio/')) {
     const match = /^\/api\/speaker\/audio\/([a-f0-9]{64})\.mp3$/.exec(url);
     const info = match && (req.method === 'GET' || req.method === 'HEAD') ? speakers.file(match[1]) : null;
@@ -839,12 +852,18 @@ const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'strin
 const parties = require('./party')({ players: P, send: sendTo,
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 const football = require('./football')({ players: P, send: sendTo, viewPlayer: p => pstate(p),
+  blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 const speakerMedia = require('./speaker_media')(path.join(DATA_DIR, 'speaker-audio'));
 const speakerStore = require('./speaker_store')(pgPool, path.join(DATA_DIR, 'graal-speakers.json'), message => console.warn(message));
 const speakers = require('./speakers')({ players: P, send: sendTo, media: speakerMedia, save: speakerStore.save,
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 setInterval(() => speakers.tick(), 250).unref();
+const televisionMedia = require('./television_media')(path.join(DATA_DIR, 'television-video'));
+const televisionStore = require('./speaker_store')(pgPool, path.join(DATA_DIR, 'graal-televisions.json'), message => console.warn(message), 'televisions');
+const televisions = require('./televisions')({ players: P, send: sendTo, media: televisionMedia, save: televisionStore.save,
+  authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+setInterval(() => televisions.tick(), 500).unref();
 setInterval(() => football.tick(), 50).unref();
 setInterval(() => parties.tick(), 1000).unref();
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
@@ -1163,6 +1182,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (m.t === 'speaker') { void speakers.handle(p, m).catch(() => sendTo(ws, { t: 'speaker', op: 'error', message: 'Não foi possível alterar a caixa.' })); return }
+    if (m.t === 'television') { void televisions.handle(p, m).catch(() => sendTo(ws, { t: 'television', op: 'error', message: 'Não foi possível alterar a TV.' })); return }
     if (m.t === 'party') { parties.handle(p, m); return }
     if (m.t === 'football') {
       if (m.op === 'join' && SPAR_QUEUE.includes(p.id)) {
@@ -1425,7 +1445,7 @@ setInterval(() => {
   }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(() => {
+Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>televisionStore.load()).then(data=>televisions.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
