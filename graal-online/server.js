@@ -582,6 +582,33 @@ const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'applic
 let IDX = null; // index.html em memória (bruto + gzip)
 const srv = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
+  if (url.startsWith('/api/speaker/audio/')) {
+    const match = /^\/api\/speaker\/audio\/([a-f0-9]{64})\.mp3$/.exec(url);
+    const info = match && (req.method === 'GET' || req.method === 'HEAD') ? speakers.file(match[1]) : null;
+    if (!info) { res.writeHead(404); return res.end(); }
+    const headers = { 'Content-Type': 'audio/mpeg', 'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
+    let start = 0, end = info.size - 1, code = 200;
+    if (req.headers.range) {
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
+      if (!range || (!range[1] && !range[2])) { res.writeHead(416, { 'Content-Range': 'bytes */' + info.size }); return res.end(); }
+      if (!range[1]) start = Math.max(0, info.size - Number(range[2]));
+      else { start = Number(range[1]); if (range[2]) end = Math.min(end, Number(range[2])); }
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= info.size || end < start) {
+        res.writeHead(416, { 'Content-Range': 'bytes */' + info.size }); return res.end();
+      }
+      code = 206;
+      headers['Content-Range'] = 'bytes ' + start + '-' + end + '/' + info.size;
+    }
+    headers['Content-Length'] = end - start + 1;
+    res.writeHead(code, headers);
+    if (req.method === 'HEAD') return res.end();
+    const audio = fs.createReadStream(info.path, { start, end });
+    audio.on('error', () => res.destroy());
+    res.on('close', () => audio.destroy());
+    audio.pipe(res);
+    return;
+  }
 
   // SITE PC: / mostra o portal completo. /pagina-jogo.html é a página real.
   // APK/Android: continua carregando o index.html normalmente, inclusive ?login=1.
@@ -813,6 +840,11 @@ const parties = require('./party')({ players: P, send: sendTo,
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 const football = require('./football')({ players: P, send: sendTo, viewPlayer: p => pstate(p),
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+const speakerMedia = require('./speaker_media')(path.join(DATA_DIR, 'speaker-audio'));
+const speakerStore = require('./speaker_store')(pgPool, path.join(DATA_DIR, 'graal-speakers.json'), message => console.warn(message));
+const speakers = require('./speakers')({ players: P, send: sendTo, media: speakerMedia, save: speakerStore.save,
+  authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+setInterval(() => speakers.tick(), 250).unref();
 setInterval(() => football.tick(), 50).unref();
 setInterval(() => parties.tick(), 1000).unref();
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
@@ -1130,6 +1162,7 @@ wss.on('connection', (ws, req) => {
       else { p.authFails++; if (p.authFails >= 5) ws.close() }
       return;
     }
+    if (m.t === 'speaker') { void speakers.handle(p, m).catch(() => sendTo(ws, { t: 'speaker', op: 'error', message: 'Não foi possível alterar a caixa.' })); return }
     if (m.t === 'party') { parties.handle(p, m); return }
     if (m.t === 'football') {
       if (m.op === 'join' && SPAR_QUEUE.includes(p.id)) {
@@ -1392,7 +1425,7 @@ setInterval(() => {
   }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(() => {
+Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
