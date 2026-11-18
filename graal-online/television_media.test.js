@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sourceUrl, publicAddress, readSegments, encodeArgs } = require('./television_media');
+const { sourceUrl, publicAddress, readSegments, encodeArgs, MAX_SEGMENT } = require('./television_media');
 
 test('links de cinco plataformas são normalizados sem aceitar URLs arbitrárias', () => {
   assert.equal(sourceUrl('https://youtu.be/jNQXAC9IVRw?si=abc').url, 'https://www.youtube.com/watch?v=jNQXAC9IVRw');
@@ -27,10 +27,24 @@ test('encoder usa clipes Theora com áudio, duração fixa e lista limitada', ()
   const args = encodeArgs('https://video.googlevideo.com/source', '/tmp/tv-test');
   assert(args.includes('libtheora'));
   assert(args.includes('libvorbis'));
+  assert.match(args[args.indexOf('-vf') + 1], /scale=640:360.*fps=16/);
+  assert.equal(args[args.indexOf('-q:v') + 1], '7');
+  assert.equal(MAX_SEGMENT, 8 * 1024 * 1024);
   assert.equal(args[args.indexOf('-segment_time') + 1], '4');
   assert.equal(args[args.indexOf('-segment_list_size') + 1], '24');
   assert(!args[args.indexOf('-protocol_whitelist') + 1].includes('file'));
   assert.deepEqual(readSegments('/nonexistent-television-folder'), []);
+});
+
+test('vídeo e áudio separado usam os dois streams e o túnel em cada entrada', () => {
+  const proxy = 'http://127.0.0.1:32123';
+  const args = encodeArgs('https://video.googlevideo.com/video', '/tmp/tv-test', {}, proxy,
+    { url: 'https://video.googlevideo.com/audio', headers: {} });
+  assert.equal(args.filter(value => value === '-i').length, 2);
+  assert.equal(args.filter(value => value === '-http_proxy').length, 2);
+  assert(args.includes('0:v:0'));
+  assert(args.includes('1:a:0'));
+  assert(args.includes('https://video.googlevideo.com/audio'));
 });
 
 test('entrada HTTPS usa transporte local para evitar SIGSEGV no resolvedor do FFmpeg estático Linux', () => {

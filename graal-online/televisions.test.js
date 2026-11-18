@@ -6,6 +6,7 @@ const createTelevisions = require('./televisions');
 function fixture() {
   let clock = 1000;
   let hold;
+  let serial = 0;
   const stopped = [];
   const sessions = new Map();
   const saved = [];
@@ -16,7 +17,7 @@ function fixture() {
   const media = {
     async open() {
       if (hold) await hold;
-      const key = String(sessions.size + 1).padStart(32, '0');
+      const key = String(++serial).padStart(32, '0');
       const value = { key, title: 'Vídeo de teste', live: true, error: '', finished: false,
         segments: [0, 1, 2].map(index => ({ index, start: index * 4, end: index * 4 + 4, bytes: 123 })) };
       sessions.set(key, value);
@@ -135,6 +136,19 @@ test('colisão acompanha tamanho e permite sair de sobreposição', async () => 
   assert(!f.tvs.blocksMove(p, { x: 10, y: 96 }, { x: 20, y: 96 }));
 });
 
+test('TV de 1000% sincroniza, mantém colisão e é restaurada com o tamanho escolhido', async () => {
+  const f = fixture();
+  const id = await f.place();
+  await f.command('size', { id, scale: 10 });
+  assert.equal(f.state(2).screens[0].scale, 10);
+  assert(f.tvs.blocksMove(f.players.get(1), { x: -310, y: 96 }, { x: -300, y: 96 }));
+  const g = fixture();
+  g.tvs.restore(f.tvs.dump());
+  assert.equal(g.state().screens[0].scale, 10);
+  await f.command('size', { id, scale: 10.1 });
+  assert.equal(f.state().screens[0].scale, 10);
+});
+
 test('erro ou fim do vídeo libera conversor e publica estado desligado', async () => {
   const f = fixture();
   const id = await f.place();
@@ -143,5 +157,20 @@ test('erro ou fim do vídeo libera conversor e publica estado desligado', async 
   f.sessions.values().next().value.finished = true;
   f.advance(15000);
   assert.equal(f.state().screens[0].playing, false);
+  assert.equal(f.stopped.length, 1);
+});
+
+test('tocar outra TV encerra a anterior e mantém apenas uma transmissão', async () => {
+  const f = fixture();
+  const first = await f.place();
+  const second = await f.place();
+  await f.command('play', { id: first, url: 'https://twitch.tv/alanzoka' });
+  f.advance(500);
+  assert(f.state().screens.find(tv => tv.id === first).playing);
+  await f.command('play', { id: second, url: 'https://twitch.tv/alanzoka' });
+  f.advance(500);
+  assert.equal(f.state().screens.filter(tv => tv.playing).length, 1);
+  assert(f.state().screens.find(tv => tv.id === second).playing);
+  assert.equal(f.state().screens.find(tv => tv.id === first).playing, false);
   assert.equal(f.stopped.length, 1);
 });

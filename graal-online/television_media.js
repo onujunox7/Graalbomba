@@ -9,8 +9,9 @@ const http = require('node:http');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { youtubeId } = require('./speaker_media');
+const { getEncoder } = require('./television_encoder');
 
-const MAX_SEGMENT = 2 * 1024 * 1024;
+const MAX_SEGMENT = 8 * 1024 * 1024;
 const KEY = /^[a-f0-9]{32}$/;
 const PROVIDERS = {
   youtube: ['googlevideo.com', 'youtube.com'],
@@ -119,15 +120,21 @@ async function createMediaProxy(provider) {
   };
 }
 
-function encodeArgs(input, directory, headers = {}, proxy) {
-  const args = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-threads', '1',
-    '-protocol_whitelist', 'http,https,tcp,tls,crypto,httpproxy', '-rw_timeout', '15000000',
-    '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '3', '-re'];
-  if (proxy) args.push('-http_proxy', proxy);
-  if (headers['User-Agent']) args.push('-user_agent', String(headers['User-Agent']).replace(/[\r\n]/g, '').slice(0, 512));
-  args.push('-i', input, '-map', '0:v:0', '-map', '0:a:0?',
-    '-vf', 'scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=16',
-    '-c:v', 'libtheora', '-q:v', '5', '-g', '64', '-force_key_frames', 'expr:gte(t,n_forced*4)',
+function encodeArgs(input, directory, headers = {}, proxy, audio) {
+  const args = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y'];
+  const sources = [{ url: input, headers }];
+  if (audio) sources.push(audio);
+  for (const source of sources) {
+    args.push('-threads', '1', '-protocol_whitelist', 'http,https,tcp,tls,crypto,httpproxy',
+      '-rw_timeout', '15000000', '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '3', '-re');
+    if (proxy) args.push('-http_proxy', proxy);
+    const agent = source.headers?.['User-Agent'];
+    if (agent) args.push('-user_agent', String(agent).replace(/[\r\n]/g, '').slice(0, 512));
+    args.push('-i', source.url);
+  }
+  args.push('-map', '0:v:0', '-map', audio ? '1:a:0' : '0:a:0?',
+    '-vf', 'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=16',
+    '-c:v', 'libtheora', '-q:v', '7', '-g', '64', '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-c:a', 'libvorbis', '-ac', '2', '-ar', '44100', '-q:a', '2', '-threads', '1',
     '-f', 'segment', '-segment_time', '4', '-reset_timestamps', '1', '-segment_format', 'ogg',
     '-segment_list_size', '24', '-segment_list_type', 'csv', '-segment_list', path.join(directory, 'segments.csv'),
@@ -168,45 +175,59 @@ module.exports = function createTelevisionMedia(directory) {
 
   async function open(value, signal) {
     const source = sourceUrl(value);
-    if (workers >= 2) throw new Error('Duas TVs estão transmitindo. Desligue uma para iniciar outra.');
+    if (workers >= 1) throw new Error('Uma TV está transmitindo. Desligue a atual para iniciar outra.');
     workers++;
+    let reserved = true;
+    const release = () => {
+      if (!reserved) return;
+      reserved = false;
+      workers--;
+      signal?.removeEventListener('abort', release);
+    };
+    signal?.addEventListener('abort', release, { once: true });
     let session;
     try {
       const downloader = require('youtube-dl-exec').constants.YOUTUBE_DL_PATH;
-      const ffmpeg = require('ffmpeg-static');
+      const encoder = getEncoder();
       const { stdout } = await promisify(execFile)(downloader, [
         '--ignore-config', '--no-playlist', '--no-warnings', '--skip-download', '--dump-single-json',
         '--socket-timeout', '12', '--retries', '1', '--js-runtimes', 'node:' + process.execPath,
-        '-f', 'best[height<=360][vcodec!=none][acodec!=none]/best[height<=480][vcodec!=none]/best', source.url
+        '-f', 'bestvideo[height<=720][fps<=30][vcodec^=avc1]+bestaudio/bestvideo[height<=480][fps<=30]+bestaudio/best[height<=720][fps<=30]/best[height<=720]/best', source.url
       ], { timeout: 35000, maxBuffer: 4 * 1024 * 1024, windowsHide: true, signal });
       if (signal?.aborted) throw new Error('Preparo cancelado.');
       const info = JSON.parse(stdout);
-      const { url: input } = await validateMedia(info.url, source.provider);
+      const formats = Array.isArray(info.requested_formats) ? info.requested_formats : [info];
+      const video = formats.find(format => format.vcodec && format.vcodec !== 'none') || info;
+      const audioFormat = formats.find(format => format.acodec && format.acodec !== 'none' && format.url !== video.url);
+      const { url: input } = await validateMedia(video.url, source.provider);
+      const audio = audioFormat ? { url: (await validateMedia(audioFormat.url, source.provider)).url, headers: audioFormat.http_headers || info.http_headers } : null;
       if (signal?.aborted) throw new Error('Preparo cancelado.');
       const key = crypto.randomBytes(16).toString('hex');
       const folder = path.join(root, 'tv-' + key);
       fs.mkdirSync(folder);
       session = { key, directory: folder, title: String(info.title || 'Vídeo').replace(/[\r\n]/g, ' ').slice(0, 120),
-        live: !!info.is_live, segments: [], finished: false, error: '', stopped: false, process: null, proxy: null, lastProgress: Date.now() };
+        live: !!info.is_live, segments: [], finished: false, error: '', stopped: false, process: null, proxy: null, release, lastProgress: Date.now() };
       sessions.set(key, session);
       session.proxy = await createMediaProxy(source.provider);
       if (signal?.aborted) throw new Error('Preparo cancelado.');
-      const child = spawn(ffmpeg, encodeArgs(input, folder, info.http_headers, session.proxy.url), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      const args = encodeArgs(input, folder, video.http_headers || info.http_headers, session.proxy.url, audio);
+      if (encoder.fast) args.splice(args.indexOf('-c:a'), 0, '-speed_level', '9');
+      const child = spawn(encoder.file, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
       session.process = child;
       child.stderr.resume();
       child.on('error', () => { session.error = 'O conversor de vídeo não iniciou.'; });
       child.on('close', code => {
         session.proxy.close();
-        workers--;
+        release();
         session.finished = true;
         if (code !== 0 && !session.stopped) session.error = 'A transmissão foi interrompida. Tente abrir o link novamente.';
       });
       return session;
     } catch (error) {
-      workers--;
+      release();
       if (session) stop(session.key);
       if (signal?.aborted) throw new Error('Preparo cancelado.');
-      if (error.message?.startsWith('Duas TVs') || error.message?.startsWith('A plataforma') || error.message === 'Origem de vídeo inválida.') throw error;
+      if (error.message?.startsWith('A plataforma') || error.message === 'Origem de vídeo inválida.' || error.message === 'Instale as dependências de vídeo do servidor.') throw error;
       throw new Error('Não foi possível abrir esse vídeo. Confira se o link é público e se a live está online.');
     }
   }
@@ -241,6 +262,7 @@ module.exports = function createTelevisionMedia(directory) {
     if (!session) return;
     sessions.delete(key);
     session.stopped = true;
+    session.release();
     session.proxy?.close();
     const clean = () => {
       if (path.dirname(session.directory) === root && path.basename(session.directory) === 'tv-' + key && KEY.test(key)) {

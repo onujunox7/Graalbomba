@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const { sourceUrl } = require('./television_media');
 const RANGE = 480;
+const MAX_SCALE = 10;
 const ID = /^[a-f0-9]{20}$/;
 
 module.exports = function createTelevisions({ players, send, authorized, media, save = () => {}, now = Date.now }) {
@@ -69,7 +70,7 @@ module.exports = function createTelevisions({ players, send, authorized, media, 
     savedAt = Number.isSafeInteger(data.savedAt) ? data.savedAt : 0;
     for (const value of data.screens.slice(0, 8)) {
       if (!ID.test(value?.id) || !Number.isFinite(value.x) || !Number.isFinite(value.y) ||
-          Math.abs(value.x) > 1e6 || Math.abs(value.y) > 1e6 || !Number.isFinite(value.scale) || value.scale < 0.5 || value.scale > 3 ||
+          Math.abs(value.x) > 1e6 || Math.abs(value.y) > 1e6 || !Number.isFinite(value.scale) || value.scale < 0.5 || value.scale > MAX_SCALE ||
           !Number.isFinite(value.volume) || value.volume < 0 || value.volume > 100 || value.space?.football || value.space?.spar) continue;
       let source = '';
       try { if (value.source) source = sourceUrl(value.source).url; } catch { }
@@ -115,13 +116,16 @@ module.exports = function createTelevisions({ players, send, authorized, media, 
         tv.y = position.y;
         tv.space = space(p);
       } else if (message.op === 'size') {
-        if (!Number.isFinite(message.scale) || message.scale < 0.5 || message.scale > 3) return;
+        if (!Number.isFinite(message.scale) || message.scale < 0.5 || message.scale > MAX_SCALE) return;
         tv.scale = Math.round(message.scale * 10) / 10;
       } else if (message.op === 'volume') {
         if (!Number.isFinite(message.volume) || message.volume < 0 || message.volume > 100) return;
         tv.volume = Math.round(message.volume);
       } else if (message.op === 'play') {
         const source = sourceUrl(message.url || tv.source).url;
+        for (const other of screens.values()) {
+          if (other !== tv && (other.playing || other.loading)) stop(other);
+        }
         stop(tv);
         tv.source = source;
         tv.error = '';
