@@ -25,17 +25,19 @@ O volume diminui com a distância e zera a 320 pixels da caixa. Quem chega depoi
 
 ## Instalação e publicação
 
-Servidor Node.js **22 ou superior**. As dependências `youtube-dl-exec@3.1.19` e `ffmpeg-static@5.3.0` constam de `package.json` e `package-lock.json`. Em Linux, o yt-dlp também precisa de **Python 3.11 ou superior**. O servidor necessita de acesso ao YouTube e de armazenamento gravável em `DATA_DIR`.
+Servidor Node.js **22 ou superior**. As dependências `youtube-dl-exec@3.1.19` e `ffmpeg-static@5.3.0` constam de `package.json` e `package-lock.json`. O servidor necessita de acesso ao YouTube e de armazenamento gravável em `DATA_DIR`.
+
+Em Linux x64/arm64 com glibc 2.17+, o `postinstall` do projeto executa `speaker_install.js`: instala o yt-dlp oficial autocontido de 2026.10.26 no caminho já usado pelo jogo. Essa versão inclui Python e funciona mesmo quando o buildpack remove Python da imagem de execução. O checksum SHA256 é conferido antes da substituição; o executável anterior é preservado se o download ou a verificação falhar. O Windows mantém o executável fornecido pela dependência, que já inclui Python. A etapa de instalação da dependência em Linux ainda requer Python 3.11+ no ambiente de build; a imagem que executa o jogo dispensa Python separado.
 
 Na raiz do servidor, execute `npm install --no-audit --no-fund`. Os scripts de instalação baixam yt-dlp e FFmpeg. No npm 11, o manifesto autoriza os scripts somente nas versões especificadas; se o ambiente informar que foram bloqueados, use `npm install-scripts approve youtube-dl-exec ffmpeg-static` e depois `npm rebuild youtube-dl-exec ffmpeg-static`.
 
-Publique juntos `server.js`, `speakers.js`, `speaker_media.js`, `speaker_store.js` e os manifestos. Instale as dependências no ambiente de destino. A rota de áudio deve chegar ao mesmo serviço HTTP que atende o jogo, sem cache intermediário que preserve áudio removido. Recompile e distribua o cliente atualizado com `scripts/speakers.gd` e as mudanças em `main.gd`, `admin.gd`, `net.gd` e `music.gd`. O cliente consulta o estado periodicamente; não cria caixas locais em servidores antigos.
+Publique juntos `server.js`, `speakers.js`, `speaker_media.js`, `speaker_store.js`, `speaker_install.js` e os manifestos. Instale as dependências no ambiente de destino com os scripts de instalação ativados, para executar o `postinstall` do projeto. A rota de áudio deve chegar ao mesmo serviço HTTP que atende o jogo, sem cache intermediário que preserve áudio removido. Recompile e distribua o cliente atualizado com `scripts/speakers.gd` e as mudanças em `main.gd`, `admin.gd`, `net.gd` e `music.gd`. O cliente consulta o estado periodicamente; não cria caixas locais em servidores antigos.
 
 Esta alteração não publica o servidor, não reinicia serviços e não exporta APK.
 
 ## Validação
 
-No servidor: `node --test speakers.test.js speakers.integration.test.js`. A integração usa HTTP/WebSocket reais com sessões de teste isoladas do banco e da hospedagem; testa proximidade, permissões, duas caixas e remoção. `speaker_fixture.js` fornece a infraestrutura de teste e pode usar FFmpeg para gerar uma amostra.
+No servidor: `node --test speakers.test.js speakers.integration.test.js speaker_install.test.js`. A integração usa HTTP/WebSocket reais com sessões de teste isoladas do banco e da hospedagem; testa proximidade, permissões, duas caixas e remoção. Os testes de instalação cobrem o erro real de Python ausente, preservação do executável anterior em falhas HTTP/checksum e compatibilidade com Windows. `speaker_fixture.js` fornece a infraestrutura de teste e pode usar FFmpeg para gerar uma amostra.
 
 No Godot 4.3: cenas `tests/speakers_check.tscn`, `tests/speakers_online_check.tscn` e `tests/speakers_listener_check.tscn`. As duas últimas usam o fixture iniciado com `node speaker_fixture.js --serve`, `SPEAKER_PORT_FILE` no servidor de teste e `SPEAKER_TEST_PORT` nos clientes. O fixture aguarda primeiro um ouvinte e depois um admin. `SPEAKER_TEST_AUDIO_FILE` e `SPEAKER_TEST_AUDIO_DURATION` permitem fornecer uma amostra real. Use `--audio-driver Dummy` para testar o mixer sem emitir som no computador.
 

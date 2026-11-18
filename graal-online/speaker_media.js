@@ -29,7 +29,8 @@ function run(binary, args, timeout, maxBuffer = 512 * 1024) {
     execFile(binary, args, { timeout, maxBuffer, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         const reason = String(stderr || '');
-        if (/live event|is_live|live stream/i.test(reason)) reject(new Error('Escolha um vídeo gravado para adicionar à caixa.'));
+        if (/python3[^\r\n]*(?:not found|no such file)|(?:no such file|not found)[^\r\n]*python3/i.test(reason)) reject(new Error('O preparador de áudio do servidor está incompleto. Atualize as dependências do servidor.'));
+        else if (/live event|is_live|live stream/i.test(reason)) reject(new Error('Escolha um vídeo gravado para adicionar à caixa.'));
         else if (/unavailable|private|sign in|not available/i.test(reason)) reject(new Error('Esse vídeo não está disponível para reprodução no servidor.'));
         else if (/larger than|max.filesize/i.test(reason)) reject(new Error('A faixa ultrapassa o tamanho de áudio suportado.'));
         else if (error.code === 'ENOENT') reject(new Error('Instale as dependências de YouTube e FFmpeg no servidor.'));
