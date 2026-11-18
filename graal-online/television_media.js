@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const dns = require('node:dns/promises');
 const net = require('node:net');
+const http = require('node:http');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { youtubeId } = require('./speaker_media');
@@ -64,13 +65,65 @@ async function validateMedia(value, provider) {
   }
   const addresses = await dns.lookup(url.hostname, { all: true });
   if (!addresses.length || addresses.some(item => !publicAddress(item.address))) throw new Error('Origem de vídeo inválida.');
-  return url.href;
+  return { url: url.href, addresses };
 }
 
-function encodeArgs(input, directory, headers = {}) {
+// The static Linux FFmpeg crashes in native hostname resolution on the runtime.
+// A loopback CONNECT tunnel keeps TLS end-to-end and resolves/pins public CDN IPs in Node.
+async function createMediaProxy(provider) {
+  const sockets = new Set();
+  let closed = false;
+  const server = http.createServer((_request, response) => {
+    response.writeHead(405);
+    response.end();
+  });
+  server.maxConnections = 16;
+  server.headersTimeout = 10000;
+  server.on('connect', async (request, client, head) => {
+    sockets.add(client);
+    client.on('error', () => {});
+    client.on('close', () => sockets.delete(client));
+    try {
+      const target = /^([a-zA-Z0-9.-]+):443$/.exec(request.url || '');
+      if (!target) return client.destroy();
+      const { addresses } = await validateMedia('https://' + target[1], provider);
+      if (closed || client.destroyed) return client.destroy();
+      const address = addresses.find(item => item.family === 4) || addresses[0];
+      const upstream = net.connect({ host: address.address, port: 443 });
+      sockets.add(upstream);
+      upstream.setTimeout(10000, () => upstream.destroy());
+      upstream.on('error', () => client.destroy());
+      upstream.on('close', () => { sockets.delete(upstream); client.destroy(); });
+      client.on('close', () => upstream.destroy());
+      upstream.once('connect', () => {
+        upstream.setTimeout(0);
+        client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head.length) upstream.write(head);
+        client.pipe(upstream);
+        upstream.pipe(client);
+      });
+    } catch { client.destroy(); }
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return {
+    url: 'http://127.0.0.1:' + server.address().port,
+    close() {
+      if (closed) return;
+      closed = true;
+      for (const socket of sockets) socket.destroy();
+      server.close();
+    }
+  };
+}
+
+function encodeArgs(input, directory, headers = {}, proxy) {
   const args = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-threads', '1',
-    '-protocol_whitelist', 'http,https,tcp,tls,crypto', '-rw_timeout', '15000000',
+    '-protocol_whitelist', 'http,https,tcp,tls,crypto,httpproxy', '-rw_timeout', '15000000',
     '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '3', '-re'];
+  if (proxy) args.push('-http_proxy', proxy);
   if (headers['User-Agent']) args.push('-user_agent', String(headers['User-Agent']).replace(/[\r\n]/g, '').slice(0, 512));
   args.push('-i', input, '-map', '0:v:0', '-map', '0:a:0?',
     '-vf', 'scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=16',
@@ -128,19 +181,22 @@ module.exports = function createTelevisionMedia(directory) {
       ], { timeout: 35000, maxBuffer: 4 * 1024 * 1024, windowsHide: true, signal });
       if (signal?.aborted) throw new Error('Preparo cancelado.');
       const info = JSON.parse(stdout);
-      const input = await validateMedia(info.url, source.provider);
+      const { url: input } = await validateMedia(info.url, source.provider);
       if (signal?.aborted) throw new Error('Preparo cancelado.');
       const key = crypto.randomBytes(16).toString('hex');
       const folder = path.join(root, 'tv-' + key);
       fs.mkdirSync(folder);
       session = { key, directory: folder, title: String(info.title || 'Vídeo').replace(/[\r\n]/g, ' ').slice(0, 120),
-        live: !!info.is_live, segments: [], finished: false, error: '', stopped: false, process: null, lastProgress: Date.now() };
+        live: !!info.is_live, segments: [], finished: false, error: '', stopped: false, process: null, proxy: null, lastProgress: Date.now() };
       sessions.set(key, session);
-      const child = spawn(ffmpeg, encodeArgs(input, folder, info.http_headers), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      session.proxy = await createMediaProxy(source.provider);
+      if (signal?.aborted) throw new Error('Preparo cancelado.');
+      const child = spawn(ffmpeg, encodeArgs(input, folder, info.http_headers, session.proxy.url), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
       session.process = child;
       child.stderr.resume();
       child.on('error', () => { session.error = 'O conversor de vídeo não iniciou.'; });
       child.on('close', code => {
+        session.proxy.close();
         workers--;
         session.finished = true;
         if (code !== 0 && !session.stopped) session.error = 'A transmissão foi interrompida. Tente abrir o link novamente.';
@@ -185,6 +241,7 @@ module.exports = function createTelevisionMedia(directory) {
     if (!session) return;
     sessions.delete(key);
     session.stopped = true;
+    session.proxy?.close();
     const clean = () => {
       if (path.dirname(session.directory) === root && path.basename(session.directory) === 'tv-' + key && KEY.test(key)) {
         void fs.promises.rm(session.directory, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});

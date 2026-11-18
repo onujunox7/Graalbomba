@@ -32,3 +32,11 @@ test('encoder usa clipes Theora com áudio, duração fixa e lista limitada', ()
   assert(!args[args.indexOf('-protocol_whitelist') + 1].includes('file'));
   assert.deepEqual(readSegments('/nonexistent-television-folder'), []);
 });
+
+test('entrada HTTPS usa transporte local para evitar SIGSEGV no resolvedor do FFmpeg estático Linux', () => {
+  const proxy = 'http://127.0.0.1:32123';
+  const args = encodeArgs('https://video.googlevideo.com/source', '/tmp/tv-test', {}, proxy);
+  assert.equal(args[args.indexOf('-http_proxy') + 1], proxy);
+  assert(args[args.indexOf('-protocol_whitelist') + 1].split(',').includes('httpproxy'));
+  assert(args.indexOf('-http_proxy') < args.indexOf('-i'));
+});
