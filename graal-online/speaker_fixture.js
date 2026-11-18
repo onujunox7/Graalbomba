@@ -75,7 +75,7 @@ async function createFixture({ adminId = 1, latency = 0 } = {}) {
       x: 6704 + id, y: 17104, nm: 'Player ' + id, hp: 60, hm: 60,
       uh: 'isolated-speaker-session', economyClient: true, acc: 'fixture-' + id };
     players.set(id, p);
-    const context = vm.createContext({ ws, p, id, speakers, sendTo: send, normAn,
+    const context = vm.createContext({ dungeon: { correct() {}, handle() {} }, ws, p, id, speakers, sendTo: send, normAn,
       P: players, wss, pstate, Date, console, setTimeout, clearTimeout, SPAR_QUEUE: [], PFC: new Map(), CHAT: [],
       others: (sender, data) => { for (const q of players.values()) if (q.id !== sender) send(q.ws, data); },
       num: (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0)),

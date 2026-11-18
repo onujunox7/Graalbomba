@@ -23,7 +23,7 @@ class CombatRewards{
    const pos=this.positions.get(s.id)||s;
    let multiplier=1;
    if(request.weapon==='a'||request.weapon==='b'){
-    const shot=(state.shots||[]).find(shot=>shot.kind===request.weapon&&shot.until>Date.now()&&!shot.targets.includes(s.id)&&(shot.kind==='b'||shot.targets.length===0)&&Math.hypot(shot.x-pos.x,shot.y-pos.y)<(shot.kind==='a'?430:180));
+    const shot=(state.shots||[]).find(shot=>!shot.inside&&shot.kind===request.weapon&&shot.until>Date.now()&&!shot.targets.includes(s.id)&&(shot.kind==='b'||shot.targets.length===0)&&Math.hypot(shot.x-pos.x,shot.y-pos.y)<(shot.kind==='a'?430:180));
     if(!shot)throw error('invalid_source');shot.targets.push(s.id);multiplier=request.weapon==='a'?0.9:2.2;
    }else if(request.weapon==='throw'){
     if(!state.lastCut||state.lastCut.until<Date.now()||Math.hypot(state.lastCut.x-pos.x,state.lastCut.y-pos.y)>140)throw error('invalid_source');state.lastCut=null;multiplier=1.2;

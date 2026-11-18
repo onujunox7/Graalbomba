@@ -40,7 +40,7 @@ async function fixture() {
     const p = { id, ws, x: 6704 + id, y: 17104, nm: 'Player ' + id, an: 'Idle_Down',
       hp: 60, hm: 60, ok: 1, allowed: true, uh: 'isolated-test-session', economyClient: true, al: 1 };
     players.set(id, p);
-    const context = vm.createContext({ ws, p, id, football, sendTo: send, normAn,
+    const context = vm.createContext({ dungeon: { correct() {}, handle() {} }, ws, p, id, football, sendTo: send, normAn,
       P: players, wss: server, pstate, Date, console, SPAR_QUEUE: [], PFC: new Map(),
       others: (sender, data) => { for (const q of players.values()) if (q.id !== sender) send(q.ws, data); },
       num: (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0)),

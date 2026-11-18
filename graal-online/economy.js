@@ -113,11 +113,14 @@ class Economy {
   },authorized);
  }
  async equip(p,request,authorized){return this.transact(p.acc,request.rid,digest(request),state=>{if(request.hat!==''&&!state.hats.includes(request.hat))throw error('not_owned');state.hat=request.hat;},authorized);}
- async consume(p,request,authorized){return this.transact(p.acc,request.rid,digest(request),state=>{
+ async consume(p,request,authorized){
+  const origin={x:p.in?p.ix:p.x,y:p.in?p.iy:p.y,inside:!!p.in};
+  return this.transact(p.acc,request.rid,digest(request),state=>{
   if(!['pot','b','a'].includes(request.kind)||state[request.kind]<1||!p.ok||p.hp===0)throw error('empty');
   if(request.kind==='pot'&&!(p.hp<p.hm))throw error('capacity');
+  if(request.kind!=='pot'&&(!Number.isFinite(origin.x)||!Number.isFinite(origin.y)))throw error('invalid_source');
   state[request.kind]--;
-  if(request.kind!=='pot'){state.shots=(state.shots||[]).filter(s=>s.until>Date.now()).slice(-15);state.shots.push({id:request.rid,kind:request.kind,x:p.x,y:p.y,until:Date.now()+(request.kind==='a'?4000:12000),targets:[]});}
+  if(request.kind!=='pot'){state.shots=(state.shots||[]).filter(s=>s.until>Date.now()).slice(-15);state.shots.push({id:request.rid,kind:request.kind,...origin,until:Date.now()+(request.kind==='a'?4000:12000),targets:[]});}
   return {kind:request.kind,effect:request.kind==='pot'?'hp:30':''};
  },authorized);}
  async reward(p,request,world,authorized){

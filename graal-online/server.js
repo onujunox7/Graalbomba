@@ -866,13 +866,17 @@ const televisions = require('./televisions')({ players: P, send: sendTo, media: 
 setInterval(() => televisions.tick(), 500).unref();
 setInterval(() => football.tick(), 50).unref();
 setInterval(() => parties.tick(), 1000).unref();
+const dungeon = require('./dungeon')({ players: P, send: sendTo, getCombatState: p => economy.peek(p.acc),
+  blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
+  authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+setInterval(() => dungeon.tick(), 100).unref();
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
 setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; c.pingAt = Date.now(); try { c.ping() } catch (e) { } } }, 10000);
-/* anfitrião dos monstros: o jogador online mais antigo (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
+/* anfitrião dos monstros: o jogador online mais antigo no mundo principal (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
 let HOST = 0;
 function electHost() {
   const now = Date.now(); let h = 0, hh = 0; // hh: melhor candidato entre os ocultos (invisível/espectador) — só vale se não houver ninguém visível
-  for (const q of P.values()) if (q.ok && !q.football && now - q.uT < 4000) { if (q.hid) { if (!hh || q.id < hh) hh = q.id } else if (!h || q.id < h) h = q.id }
+  for (const q of P.values()) if (q.ok && !q.in && !q.football && now - q.uT < 4000) { if (q.hid) { if (!hh || q.id < hh) hh = q.id } else if (!h || q.id < h) h = q.id }
   if (!h) h = hh;
   if (h === HOST) return;
   const old = P.get(HOST); if (old) sendTo(old.ws, { t: 'host', v: 0 });
@@ -1183,6 +1187,7 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'speaker') { void speakers.handle(p, m).catch(() => sendTo(ws, { t: 'speaker', op: 'error', message: 'Não foi possível alterar a caixa.' })); return }
     if (m.t === 'television') { void televisions.handle(p, m).catch(() => sendTo(ws, { t: 'television', op: 'error', message: 'Não foi possível alterar a TV.' })); return }
+    if (m.t === 'dungeon') { if (d.length <= 512) dungeon.handle(p, m); return }
     if (m.t === 'party') { parties.handle(p, m); return }
     if (m.t === 'football') {
       if (m.op === 'join' && SPAR_QUEUE.includes(p.id)) {
@@ -1402,7 +1407,7 @@ wss.on('connection', (ws, req) => {
         economy.transact(account,crypto.createHash('sha256').update(account+':respawn:'+death).digest('hex').slice(0,32),'respawn',state=>{state.b=Math.max(state.b,10);state.a=Math.max(state.a,20);},()=>p.acc===account&&economicSession(p)).then(result=>sendTo(ws,{t:'eco',account,op:'refill',ok:true,...result})).catch(()=>{});
       }
       if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
-      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = num(m.mt, 0, 9) | 0; /* 0 a pé · skin da montaria + 1 */ p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; if (!p.hid) othersSame(p, JSON.stringify({ t: 'pu', p: pstate(p) }));
+      p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = num(m.mt, 0, 9) | 0; /* 0 a pé · skin da montaria + 1 */ p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; dungeon.correct(p); if (!p.hid) othersSame(p, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
       p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
       if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
