@@ -13,8 +13,9 @@ test('limites de caixas e fila mantêm recursos e composição consistentes', as
   assert.equal(f.state().boxes.length,16);
   const one=fixture();
   const id=await one.place();
-  for(let i=0;i<20;i++) await one.request(1,'add',{id,url:'https://youtu.be/'+String(i).padStart(11,'0')});
+  for(let i=0;i<100;i++){if(i%25===0)one.advance(1000);await one.request(1,'add',{id,url:'https://youtu.be/'+String(i).padStart(11,'0')});}
   await one.request(1,'add',{id,url:'https://youtu.be/xxxxxxxxxxx'});
+  assert.equal(one.state().boxes[0].queue.length,100);
   assert.equal(one.state().boxes[0].tracks.length,20);
 });
 
@@ -68,7 +69,7 @@ test('persistência escolhe backup mais recente e serializa gravações do banco
 });
 
 
-function fixture() {
+function fixture(playlistTracks=[{id:'A'.repeat(22),title:'First song',artist:'First artist',duration:10},{id:'B'.repeat(22),title:'Second song',artist:'Second artist',duration:10}]) {
   let time = 1000;
   let blocked = null;
   const players = new Map();
@@ -90,10 +91,11 @@ function fixture() {
       cache.set(key, data);
       return data;
     },
+    async matchSpotify(song){return media.resolve('https://youtu.be/'+(song.title==='Second song'?'bbbbbbbbbbb':'aaaaaaaaaaa'));},
     file: key => cache.has(key) ? { path: key, size: 12345 } : null,
     prune() {}
   };
-  const speakers = createSpeakers({ players, media, now: () => time, save: data => saves.push(structuredClone(data)),
+  const speakers = createSpeakers({ players, media, loadPlaylist:async()=>{if(blocked)await blocked.promise;return {title:'Test playlist',tracks:playlistTracks};}, now: () => time, save: data => saves.push(structuredClone(data)),
     authorized: p => p.allowed, send: (ws, data) => messages.get(ws.id).push(structuredClone(data)) });
   const request = (id, op, data = {}) => speakers.handle(players.get(id), { op, ...data });
   const state = (id = 1) => speakers.state(players.get(id));
@@ -122,6 +124,67 @@ test('somente cargo reconhecido pelo servidor cria, move, remove ou controla cai
   assert.equal(f.state().boxes[0].x, 200);
   await f.request(1, 'remove', { id });
   assert.equal(f.state().boxes.length, 0);
+});
+
+test('playlist carrega os nomes de 40 faixas sem baixar todas e mantém protocolo anterior',async()=>{
+  const songs=Array.from({length:40},(_,i)=>({id:String(i).padStart(22,'0'),title:'Song '+i,artist:'Artist '+i,duration:10}));
+  const f=fixture(songs),id=await f.place();
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  const box=f.state().boxes[0];
+  assert.equal(box.queue.length,40);
+  assert.equal(box.queue[0].title,'Song 0 — Artist 0');
+  assert.equal(box.current_entry,'spotify:'+songs[0].id);
+  assert.equal(box.current.id,'aaaaaaaaaaa');
+  assert.equal(box.current.title,'Song 0 — Artist 0');
+  assert.equal(box.tracks.length,1);
+  assert.equal(f.cache.size,1);
+  assert.equal(f.state(2).boxes[0].queue,undefined);
+  assert.equal(f.state(2).boxes[0].tracks,undefined);
+  assert.equal(f.state().version,1);
+});
+
+test('seleção e avanço usam a entrada da playlist e persistem músicas ainda não preparadas',async()=>{
+  const f=fixture(),id=await f.place();
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  const saved=f.speakers.dump();
+  saved.boxes[0].tracks.push(structuredClone(saved.boxes[0].tracks[1]));
+  const restored=fixture();restored.speakers.restore(saved);
+  assert.equal(restored.state().boxes[0].queue.length,2);
+  assert.equal(restored.state().boxes[0].queue[1].ready,false);
+  await f.request(1,'play',{id,track:'spotify:'+'B'.repeat(22)});
+  assert.equal(f.state().boxes[0].current.id,'bbbbbbbbbbb');
+  assert.equal(f.state().boxes[0].current_entry,'spotify:'+'B'.repeat(22));
+  await f.request(1,'play',{id,track:'spotify:'+'A'.repeat(22)});
+  f.advance(11000);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.state().boxes[0].current_entry,'spotify:'+'B'.repeat(22));
+  assert.equal(f.state().boxes[0].playing,true);
+});
+
+test('importação não substitui fila existente e não duplica músicas da mesma playlist',async()=>{
+  const f=fixture(),id=await f.place();
+  await f.request(1,'add',{id,url:'https://youtu.be/ccccccccccc'});
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  assert.equal(f.state().boxes[0].current.id,'ccccccccccc');
+  assert.equal(f.state().boxes[0].queue.length,3);
+  await f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  assert.equal(f.state().boxes[0].queue.length,3);
+  assert.ok(f.latest().message.includes('já estão na fila'));
+  await f.request(1,'remove_track',{id,track:'spotify:'+'B'.repeat(22)});
+  assert.equal(f.state().boxes[0].queue.length,2);
+});
+
+test('parar durante importação impede início automático e revogar cargo impede inclusão',async()=>{
+  const f=fixture(),id=await f.place();let release=f.hold();
+  const pending=f.request(1,'add',{id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  await f.request(1,'stop',{id});release();await pending;
+  assert.equal(f.state().boxes[0].queue.length,2);
+  assert.equal(f.state().boxes[0].playing,false);
+  assert.equal(f.cache.size,0);
+  const g=fixture(),other=await g.place();release=g.hold();
+  const blocked=g.request(1,'add',{id:other,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  g.players.get(1).role=0;release();await blocked;g.players.get(1).role=1;
+  assert.equal(g.state().boxes[0].queue.length,0);
 });
 
 test('proximidade usa posição real do interior e isola ambientes e partidas', async () => {

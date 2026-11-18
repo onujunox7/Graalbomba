@@ -45,3 +45,23 @@ test('rotas de produção sincronizam duas caixas e restringem comandos e proxim
   await waitFor(() => admin.state()?.boxes.length === 0);
   assert.equal((await fetch(base + file)).status, 404);
 });
+
+test('playlist sincroniza seleção e áudio com ouvinte comum por WebSocket e HTTP', {timeout:20000}, async t=>{
+  const f=await createFixture();t.after(()=>f.close());
+  const admin=await f.connect(),near=await f.connect();
+  admin.send({op:'place'});
+  const id=await waitFor(()=>admin.state()?.selected);
+  admin.send({op:'add',id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  await waitFor(()=>admin.state()?.boxes[0]?.queue?.length===2 && near.state()?.boxes[0]?.playing);
+  assert.equal(admin.state().boxes[0].queue[1].title,'Segunda música — Segundo artista');
+  assert.equal(near.state().boxes[0].queue,undefined);
+  admin.send({op:'play',id,track:'spotify:'+'1'.repeat(22)});
+  await waitFor(()=>near.state()?.boxes[0]?.current?.title==='Segunda música — Segundo artista');
+  assert.equal(admin.state().boxes[0].current_entry,'spotify:'+'1'.repeat(22));
+  const response=await fetch('http://127.0.0.1:'+f.port+near.state().boxes[0].current.file);
+  assert.equal(response.status,200);
+  assert.equal((await response.arrayBuffer()).byteLength,f.track.bytes);
+  near.send({op:'add',id,url:'https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL'});
+  await waitFor(()=>near.messages.some(m=>m.op==='error'));
+  assert.equal(admin.state().boxes[0].queue.length,2);
+});

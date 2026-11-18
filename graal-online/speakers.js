@@ -2,11 +2,12 @@
 
 const crypto = require('node:crypto');
 const { youtubeId } = require('./speaker_media');
+const { playlistId, loadPlaylist: readSpotifyPlaylist } = require('./spotify_playlist');
 const RANGE = 320;
 const MAX_BOXES = 16;
-const MAX_TRACKS = 20;
+const MAX_TRACKS = 100;
 
-module.exports = function createSpeakers({ players, send, authorized, media, save = () => {}, now = Date.now }) {
+module.exports = function createSpeakers({ players, send, authorized, media, loadPlaylist = readSpotifyPlaylist, save = () => {}, now = Date.now }) {
   const boxes = new Map();
   const sent = new Map();
   const rates = new Map();
@@ -23,6 +24,13 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
   const sameSpace = (a, b) => a.inside === b.inside && a.football === b.football && a.spar === b.spar;
   const progress = box => box.offset + (box.playing ? Math.max(0, now() - box.startedAt) / 1000 : 0);
   const track = box => box.tracks[box.index] || null;
+  const label = entry => entry.title + (entry.artist ? ' — ' + entry.artist : '');
+  const audio = entry => entry?.key ? {id:entry.videoId||entry.id,key:entry.key,title:label(entry),duration:entry.duration,bytes:entry.bytes} : null;
+  const duration = entry => entry.duration || entry.expectedDuration;
+  const entryIndex = (box,id) => {
+    const direct=box.tracks.findIndex(t=>t.id===id);
+    return direct>=0?direct:box.tracks.findIndex(t=>t.videoId===id);
+  };
 
   function snapshot(p) {
     const point = position(p);
@@ -32,14 +40,20 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
       const visible = sameSpace(context, box.space);
       const near = visible && Math.hypot(point.x - box.x, point.y - box.y) <= RANGE + 64;
       if (!admin(p) && !near) continue;
-      const current = track(box);
+      const entry = track(box);
+      const current = audio(entry);
       const data = {
         id: box.id, name: box.name, x: box.x, y: box.y, space: box.space,
         volume: box.volume, radius: RANGE, visible, audible: near, playing: box.playing,
         offset: progress(box), epoch: box.epoch, loading: box.loading,
         current: current ? { ...current, file: '/api/speaker/audio/' + current.key + '.mp3' } : null
       };
-      if (admin(p)) data.tracks = box.tracks.map(t => ({ ...t }));
+      if (admin(p)) {
+        // Existing clients keep receiving the prepared YouTube schema they understand.
+        data.tracks = box.tracks.map(audio).filter(Boolean).slice(0,20);
+        data.queue = box.tracks.map(t=>({id:t.id,title:label(t),source:t.spotifyId?'spotify':'youtube',ready:!!t.key}));
+        data.current_entry = entry?.id || '';
+      }
       result.push(data);
     }
     return { op: 'state', version: 1, revision, boxes: result, rtt: Number.isFinite(p.ws.pingMs) ? p.ws.pingMs : 0 };
@@ -65,6 +79,12 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
       Number.isFinite(value.bytes) && value.bytes > 0 && value.bytes <= media.maxBytes;
   }
 
+  function cleanEntry(value) {
+    if(cleanTrack(value))return true;
+    if(!value||!/^spotify:[A-Za-z0-9]{22}$/.test(value.id)||value.id!=='spotify:'+value.spotifyId||typeof value.title!=='string'||!value.title||value.title.length>120||typeof value.artist!=='string'||!value.artist||value.artist.length>120||!Number.isFinite(value.expectedDuration)||value.expectedDuration<=0||value.expectedDuration>86400)return false;
+    return value.key===undefined&&!value.videoId || cleanTrack({...value,id:value.videoId});
+  }
+
   function restore(data) {
     if (!Array.isArray(data?.boxes)) return;
     serial = Number.isSafeInteger(data.serial) && data.serial >= 0 ? data.serial : 0;
@@ -73,7 +93,11 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
       if (!value || !/^[a-f0-9]{20}$/.test(value.id) || !Number.isFinite(value.x) || !Number.isFinite(value.y) ||
           Math.abs(value.x) > 1e6 || Math.abs(value.y) > 1e6 || !Number.isFinite(value.volume) || value.volume < 0 || value.volume > 100 ||
           !Array.isArray(value.tracks) || value.space?.football || value.space?.spar) continue;
-      const tracks = value.tracks.filter(cleanTrack).slice(0, MAX_TRACKS);
+      const seen=new Set();
+      const tracks = value.tracks.filter(entry=>{
+        if(!cleanEntry(entry)||seen.has(entry.id))return false;
+        seen.add(entry.id);return true;
+      }).slice(0, MAX_TRACKS);
       boxes.set(value.id, { id: value.id, name: String(value.name || 'Caixa').replace(/[\r\n]/g, ' ').slice(0, 48),
         x: value.x, y: value.y, space: { inside: !!value.space?.inside, football: '', spar: '' },
         volume: value.volume, tracks, index: Math.max(0, Math.min(tracks.length - 1, value.index | 0)),
@@ -95,7 +119,7 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
   }
 
   async function play(box, id, actor, offset) {
-    const index = box.tracks.findIndex(t => t.id === id);
+    const index = entryIndex(box,id);
     if (index < 0) throw new Error('Escolha uma música da fila.');
     if (box.loading) throw new Error('Aguarde o preparo da música.');
     const requestedOffset = offset ?? (index === box.index && !box.playing ? box.offset : 0);
@@ -112,14 +136,45 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
     const epoch = box.epoch;
     changed();
     try {
-      const prepared = await media.resolve('https://www.youtube.com/watch?v=' + id);
+      const entry=box.tracks[index];
+      const prepared = entry.spotifyId && !entry.videoId
+        ? await media.matchSpotify({title:entry.title,artist:entry.artist,duration:entry.expectedDuration})
+        : await media.resolve('https://www.youtube.com/watch?v=' + (entry.videoId||entry.id));
       if (boxes.get(box.id) !== box || (actor && !admin(actor))) return;
-      if (!cleanTrack(prepared) || prepared.id !== id) throw new Error('A música preparada é inválida.');
-      box.tracks[index] = prepared;
+      if (!cleanTrack(prepared) || (!entry.spotifyId && prepared.id!==entry.id) || (entry.videoId && prepared.id!==entry.videoId)) throw new Error('A música preparada é inválida.');
+      box.tracks[index] = entry.spotifyId ? {...entry,videoId:prepared.id,key:prepared.key,duration:prepared.duration,bytes:prepared.bytes} : prepared;
       if (box.epoch === epoch) start(box, index, requestedOffset);
     } finally {
       if (boxes.get(box.id) === box) { box.loading = false; changed(); }
+      setImmediate(prune);
     }
+  }
+
+  async function importPlaylist(p,box,url) {
+    if(box.loading)throw new Error('Aguarde o preparo da música.');
+    if(box.tracks.length>=MAX_TRACKS)throw new Error('A fila comporta 100 músicas. Remova uma faixa para importar outra.');
+    const first=box.tracks.length===0,epoch=box.epoch;
+    let imported=0,playlist;
+    box.loading=true;changed(false);
+    try {
+      playlist=await loadPlaylist(url);
+      if(boxes.get(box.id)!==box||!admin(p))return;
+      if(!playlist||!Array.isArray(playlist.tracks)||playlist.tracks.length>MAX_TRACKS)throw new Error('A playlist retornou uma lista inválida.');
+      const seen=new Set(box.tracks.map(t=>t.id));
+      for(const item of playlist.tracks) {
+        if(!item||typeof item!=='object')continue;
+        const entry={id:'spotify:'+item.id,spotifyId:item.id,title:item.title,artist:item.artist,expectedDuration:item.duration};
+        if(!cleanEntry(entry)||seen.has(entry.id))continue;
+        if(box.tracks.length>=MAX_TRACKS)break;
+        box.tracks.push(entry);seen.add(entry.id);imported++;
+      }
+      if(!imported)throw new Error('As músicas disponíveis dessa playlist já estão na fila.');
+    } finally {
+      if(boxes.get(box.id)===box){box.loading=false;changed();}
+    }
+    if(boxes.get(box.id)!==box||!admin(p))return;
+    emit(p,{...snapshot(p),notice:imported+' músicas importadas de '+String(playlist.title||'Spotify').slice(0,120)+'. Reprodução pelo YouTube.'});
+    if(first&&box.epoch===epoch)await play(box,box.tracks[0].id,p,0);
   }
 
   async function handle(p, m) {
@@ -164,10 +219,11 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
         box.epoch++;
         changed();
       } else if (m.op === 'add') {
+        if(playlistId(m.url)){await importPlaylist(p,box,m.url);if(live(p))emit(p,snapshot(p));return;}
         const id = youtubeId(m.url);
         if (box.tracks.some(t => t.id === id)) throw new Error('Essa música já está na fila.');
         if (box.loading) throw new Error('Aguarde o preparo da música.');
-        if (box.tracks.length >= MAX_TRACKS) throw new Error('A caixa comporta 20 músicas. Remova uma faixa para adicionar outra.');
+        if (box.tracks.length >= MAX_TRACKS) throw new Error('A caixa comporta 100 músicas. Remova uma faixa para adicionar outra.');
         const first = box.tracks.length === 0;
         const epoch = box.epoch;
         box.loading = true;
@@ -185,10 +241,10 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
       } else if (m.op === 'play' || m.op === 'next') {
         if (!box.tracks.length) throw new Error('Adicione uma música primeiro.');
         const id = m.op === 'next' ? box.tracks[(box.index + 1) % box.tracks.length].id : (m.track || track(box).id);
-        if (!(box.playing && track(box)?.id === id && m.op === 'play')) await play(box, id, p);
+        if (!(box.playing && (track(box)?.id === id || track(box)?.videoId===id) && m.op === 'play')) await play(box, id, p);
       } else if (m.op === 'remove_track') {
         if (box.loading) throw new Error('Aguarde o preparo da música.');
-        const index = box.tracks.findIndex(t => t.id === m.track);
+        const index = entryIndex(box,m.track);
         if (index < 0) return;
         const current = index === box.index;
         box.tracks.splice(index, 1);
@@ -218,13 +274,13 @@ module.exports = function createSpeakers({ players, send, authorized, media, sav
       }
       const current = track(box);
       if (!box.playing || box.loading || !current || progress(box) < current.duration) continue;
-      let remaining = progress(box) % box.tracks.reduce((sum, t) => sum + t.duration, 0);
+      let remaining = progress(box) % box.tracks.reduce((sum, t) => sum + duration(t), 0);
       let index = box.index;
-      while (remaining >= box.tracks[index].duration) {
-        remaining -= box.tracks[index].duration;
+      while (remaining >= duration(box.tracks[index])) {
+        remaining -= duration(box.tracks[index]);
         index = (index + 1) % box.tracks.length;
       }
-      void play(box, box.tracks[index].id, null, remaining).catch(() => { box.playing = false; changed(); });
+      void play(box, box.tracks[index].id, null, remaining).catch(e => { box.playing = false; changed();for(const p of players.values())if(admin(p))error(p,e.message||'Não foi possível preparar a próxima faixa. Escolha outra música.'); });
     }
     for (const p of players.values()) {
       if (!live(p)) continue;

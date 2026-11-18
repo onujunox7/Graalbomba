@@ -8,6 +8,28 @@ const { execFile } = require('node:child_process');
 const MAX_AUDIO = 24 * 1024 * 1024;
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
+function selectYoutubeMatch(entries, song) {
+  const normalize=value=>String(value||'').normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const words=value=>normalize(value).split(' ').filter(w=>w&&!['the','a','for','of','and','to','in','feat','ft','official','audio','video','lyrics'].includes(w));
+  const titleWords=words(song.title),artistWords=words(song.artist.split(',')[0]);
+  if(!titleWords.length||!artistWords.length)throw new Error('Nome ou artista da música inválido.');
+  let best=null,bestScore=-Infinity;
+  for(const entry of Array.isArray(entries)?entries.slice(0,5):[]) {
+    if(!VIDEO_ID.test(entry?.id||'')||typeof entry.title!=='string')continue;
+    const title=normalize(entry.title),all=normalize(entry.title+' '+(entry.channel||entry.uploader||''));
+    const titleScore=titleWords.filter(word=>title.split(' ').includes(word)).length/titleWords.length;
+    const artistScore=artistWords.filter(word=>all.includes(word)).length/artistWords.length;
+    if(titleScore<0.6||artistScore<0.4)continue;
+    const difference=Number.isFinite(entry.duration)?Math.abs(entry.duration-song.duration)/song.duration:0.1;
+    if(difference>0.35)continue;
+    const altered=['cover','karaoke','nightcore','sped up','slowed','remix','ao vivo','live'].some(label=>title.includes(label)&&!normalize(song.title).includes(label));
+    const score=titleScore*4+artistScore*2-difference-(altered?2:0);
+    if(score>bestScore){best=entry;bestScore=score;}
+  }
+  if(!best)throw new Error('Não encontrei uma versão correspondente no YouTube. Escolha outra música ou adicione um vídeo pelo link.');
+  return best.id;
+}
+
 function youtubeId(value) {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Cole um link de vídeo do YouTube.');
   let url;
@@ -156,7 +178,23 @@ module.exports = function createSpeakerMedia(directory) {
     }
   }
 
-  return { resolve, file, cached, prune, maxBytes: MAX_AUDIO };
+  async function matchSpotify(song) {
+    if(!song||typeof song.title!=='string'||!song.title||song.title.length>120||typeof song.artist!=='string'||!song.artist||song.artist.length>120||!Number.isFinite(song.duration)||song.duration<=0)throw new Error('Dados da música da playlist inválidos.');
+    if(workers>=2)throw new Error('Duas músicas estão sendo preparadas. Aguarde e tente novamente.');
+    workers++;
+    let id;
+    try {
+      const binary=require('youtube-dl-exec').constants.YOUTUBE_DL_PATH;
+      const result=await run(binary,['--ignore-config','--no-warnings','--no-progress','--flat-playlist','--dump-single-json','--socket-timeout','15','--retries','1','--js-runtimes','node:'+process.execPath,'ytsearch5:'+song.title+' '+song.artist+' audio'],45000,1024*1024);
+      let data;
+      try {data=JSON.parse(result);}catch{throw new Error('A busca da música no YouTube retornou dados inválidos.');}
+      id=selectYoutubeMatch(data.entries,song);
+    } finally {workers--;}
+    return resolve('https://www.youtube.com/watch?v='+id);
+  }
+
+  return { resolve, matchSpotify, file, cached, prune, maxBytes: MAX_AUDIO };
 };
 module.exports.youtubeId = youtubeId;
 module.exports.MAX_AUDIO = MAX_AUDIO;
+module.exports.selectYoutubeMatch = selectYoutubeMatch;

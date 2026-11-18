@@ -15,7 +15,7 @@ O volume diminui com a distância e zera a 320 pixels da caixa. Quem chega depoi
 
 ## Limites e persistência
 
-- Até 16 caixas e 20 músicas por caixa.
+- Até 16 caixas e 100 músicas por caixa.
 - Áudio MP3 mono, 44,1 kHz, 96 kbps; até 24 MB por faixa.
 - Cache compartilhado de até 512 MB; até dois preparos simultâneos. Remover faixas sem outras referências libera cache.
 - Vídeos gravados públicos: links watch, youtu.be, shorts, embed e music.youtube.com. Playlists, transmissões ao vivo, vídeos privados ou indisponíveis não são aceitos.
@@ -37,8 +37,30 @@ Esta alteração não publica o servidor, não reinicia serviços e não exporta
 
 ## Validação
 
-No servidor: `node --test speakers.test.js speakers.integration.test.js speaker_install.test.js`. A integração usa HTTP/WebSocket reais com sessões de teste isoladas do banco e da hospedagem; testa proximidade, permissões, duas caixas e remoção. Os testes de instalação cobrem o erro real de Python ausente, preservação do executável anterior em falhas HTTP/checksum e compatibilidade com Windows. `speaker_fixture.js` fornece a infraestrutura de teste e pode usar FFmpeg para gerar uma amostra.
+No servidor: `node --test speakers.test.js speakers.integration.test.js speaker_install.test.js spotify_playlist.test.js`. A integração usa HTTP/WebSocket reais com sessões de teste isoladas do banco e da hospedagem; testa proximidade, permissões, duas caixas e remoção. Os testes de instalação cobrem o erro real de Python ausente, preservação do executável anterior em falhas HTTP/checksum e compatibilidade com Windows. `speaker_fixture.js` fornece a infraestrutura de teste e pode usar FFmpeg para gerar uma amostra.
 
 No Godot 4.3: cenas `tests/speakers_check.tscn`, `tests/speakers_online_check.tscn` e `tests/speakers_listener_check.tscn`. As duas últimas usam o fixture iniciado com `node speaker_fixture.js --serve`, `SPEAKER_PORT_FILE` no servidor de teste e `SPEAKER_TEST_PORT` nos clientes. O fixture aguarda primeiro um ouvinte e depois um admin. `SPEAKER_TEST_AUDIO_FILE` e `SPEAKER_TEST_AUDIO_DURATION` permitem fornecer uma amostra real. Use `--audio-driver Dummy` para testar o mixer sem emitir som no computador.
 
 As provas desta alteração incluem download/conversão de um vídeo público, reprodução MP3 com sinal no mixer em dois clientes separados, volume, retorno ao ponto atual, remoção e bloqueio de comandos por jogador comum. Layout conferido em 288×512 e 512×288. Produção, aparelhos Android físicos e desempenho em escala não foram verificados. O acesso a vídeos depende da disponibilidade do YouTube no ambiente do servidor.
+
+
+## Volume independente da JBL
+
+Em **Configurações → Som**, **Volume do jogo** controla a música ambiente e os efeitos, incluindo espada, arco, bombas e sons de outros jogadores. **Volume da JBL** controla somente as caixas de som para quem ajusta. Os dois valores são salvos separadamente por jogador. Zerar o jogo mantém a JBL; zerar a JBL mantém o som do jogo. O controle do admin continua ajustando o volume compartilhado de cada caixa.
+
+Este ajuste pertence ao cliente Godot. Reinicie o teste para carregar os scripts; no Android, gere e distribua um APK atualizado.
+
+
+## Playlists do Spotify com áudio do YouTube
+
+Em **Admin → Som**, selecione a caixa, cole o link de uma playlist pública do Spotify no mesmo campo de links e toque em **Adicionar música / playlist**. Os nomes e artistas entram na fila imediatamente. Se a fila estava vazia, a primeira música é preparada e começa a tocar. A importação acrescenta músicas à fila existente e ignora faixas Spotify já presentes.
+
+O seletor **Músicas na fila** mostra todas as entradas importadas, mesmo antes de preparar o áudio. Escolha uma faixa pelo nome e toque em **Reproduzir**; o nome completo aparece abaixo do seletor. **Próxima** e o fim de cada faixa avançam pela fila; ela se repete ao terminar.
+
+Spotify fornece somente os metadados públicos da lista. O servidor busca versões no YouTube, comparando título, artista e duração, e usa o mesmo conversor/cache da JBL. Não utiliza conta, cookies, áudio ou previews do Spotify. Uma correspondência pode ser uma gravação diferente; não há garantia de todas as faixas estarem disponíveis no YouTube. Quando uma faixa não pode ser preparada, o admin recebe o erro e pode escolher outra ou adicionar um link de vídeo.
+
+São até 100 músicas na fila de cada caixa, limitadas também às faixas exibidas pelo embed público do Spotify. Músicas inéditas são preparadas quando escolhidas ou quando chega sua vez, portanto pode haver espera antes de começar cada uma. Permanecem os limites de dois preparos simultâneos, 24 MB por faixa e 512 MB de cache compartilhado. As entradas ainda não preparadas e as correspondências já encontradas são persistidas; depois de reiniciar, a caixa volta pausada.
+
+A leitura usa a página pública de embed do Spotify com timeout e limite de tamanho. Playlists privadas não funcionam e mudanças no formato público podem exigir atualizar o importador. Links são canonicalizados para o host Spotify e somente IDs validados do YouTube chegam ao conversor.
+
+O servidor conserva o protocolo de áudio anterior para ouvintes com cliente antigo. Para importar e selecionar as 40 músicas pelo novo painel, use o cliente atualizado; no Android isso exige recompilar/distribuir o APK. Os controles independentes de volume do jogo/JBL são preservados.

@@ -48,10 +48,12 @@ async function createFixture({ adminId = 1, latency = 0 } = {}) {
       cached.add(key);
       return { ...track };
     },
+    async matchSpotify(){cached.add(key);return {...track};},
     file: value => cached.has(value) ? { path: sample, size: track.bytes } : null,
     prune: values => { if (!values.includes(key)) cached.delete(key); }
   };
   const speakers = createSpeakers({ players, send, media, authorized: p => p.allowed,
+    loadPlaylist:async()=>({title:'Playlist de teste',tracks:[{id:'0'.repeat(22),title:'Primeira música',artist:'Primeiro artista',duration},{id:'1'.repeat(22),title:'Segunda música',artist:'Segundo artista',duration}]}),
     save: value => states.push(structuredClone(value)) });
   const routeStart = source.indexOf("  if (url.startsWith('/api/speaker/audio/'))");
   const routeEnd = source.indexOf('\n  // SITE PC:', routeStart);
