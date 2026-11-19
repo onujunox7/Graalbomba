@@ -8,11 +8,13 @@ const DURATION = 300000;
 const RADIUS = 5;
 const SPAWN = 92;          // distância do centro do campo até o ponto de saída de cada time
 const SPEED = 125;
+const CONTROL_SPEED = SPEED * 0.8; // quem está com a bola corre 20% mais devagar
 const TURN_RATE = 14;       // radianos por segundo durante uma curva com a bola
 
 // Física da bola (px, segundos). Jogadores são corpos cinemáticos de massa infinita.
 const AREA_DEPTH = 56;
 const BODY = 6;            // raio do corpo do jogador
+const CONTROL_DISTANCE = BODY + RADIUS + 1; // bola protegida permanece aos pés
 const POST = 2;            // raio da trave
 const REACH = 22;          // alcance máximo do chute
 const KICK_MIN = 260;      // chute de longe
@@ -75,8 +77,9 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function state(match) {
     const time = now();
     return {
-      op: 'state', match: match.id, movement: 2, selection: 1, formation: 1, round: match.round,
+      op: 'state', match: match.id, movement: 3, selection: 1, formation: 1, round: match.round,
       phase: match.phase, field: FIELD, score: [...match.score], holder: match.holder, hold: match.hold,
+      owner: match.control ? match.control.id : 0,
       remaining: match.ends ? Math.max(0, match.ends - time) : DURATION,
       wait: Math.max(0, match.until - time), ball: { x: match.ball.x, y: match.ball.y },
       bv: { x: Math.round(match.ball.vx * 10) / 10, y: Math.round(match.ball.vy * 10) / 10 },
@@ -142,6 +145,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
 
   function reset(match) {
     match.control = null;
+    match.contacts = new Set();
     match.holder = 0;
     match.hold = 0;
     match.round = (match.round || 0) + 1;
@@ -197,6 +201,8 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function finish(match, reason, winner) {
     if (match.phase === 'finished') return;
     match.phase = 'finished';
+    match.control = null;
+    match.contacts = new Set();
     match.holder = 0;
     match.reason = reason;
     match.winner = winner;
@@ -206,6 +212,11 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
 
   function returnPlayer(match, entry, reason) {
     const p = players.get(entry.id);
+    if (match.control && match.control.id === entry.id) {
+      match.control = null;
+      match.ball.vx = 0;
+      match.ball.vy = 0;
+    }
     if (match.holder === entry.id) {
       match.holder = 0;
       match.ball.vx = 0;
@@ -237,6 +248,8 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   function kick(p, match, m) {
     const entry = match.entries.get(p.id);
     const throwing = match.holder === p.id;
+    // Bola conduzida só sai por chute do dono ou por uma trombada registrada no passo físico.
+    if (match.control && match.control.id !== p.id) return;
     if (m.hold !== undefined && !throwing) return;
     if (match.holder && (!throwing || m.hold !== match.hold || m.match !== match.id || m.round !== match.round)) return;
     if (match.phase !== 'playing' || (!throwing && now() - entry.kickAt < 350) ||
@@ -407,49 +420,104 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     return contact;
   }
 
-  // Mantém somente o contato já adquirido enquanto a direção da corrida muda.
+  // A posse não expira por distância, curva, parada ou parede: a bola acompanha os pés.
   function steerDribble(match, body, t, dt) {
-    const ball = match.ball;
     const control = match.control;
-    const speed = body ? Math.hypot(body.vx, body.vy) : 0;
-    if (!body) {
+    if (!body || !control) {
       match.control = null;
       return false;
     }
-    const startX = body.x0 + (body.x1 - body.x0) * (t - 1 / SUBSTEPS);
-    const startY = body.y0 + (body.y1 - body.y0) * (t - 1 / SUBSTEPS);
-    let ox = ball.x - startX;
-    let oy = ball.y - startY;
-    const distance = Math.hypot(ox, oy);
-    if (distance > REACH || (speed > 0 && Math.hypot(ball.vx, ball.vy) > SPEED * 1.5)) {
-      match.control = null;
-      return false;
-    }
-    const facingX = body.facing ? body.facing.x : body.vx;
-    const facingY = body.facing ? body.facing.y : body.vy;
+    let dx = control.dx;
+    let dy = control.dy;
+    const facingX = body.facing && Math.hypot(body.facing.x, body.facing.y) > 1e-6 ? body.facing.x : body.vx;
+    const facingY = body.facing && Math.hypot(body.facing.x, body.facing.y) > 1e-6 ? body.facing.y : body.vy;
     const facingLength = Math.hypot(facingX, facingY);
-    if (!facingLength) return false;
-    const dx = facingX / facingLength;
-    const dy = facingY / facingLength;
-    const angle = Math.atan2(control.dx * dy - control.dy * dx, control.dx * dx + control.dy * dy);
-    // Trocas dentro do mesmo comando podem cancelar o deslocamento sem soltar a condução.
-    const settle = body.facing && Math.hypot(ball.vx, ball.vy) > speed * 1.5;
-    const mixed = body.facing && Math.hypot(body.vx - body.facing.x * SPEED, body.vy - body.facing.y * SPEED) > 0.1;
-    if (Math.abs(angle) < 1e-6 && !settle && !mixed) return false;
-    const turn = Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, angle));
-    const cos = Math.cos(turn);
-    const sin = Math.sin(turn);
-    const separation = Math.max(BODY + RADIUS, distance * Math.exp(-TURN_RATE * dt));
-    const scale = separation / Math.max(distance, 1e-6);
-    if (distance < 1e-6) { ox = control.dx * separation; oy = control.dy * separation; }
-    else { ox *= scale; oy *= scale; }
-    ball.x = body.x0 + (body.x1 - body.x0) * t + ox * cos - oy * sin;
-    ball.y = body.y0 + (body.y1 - body.y0) * t + ox * sin + oy * cos;
-    ball.vx = body.vx * 1.1;
-    ball.vy = body.vy * 1.1;
-    const previousX = control.dx;
-    control.dx = previousX * cos - control.dy * sin;
-    control.dy = previousX * sin + control.dy * cos;
+    if (facingLength > 1e-6) {
+      const desiredX = facingX / facingLength;
+      const desiredY = facingY / facingLength;
+      const angle = Math.atan2(dx * desiredY - dy * desiredX, dx * desiredX + dy * desiredY);
+      const turn = Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, angle));
+      const cos = Math.cos(turn);
+      const sin = Math.sin(turn);
+      const previousX = dx;
+      dx = previousX * cos - dy * sin;
+      dy = previousX * sin + dy * cos;
+    }
+    const ball = match.ball;
+    ball.x = body.x0 + (body.x1 - body.x0) * t + dx * CONTROL_DISTANCE;
+    ball.y = body.y0 + (body.y1 - body.y0) * t + dy * CONTROL_DISTANCE;
+    ball.vx = body.vx;
+    ball.vy = body.vy;
+    control.dx = dx;
+    control.dy = dy;
+    return true;
+  }
+
+  function bodyPoint(body, t) {
+    return { x: body.x0 + (body.x1 - body.x0) * t, y: body.y0 + (body.y1 - body.y0) * t };
+  }
+
+  // Uma trombada só conta na transição separado → encostado. Assim dois corpos que
+  // continuam sobrepostos não ficam roubando a posse um do outro a cada subpasso.
+  function stealOnBump(match, motion, t) {
+    const previous = match.contacts || new Set();
+    const touching = new Set();
+    const points = motion.map(body => ({ body, ...bodyPoint(body, t) }));
+    let candidate = null;
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        const a = points[i];
+        const b = points[j];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        if (distance > BODY * 2) continue;
+        const key = [a.body.id, b.body.id].sort((x, y) => x - y).join(':');
+        touching.add(key);
+        if (!match.control || previous.has(key)) continue;
+        let challenger = null;
+        if (a.body.id === match.control.id) challenger = b;
+        if (b.body.id === match.control.id) challenger = a;
+        if (challenger && (!candidate || distance < candidate.distance)) candidate = { ...challenger, distance };
+      }
+    }
+    match.contacts = touching;
+    if (!candidate) return;
+    const body = candidate.body;
+    let dx = body.facing ? body.facing.x : body.vx;
+    let dy = body.facing ? body.facing.y : body.vy;
+    let length = Math.hypot(dx, dy);
+    if (length < 1e-6) {
+      dx = match.ball.x - candidate.x;
+      dy = match.ball.y - candidate.y;
+      length = Math.hypot(dx, dy);
+    }
+    if (length < 1e-6) { dx = body.team === 0 ? 1 : -1; dy = 0; length = 1; }
+    match.control = { id: body.id, dx: dx / length, dy: dy / length };
+  }
+
+  // Bolas lentas são dominadas no contato. Chutes rápidos continuam rebatendo no corpo.
+  function acquireControl(match, motion, t) {
+    const ball = match.ball;
+    if (Math.hypot(ball.vx, ball.vy) > SPEED * 1.5) return false;
+    let candidate = null;
+    for (const body of motion) {
+      const point = bodyPoint(body, t);
+      const distance = Math.hypot(ball.x - point.x, ball.y - point.y);
+      if (distance > BODY + RADIUS || (candidate && distance >= candidate.distance)) continue;
+      candidate = { body, ...point, distance };
+    }
+    if (!candidate) return false;
+    const body = candidate.body;
+    let dx = ball.x - candidate.x;
+    let dy = ball.y - candidate.y;
+    let length = Math.hypot(dx, dy);
+    if (length < 1e-6) {
+      dx = body.facing ? body.facing.x : body.vx;
+      dy = body.facing ? body.facing.y : body.vy;
+      length = Math.hypot(dx, dy);
+    }
+    if (length < 1e-6) { dx = body.team === 0 ? 1 : -1; dy = 0; length = 1; }
+    match.control = { id: body.id, dx: dx / length, dy: dy / length };
+    steerDribble(match, body, t, 0);
     return true;
   }
 
@@ -459,23 +527,27 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
     const dt = STEP / 1000 / SUBSTEPS;
     for (let i = 1; i <= SUBSTEPS; i++) {
       const t = i / SUBSTEPS;
+      stealOnBump(match, motion, t);
       const carrier = match.control && motion.find(body => body.id === match.control.id);
-      const steering = match.control && steerDribble(match, carrier, t, dt);
-      if (!steering) { ball.x += ball.vx * dt; ball.y += ball.vy * dt; }
-      if (catchBall(match, motion, t)) return;
-      for (const body of motion) {
-        if (steering && body === carrier) continue;
-        const contact = collide(ball, body.x0 + (body.x1 - body.x0) * t, body.y0 + (body.y1 - body.y0) * t,
-          body.vx, body.vy, BODY, BOUNCE_BODY, true);
-        if (contact === 'dribble' && (!match.control || match.control.id !== body.id)) {
-          const speed = Math.hypot(body.vx, body.vy);
-          match.control = { id: body.id, dx: body.vx / speed, dy: body.vy / speed };
-        } else if (contact === 'contact') match.control = null;
+      if (match.control && !carrier) match.control = null;
+      if (carrier && steerDribble(match, carrier, t, dt)) {
+        // Também é possível conduzir até dentro do gol; a rodada reinicia normalmente.
+        const mouth = Math.abs(ball.y - FIELD.y - FIELD.h / 2) <= FIELD.goal / 2 - RADIUS;
+        if (mouth && ball.x > FIELD.x + FIELD.w) { goal(match, 0); return; }
+        if (mouth && ball.x < FIELD.x) { goal(match, 1); return; }
+        continue;
       }
-      if (collidePosts(ball)) match.control = null;
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+      if (catchBall(match, motion, t)) return;
+      if (acquireControl(match, motion, t)) continue;
+      for (const body of motion) {
+        const point = bodyPoint(body, t);
+        collide(ball, point.x, point.y, body.vx, body.vy, BODY, BOUNCE_BODY);
+      }
+      collidePosts(ball);
       if (ball.y < FIELD.y + RADIUS || ball.y > FIELD.y + FIELD.h - RADIUS) {
         ball.y = Math.max(FIELD.y + RADIUS, Math.min(FIELD.y + FIELD.h - RADIUS, ball.y));
-        match.control = null;
         ball.vy *= -BOUNCE_WALL;
         ball.vx *= 0.96;
       }
@@ -484,12 +556,12 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       if (mouth && ball.x < FIELD.x - RADIUS) { goal(match, 1); return; }
       if (!mouth && (ball.x < FIELD.x + RADIUS || ball.x > FIELD.x + FIELD.w - RADIUS)) {
         ball.x = Math.max(FIELD.x + RADIUS, Math.min(FIELD.x + FIELD.w - RADIUS, ball.x));
-        match.control = null;
         ball.vx *= -BOUNCE_WALL;
         ball.vy *= 0.96;
       }
     }
-    // Atrito de rolamento: proporcional à velocidade + constante, até parar.
+    // A bola protegida usa a velocidade do dono e não sofre atrito de rolamento.
+    if (match.control) return;
     const speed = Math.hypot(ball.vx, ball.vy);
     if (speed > 0) {
       const seconds = STEP / 1000;
@@ -513,8 +585,9 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
       const x0 = entry.x;
       const y0 = entry.y;
       const limits = match.holder === entry.id ? keeperArea(entry.team) : FIELD;
-      const targetX=Math.max(limits.x + 8, Math.min(limits.x + limits.w - 8, entry.x + dx * SPEED * STEP / 1000));
-      const targetY=Math.max(limits.y + 8, Math.min(limits.y + limits.h - 8, entry.y + dy * SPEED * STEP / 1000));
+      const speed = match.holder === entry.id || (match.control && match.control.id === entry.id) ? CONTROL_SPEED : SPEED;
+      const targetX=Math.max(limits.x + 8, Math.min(limits.x + limits.w - 8, entry.x + dx * speed * STEP / 1000));
+      const targetY=Math.max(limits.y + 8, Math.min(limits.y + limits.h - 8, entry.y + dy * speed * STEP / 1000));
       if(!blocksMove(p,{x:entry.x,y:entry.y},{x:targetX,y:entry.y}))entry.x=targetX;
       if(!blocksMove(p,{x:entry.x,y:entry.y},{x:entry.x,y:targetY}))entry.y=targetY;
       p.x = entry.x;

@@ -267,7 +267,8 @@ function command(f, seq, dx = 1, dy = 0) {
 test('servidor anuncia movimento com confirmação e aceita clientes anteriores', () => {
   const f = fixture();
   f.start();
-  assert.equal(f.latest().movement, 2);
+  assert.equal(f.latest().movement, 3);
+  assert.equal(f.latest().owner, 0);
   assert.equal(f.latest().round, 1);
   assert.equal(f.latest().players[0].ack, 0);
   f.move(1, 1, 0, 2);
@@ -309,18 +310,18 @@ test('direções e sequência precisam ser válidas e pertencer à partida e rod
 test('rajada de comandos respeita passo fixo, fila limitada e repetição após fila cheia', () => {
   const f = fixture();
   f.start();
-  const before = f.players.get(1).x;
-  for (let seq = 1; seq <= 21; seq++) f.request(1, 'move', command(f, seq));
+  const before = f.players.get(1).y;
+  for (let seq = 1; seq <= 21; seq++) f.request(1, 'move', command(f, seq, 0, 1));
   f.advance(50);
-  assert.equal(f.players.get(1).x, before + 6.25);
-  f.request(1, 'move', command(f, 21));
+  assert.equal(f.players.get(1).y, before + 6.25);
+  f.request(1, 'move', command(f, 21, 0, 1));
   f.advance(50);
   f.request(1, 'get');
   assert.equal(f.latest().players[0].ack, 2);
   for (let i = 0; i < 19; i++) f.advance(50);
   f.request(1, 'get');
   assert.equal(f.latest().players[0].ack, 21);
-  assert.equal(f.players.get(1).x, before + 21 * 6.25);
+  assert.equal(f.players.get(1).y, before + 21 * 6.25);
 });
 
 test('cliente com confirmação não ganha movimento extra por pacotes legados', () => {
@@ -440,27 +441,30 @@ test('gol ampliado aceita chute além da abertura antiga e fundo rebate fora da 
   }
 });
 
-test('condução reta com contato fora do centro mantém a linha da bola', () => {
+test('condução reta alinha a bola à frente do dono sem desvio lateral', () => {
   const f = fixture();
   f.start();
   f.move(2, 0, 1, 20);
-  const line = f.latest().ball.y;
   f.move(1, 0, 1, 1);
   f.move(1, 1, 0, 35);
-  assert.ok(Math.abs(f.latest().ball.y - line) < 1, 'desvio lateral na condução: ' + (f.latest().ball.y - line));
-  assert.ok(f.latest().ball.x > FIELD.x + FIELD.w / 2 + 50, 'a bola precisa seguir sendo conduzida');
+  const p=f.players.get(1),b=f.latest().ball;
+  assert.ok(Math.abs(b.y-p.y)<0.001, 'bola não está alinhada à corrida');
+  assert.ok(b.x>p.x && Math.abs(Math.hypot(b.x-p.x,b.y-p.y)-12)<0.001, 'bola precisa estar à frente e aos pés');
+  assert.ok(b.x > FIELD.x + FIELD.w / 2 + 50, 'a bola precisa seguir sendo conduzida');
 });
 
-test('condução mantém a linha nos dois lados e com aproximação acima ou abaixo da bola', () => {
+test('condução fica alinhada nos dois lados com aproximação acima ou abaixo da bola', () => {
   for (const runner of [1, 2]) {
     for (const offset of [-1, 1]) {
       const f = fixture();
       f.start();
       f.move(runner === 1 ? 2 : 1, 0, 1, 20);
-      const line = f.latest().ball.y;
       f.move(runner, 0, offset, 1);
-      f.move(runner, runner === 1 ? 1 : -1, 0, 35);
-      assert.ok(Math.abs(f.latest().ball.y - line) < 1, 'condução desvia de sua linha');
+      const direction=runner===1?1:-1;
+      f.move(runner, direction, 0, 35);
+      const p=f.players.get(runner),b=f.latest().ball;
+      assert.ok(Math.abs(b.y-p.y)<0.001, 'condução desvia de sua linha');
+      assert.ok((b.x-p.x)*direction>0 && Math.abs(Math.hypot(b.x-p.x,b.y-p.y)-12)<0.001, 'bola fora da frente do dono');
     }
   }
 });
@@ -508,16 +512,56 @@ test('chute solta a condução e virar depois não puxa a bola chutada', () => {
   assert.ok(f.latest().bv.x>200, 'virada alterou velocidade do chute');
 });
 
-test('bola solta depois de sair do alcance não volta ao jogador quando ele vira', () => {
+test('dono da bola corre 20% mais devagar e só a perde por chute ou trombada', () => {
   const f=fixture();
   f.start();
   f.move(2,0,1,20);
   f.move(1,1,0,20);
-  for(let step=0;step<20;step++) f.advance(50);
-  f.move(1,0,-1,10);
-  const p=f.players.get(1);
-  const b=f.latest().ball;
-  assert.ok(Math.hypot(b.x-p.x,b.y-p.y)>70, 'bola distante voltou ao jogador');
+  assert.equal(f.latest().owner,1, 'contato com bola lenta deve assumir a posse');
+  let p=f.players.get(1);
+  let b=f.latest().ball;
+  assert.ok(Math.abs(Math.hypot(b.x-p.x,b.y-p.y)-12)<0.001, 'bola protegida fica aos pés');
+  const before=p.x;
+  f.move(1,1,0,10);
+  assert.ok(Math.abs(p.x-before-50)<0.001, 'dez passos com bola andam 50, não 62,5');
+  f.move(1,0,-1,100);
+  assert.equal(f.latest().owner,1, 'curva, parada e parede não removem a posse');
+  p=f.players.get(1);
+  b=f.latest().ball;
+  assert.ok(Math.abs(Math.hypot(b.x-p.x,b.y-p.y)-12)<0.001);
+  f.request(1,'kick',{dx:0,dy:1});
+  assert.equal(f.latest().owner,0, 'chute do dono libera a bola');
+  assert.ok(Math.hypot(f.latest().bv.x,f.latest().bv.y)>200);
+});
+
+test('trombada transfere a posse uma única vez e chute de terceiro não a rouba', () => {
+  const f=fixture();
+  f.start();
+  f.move(2,0,1,20);
+  f.move(1,1,0,20);
+  assert.equal(f.latest().owner,1);
+  f.move(2,0,-1,20);
+  let challenged=false;
+  for(let step=0;step<30 && f.latest().owner===1;step++) {
+    const a=f.players.get(1),b=f.players.get(2);
+    if(!challenged && Math.hypot(a.x-b.x,a.y-b.y)<=20) {
+      f.request(2,'kick',{dx:-1,dy:0});
+      assert.equal(f.latest().owner,1, 'chute de outro jogador não pode roubar a posse');
+      challenged=true;
+    }
+    f.request(2,'move',{dx:-1,dy:0});
+    f.advance(50);
+  }
+  assert.ok(challenged, 'o teste precisa passar pela proximidade antes da trombada');
+  assert.equal(f.latest().owner,2, 'o jogador que trombou assume a bola');
+  f.request(2,'move',{dx:0,dy:0});
+  for(let step=0;step<10;step++) f.advance(50);
+  assert.equal(f.latest().owner,2, 'contato contínuo não devolve a bola ao dono anterior');
+  const before=f.players.get(2).x;
+  f.move(2,-1,0,4);
+  assert.ok(Math.abs(f.players.get(2).x-before+20)<0.001, 'novo dono também fica mais lento');
+  const p=f.players.get(2),b=f.latest().ball;
+  assert.ok(Math.abs(Math.hypot(b.x-p.x,b.y-p.y)-12)<0.001);
 });
 
 test('trocas rápidas integradas no comando de 50 ms conservam condução e movimento contínuo', () => {
@@ -686,6 +730,16 @@ test('goleiro pode andar com bola dentro da área e lançamento libera a movimen
   assert.equal(f.latest().holder,0);
   f.move(1,1,0,10);
   assert.ok(f.players.get(1).x>FIELD.x+56);
+});
+
+test('goleiro com a bola nas mãos também usa 80% da velocidade', () => {
+  const f=keeperSave();
+  assert.equal(f.latest().holder,1);
+  const before=f.players.get(1).x;
+  f.move(1,-1,0,4);
+  assert.ok(Math.abs(f.players.get(1).x-before+20)<0.001, `velocidade incorreta: before=${before} after=${f.players.get(1).x}`);
+  assert.equal(f.latest().holder,1);
+  assert.equal(f.latest().ball.x,f.players.get(1).x);
 });
 
 test('saída de goleiro com posse libera a bola e a vaga do time', () => {
