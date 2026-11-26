@@ -22,12 +22,12 @@ class CombatRewards{
   const result=await this.economy.transact(p.acc,request.rid,digest(request),async(state,db)=>{
    const s=spawns.find(s=>s.id===request.sid);if(!s||!TYPES[s.k]||p.in||p.spar||p.hp===0)throw error('invalid_source');
    const pos=this.positions.get(s.id)||s;
-   let multiplier=1;
+   let multiplier=1,origin={x:p.x,y:p.y};
    if(request.weapon==='a'||request.weapon==='b'){
     const shot=(state.shots||[]).find(shot=>!shot.inside&&shot.kind===request.weapon&&shot.until>Date.now()&&!shot.targets.includes(s.id)&&(shot.kind==='b'||shot.targets.length===0)&&Math.hypot(shot.x-pos.x,shot.y-pos.y)<(shot.kind==='a'?430:180));
-    if(!shot)throw error('invalid_source');shot.targets.push(s.id);multiplier=request.weapon==='a'?0.9:2.2;
+    if(!shot)throw error('invalid_source');shot.targets.push(s.id);origin=shot;multiplier=request.weapon==='a'?0.9:2.2;
    }else if(request.weapon==='throw'){
-    if(!state.lastCut||state.lastCut.until<Date.now()||Math.hypot(state.lastCut.x-pos.x,state.lastCut.y-pos.y)>140)throw error('invalid_source');state.lastCut=null;multiplier=1.2;
+    if(!state.lastCut||state.lastCut.until<Date.now()||Math.hypot(state.lastCut.x-pos.x,state.lastCut.y-pos.y)>140)throw error('invalid_source');origin=state.lastCut;state.lastCut=null;multiplier=1.2;
    }else if(!near(p,pos.x,pos.y,70))throw error('source_out_of_range');
    // Per-account and per-monster cooldowns are both persisted under row locks.
    if((state.nextHit||0)>Date.now()&&request.weapon!=='b')throw error('cooldown');
@@ -45,7 +45,9 @@ class CombatRewards{
    if(mob.hp===0){mob.next=Date.now()+30000;if(crypto.randomInt(100)<70){const roll=crypto.randomInt(100);reward=roll>=95?30:roll>=60?5:1;}if(p.groundDrops&&reward>0)pendingDrop(state,pos.x,pos.y,reward,request.rid);else state.gl=Math.min(1000000000,state.gl+reward);const drop=crypto.randomInt(100);if(drop<16)state.a=Math.max(state.a,Math.min(60,state.a+1));else if(drop<26)state.b=Math.max(state.b,Math.min(30,state.b+1));state.kills++;state.exp+=Math.round(base[2]*(1+0.2*(level-1)));while(state.exp>=100){state.exp-=100;state.lvl=Math.min(999,state.lvl+1);}}
    if(mob.hp===0){questEvent(state,'kill');if(s.k==='skE')questEvent(state,'elite');if(!['sk','skE'].includes(s.k))questEvent(state,'mon');}
    await db.query('UPDATE graal_reward_sources SET state=$2 WHERE source_id=$1',[key,JSON.stringify(mob)]);
-   return {sid:s.id,hp:mob.hp,damage,reward,dead:mob.hp===0,x:pos.x,y:pos.y,mob};
+   let dx=pos.x-origin.x,dy=pos.y-origin.y,length=Math.hypot(dx,dy);
+   if(length<0.001){const face=/(Up|Left|Down|Right)$/.exec(p.an||'')?.[1]||'Right';[dx,dy]={Up:[0,-1],Left:[-1,0],Down:[0,1],Right:[1,0]}[face];length=1;}
+   return {kx:dx/length,ky:dy/length,sid:s.id,hp:mob.hp,damage,reward,dead:mob.hp===0,x:pos.x,y:pos.y,mob};
   },authorized);
   if(!result.duplicate)this.health.set(result.sid,result.mob);
   return result;

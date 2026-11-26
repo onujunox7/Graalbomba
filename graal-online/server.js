@@ -807,7 +807,7 @@ async function economicRequest(p,m){
   else if(m.op==='bush'||m.op==='chest'){rewardWorld.refresh(cfg);result=await economy.reward(p,m,rewardWorld,authorized);}
   else throw Object.assign(new Error('invalid_request'),{code:'invalid_request'});
   if(result.effect&&!result.duplicate){if(result.effect==='heal')p.hp=p.hm;else if(result.effect.startsWith('hp:'))p.hp=Math.min(p.hm,p.hp+Number(result.effect.slice(3)));}
-  if(m.op==='hit'&&!result.duplicate)spBroadcast({t:'mr',sid:result.sid,hp:result.hp,dead:result.dead,by:p.id,damage:result.damage});
+  if(m.op==='hit'&&!result.duplicate)spBroadcast({t:'mr',sid:result.sid,hp:result.hp,dead:result.dead,by:p.id,damage:result.damage,kx:result.kx,ky:result.ky});
   if(result.shared&&!result.duplicate){
    if(m.op==='admin_drop'){DROPS.set(result.drop.id,result.drop);groundBroadcast({t:'dr',...result.drop,pop:1,authoritative:1});}
    else if(m.op==='pickup'){DROPS.delete(result.drop_id);groundBroadcast({t:'dp',id:result.drop_id});}

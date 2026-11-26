@@ -227,3 +227,12 @@ test('dungeon damage events for one player are at least two seconds apart', () =
  const events=f.messages.get(1).filter(m=>m.op==='hurt');assert(events.length>=2);
  for(let i=1;i<events.length;i++)assert(events[i]._test_at-events[i-1]._test_at>=2000);
 });
+
+test('dungeon hits push the enemy a short distance and respect blocked geometry',()=>{
+ for(const blocked of [false,true]){
+  const f=fixture(()=>blocked),enemy=f.state().enemies[0];f.move(1,enemy.x-16,enemy.y);
+  f.command('hit',{enemy:enemy.id,weapon:'sword'});const next=f.state().enemies[0];
+  assert(next.hp<enemy.hp);
+  if(blocked){assert.equal(next.x,enemy.x);assert.equal(next.y,enemy.y);}else{assert(next.x-enemy.x>=12&&next.x-enemy.x<=18);assert.equal(next.y,enemy.y);}
+ }
+});

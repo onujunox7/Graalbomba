@@ -25,7 +25,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
 
   function reset() {
     generation = crypto.randomBytes(8).toString('hex');
-    enemies = MAP.enemies.map(e => ({ ...e, ...center(e.cell), max: e.hp, phase: 'idle', until: 0, next: 0, hitUntil: 0, face: 'Down', walking: false }));
+    enemies = MAP.enemies.map(e => ({ ...e, ...center(e.cell), max: e.hp, phase: 'idle', until: 0, next: 0, hitUntil: 0, recoilUntil: 0, face: 'Down', walking: false }));
     key = false; gate = false; flames = []; solved = false; relic = false;
     completed = new Set(); visited = false; emptyAt = null;
     positions.clear(); attacks.clear(); shots.clear(); hurtUntil.clear();
@@ -103,7 +103,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
     if (!enemy || enemy.hp <= 0 || enemy.hitUntil > now() || enemy.room === 'boss' && !gate) return;
     const hero = point(p), stats = getCombatState(p) || {};
     const weapon = message.weapon || 'sword';
-    let multiplier = 1;
+    let multiplier = 1, source = hero;
     if (weapon === 'a' || weapon === 'b') {
       const shot = (stats.shots || []).find(s => s.kind === weapon && s.inside === true && s.until > now() &&
         within({ x: s.x - MAP.origin[0], y: s.y - MAP.origin[1] }, { x: 0, y: 0, w: MAP.w * CELL, h: MAP.h * CELL }) &&
@@ -114,6 +114,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
       const used = shots.get(id) || { until: shot.until, targets: new Set() };
       if (used.targets.has(enemy.id) || weapon === 'a' && used.targets.size) return;
       used.targets.add(enemy.id); shots.set(id, used);
+      source = { x: shot.x - MAP.origin[0], y: shot.y - MAP.origin[1] };
       multiplier = weapon === 'b' ? 2.2 : 0.9;
     } else {
       if (weapon !== 'sword' || Math.hypot(hero.x - enemy.x, hero.y - enemy.y) > 55 || (attacks.get(p.id) || 0) > now()) return;
@@ -122,6 +123,11 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
     const damage = Math.max(3, Math.round(((stats.lvl || 1) * 5 + 30 + (stats.up || 0) * 8 + crypto.randomInt(1, 20)) * multiplier) - enemy.def);
     enemy.hp = Math.max(0, enemy.hp - damage);
     enemy.hitUntil = now() + MONSTER_HIT_INV_MS;
+    const dx = enemy.x - source.x, dy = enemy.y - source.y, length = Math.hypot(dx, dy);
+    const kx = length > 0.001 ? dx / length : 0, ky = length > 0.001 ? dy / length : 1;
+    for (let step = 0; step < 16; step++) stepEnemy(enemy, kx, ky);
+    enemy.recoilUntil = now() + 150;
+    enemy.walking = false;
     if (!enemy.hp) { enemy.walking = false; enemy.phase = 'dead'; }
     broadcast();
   }
@@ -169,7 +175,11 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
     enemy.walking = distance > 2;
     if (!enemy.walking) return;
     enemy.face = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'Right' : 'Left') : (dy > 0 ? 'Down' : 'Up');
-    const x = enemy.x + dx / distance * step, y = enemy.y + dy / distance * step;
+    stepEnemy(enemy, dx / distance * step, dy / distance * step);
+  }
+
+  function stepEnemy(enemy, dx, dy) {
+    const x = enemy.x + dx, y = enemy.y + dy;
     const room = rect(MAP.rooms.find(r => r.id === enemy.room).rect);
     const context = { in: true, football: '', spar: '' };
     const global = (px, py) => ({ x: MAP.origin[0] + px, y: MAP.origin[1] + py });
@@ -188,6 +198,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
       visited = true; emptyAt = null;
       for (const enemy of enemies) {
         if (enemy.hp <= 0 || enemy.room === 'boss' && !gate) continue;
+        if (enemy.recoilUntil > stamp) { enemy.walking = false; continue; }
         const room = rect(MAP.rooms.find(r => r.id === enemy.room).rect);
         const targets = members.filter(p => p.hp > 0 && !p.hid && within(point(p), room));
         const target = targets.sort((a, b) => Math.hypot(point(a).x - enemy.x, point(a).y - enemy.y) - Math.hypot(point(b).x - enemy.x, point(b).y - enemy.y))[0];
