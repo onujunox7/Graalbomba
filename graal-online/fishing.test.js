@@ -15,7 +15,7 @@ function setup(extra={},fishRoll=0){
  let time=100000,active=true,refreshFails=false;
  const p={id:1,acc:'fish-'+id(),ok:true,hp:100,x:1200,y:1200,fishingClient:true,ws:{readyState:1},...extra};
  const players=new Map([[1,p]]),messages=[],visuals=[],economy=new Economy(pool);
- const fishing=createFishing({players,economy,world:{isWater:(x,y)=>Number.isFinite(x)&&Number.isFinite(y)&&x>=1100&&x<1180&&y>=1100&&y<1300},refresh:()=>{if(refreshFails)throw new Error('bad map');},send:(_ws,m)=>messages.push(m),broadcast:(_p,m)=>visuals.push(m),authorized:q=>active&&players.get(q.id)===q&&q.ws.readyState===1,now:()=>time,randomInt:(a,b)=>b===undefined?(a===100?fishRoll:0):a});
+ const fishing=createFishing({players,economy,world:{isWater:(x,y)=>Number.isFinite(x)&&Number.isFinite(y)&&x>=1000&&x<1180&&y>=1100&&y<1300},refresh:()=>{if(refreshFails)throw new Error('bad map');},send:(_ws,m)=>messages.push(m),broadcast:(_p,m)=>visuals.push(m),authorized:q=>active&&players.get(q.id)===q&&q.ws.readyState===1,now:()=>time,randomInt:(a,b)=>b===undefined?(a===100?fishRoll:0):a});
  const cast=fields=>fishing.handle(p,{op:'cast',rid:id(),x:1152,y:1200,...fields});
  const step=ms=>{time+=ms;fishing.tick();};
  return {p,fishing,economy,messages,visuals,cast,step,setActive:v=>active=v,setRefreshFailure:v=>refreshFails=v};
@@ -35,6 +35,11 @@ test('cast requires a live session, land, nearby real water and allowed space',(
  for(const extra of [{hp:0},{in:1},{spar:'match'},{football:'match'},{fishingClient:false},{x:1140}]){const s=setup(extra);s.cast();assert.equal(s.fishing.sessions.size,0);}
  const s=setup();s.setActive(false);s.cast();assert.equal(s.fishing.sessions.size,0);
  for(const fields of [{x:1200},{x:900},{x:NaN},{x:'1152'},{rid:'forged'}]){const trial=setup();trial.cast(fields);assert.equal(trial.fishing.sessions.size,0);}
+});
+
+test('cast accepts farther water up to 128 and rejects water past the advertised limit',()=>{
+ for(const distance of [24,96,104,128]){const s=setup();assert.equal(s.fishing.maxCastDistance,128);s.cast({x:s.p.x-distance});assert.equal(s.fishing.sessions.size,1);assert.equal(s.fishing.sessions.get(1).tx,s.p.x-distance);}
+ for(const distance of [23,129,160]){const s=setup();s.cast({x:s.p.x-distance});assert.equal(s.fishing.sessions.size,0);assert.ok(s.messages.some(m=>m.code==='not_water'));}
 });
 
 test('bar simulation awards one server-selected fish and preserves currency',async()=>{

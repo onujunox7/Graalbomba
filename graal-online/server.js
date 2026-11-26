@@ -1116,7 +1116,7 @@ wss.on('connection', (ws, req) => {
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
-  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, fishing: 1 });
+  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, fishing: 1, fishing_range:fishing.maxCastDistance });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
