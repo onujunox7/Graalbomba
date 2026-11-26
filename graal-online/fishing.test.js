@@ -137,3 +137,24 @@ test('leaving the controls untouched still lets the fish escape',()=>{
  const s=setup();s.cast();for(let i=0;i<600&&s.fishing.sessions.has(1);i++)s.step(50);
  assert.equal(s.fishing.sessions.size,0);assert.ok(s.messages.some(m=>m.reason==='escaped'));assert.ok(!s.messages.some(m=>m.op==='caught'));
 });
+
+
+test('shoreline uses the same foot probe as native swimming and remains fishable',()=>{
+ const world=new RewardWorld(path.join(__dirname,'reward-data'));world.refresh({});
+ for(const point of [{x:6604,y:16800,tx:6604,ty:16848},{x:6412,y:17008,tx:6412,ty:17056}]){
+  assert.equal(world.isWater(point.x,point.y-2),false);assert.equal(world.isWater(point.x,point.y),true);assert.equal(world.isWater(point.tx,point.ty),true);
+  let time=100000;const p={id:1,acc:'shore',ok:true,hp:60,x:point.x,y:point.y,fishingClient:true,ws:{readyState:1}},messages=[];
+  const fishing=createFishing({players:new Map([[1,p]]),economy:{},world,send:(_ws,m)=>messages.push(m),authorized:()=>true,now:()=>time,randomInt:(a,b)=>b===undefined?0:a});
+  fishing.handle(p,{op:'cast',rid:id(),x:point.tx,y:point.ty});
+  assert.equal(fishing.sessions.size,1,'native dry shoreline rejected: '+JSON.stringify(messages));
+  time+=500;fishing.tick();assert.equal(fishing.sessions.size,1,'shoreline cast cancelled on tick');
+ }
+});
+
+
+test('feet fully in water cannot start fishing or retain an active session',()=>{
+ const s=setup({x:1152});s.cast({x:1100});assert.equal(s.fishing.sessions.size,0);
+ const active=setup({x:1185});active.cast();active.p.x=1182;active.step(50);
+ assert.equal(active.fishing.sessions.size,1);
+ active.p.x=1178;active.step(50);assert.equal(active.fishing.sessions.size,0);assert.ok(active.messages.some(m=>m.reason==='interrupted'));
+});

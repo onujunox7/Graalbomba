@@ -8,7 +8,9 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 module.exports=function createFishing({players,economy,world,refresh=()=>{},send,broadcast=()=>{},authorized,now=Date.now,randomInt=crypto.randomInt}){
  const sessions=new Map(),cooldowns=new Map();let refreshed=0;
  const available=p=>authorized(p)&&p.ok&&p.hp>0&&!p.in&&!p.spar&&!p.football;
- const valid=s=>players.get(s.p.id)===s.p&&s.p.acc===s.account&&available(s.p)&&Math.hypot(s.p.x-s.x,s.p.y-s.y)<=16&&world.isWater(s.tx,s.ty)&&!world.isWater(s.p.x,s.p.y);
+ // Native swimming probes two pixels above the avatar origin, at its feet.
+ const onLand=p=>!world.isWater(p.x,p.y-2);
+ const valid=s=>players.get(s.p.id)===s.p&&s.p.acc===s.account&&available(s.p)&&Math.hypot(s.p.x-s.x,s.p.y-s.y)<=16&&world.isWater(s.tx,s.ty)&&onLand(s.p);
  const visual=s=>({t:'fish',op:'visual',actor:s.p.id,sid:s.id,phase:s.phase,x:s.x,y:s.y,tx:s.tx,ty:s.ty,fish:s.phase==='caught'?s.fish.id:''});
  const state=s=>({t:'fish',op:'state',actor:s.p.id,sid:s.id,rid:s.rid,phase:s.phase,x:s.x,y:s.y,tx:s.tx,ty:s.ty,bar:s.bar,target:s.target,progress:s.progress,window:s.fish.window,remaining:s.phase==='reel'?Math.max(0,20-(now()-s.reelAt)/1000):0});
  const notify=(p,code,rid='')=>send(p.ws,{t:'fish',op:'error',actor:p.id,code,rid});
@@ -41,7 +43,7 @@ module.exports=function createFishing({players,economy,world,refresh=()=>{},send
   if(now()-(cooldowns.get(p.id)??-Infinity)<1000){notify(p,'cooldown',m.rid);return;}
   cooldowns.set(p.id,now());try{refresh();refreshed=now();}catch{notify(p,'temporarily_unavailable',m.rid);return;}
   const distance=Math.hypot(m.x-p.x,m.y-p.y);
-  if(!Number.isFinite(m.x)||!Number.isFinite(m.y)||distance<24||distance>MAX_CAST_DISTANCE||!world.isWater(m.x,m.y)||world.isWater(p.x,p.y)){notify(p,'not_water',m.rid);return;}
+  if(!Number.isFinite(m.x)||!Number.isFinite(m.y)||distance<24||distance>MAX_CAST_DISTANCE||!world.isWater(m.x,m.y)||!onLand(p)){notify(p,'not_water',m.rid);return;}
   let roll=randomInt(100),fish=CATALOG[0];for(const entry of CATALOG){if(roll<entry.weight){fish=entry;break;}roll-=entry.weight;}
   const s={p,account:p.acc,id:crypto.randomBytes(16).toString('hex'),rid:m.rid,phase:'cast',x:p.x,y:p.y,tx:m.x,ty:m.y,fish,seed:randomInt(6284)/1000,start:now(),biteAt:now()+randomInt(2400,4801),last:now(),sent:now(),bar:0.45,velocity:0,target:0.5,progress:0.4,held:false,seq:-1,inputAt:now(),inputWindow:now(),inputCount:0,cancelled:false};
   sessions.set(p.id,s);p.fishing=true;send(p.ws,state(s));broadcast(p,visual(s));

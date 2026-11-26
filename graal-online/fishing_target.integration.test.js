@@ -19,7 +19,7 @@ test('native mouse/tap selects water beyond the old range while UI, drag and pin
  const server=http.createServer((_req,res)=>{res.writeHead(404);res.end();}),wss=new WebSocketServer({server});
  const timer=setInterval(()=>fishing.tick(),50);
  wss.on('connection',ws=>{
-  const p={id:1,acc:account,ok:true,hp:60,x:6500,y:17060,fishingClient:false,ws};P.set(1,p);
+  const p={id:1,acc:account,ok:true,hp:60,x:6540,y:17060,fishingClient:false,ws};P.set(1,p);
   send(ws,{t:'id',id:1,v:3,economy:1,ground_drops:1,fishing:1,fishing_range:fishing.maxCastDistance});send(ws,{t:'acc',id:account,pid:'',guest:true,data:{}});
   ws.on('message',raw=>{
    const m=JSON.parse(raw);
@@ -27,7 +27,7 @@ test('native mouse/tap selects water beyond the old range while UI, drag and pin
    if(m.t==='u'){p.x=Number(m.x);p.y=Number(m.y);p.hp=Number(m.hp);}
    if(m.t==='fish'){
     const previous=fishing.sessions.get(1)?.id;fishing.handle(p,m);const session=fishing.sessions.get(1);
-    if(m.op==='cast'&&session&&session.id!==previous)accepted.push({x:session.tx,y:session.ty,distance:Math.hypot(session.tx-session.x,session.ty-session.y)});
+    if(m.op==='cast'&&session&&session.id!==previous)accepted.push({origin_x:session.x,origin_y:session.y,x:session.tx,y:session.ty,distance:Math.hypot(session.tx-session.x,session.ty-session.y)});
    }
    if(m.t==='eco'&&m.op==='sync')economy.ensure(account).then(state=>send(ws,{t:'eco',op:'sync',rid:m.rid,account,ok:true,state}));
   });
@@ -41,10 +41,11 @@ test('native mouse/tap selects water beyond the old range while UI, drag and pin
   const timeout=setTimeout(()=>child.kill(),50000);
   const code=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',resolve);});clearTimeout(timeout);
   const stdout=fs.readFileSync(path.join(report,'native.stdout.log'),'utf8'),stderr=fs.readFileSync(path.join(report,'native.stderr.log'),'utf8');
-  assert.equal(code,0,stdout+'\n'+stderr.slice(0,2400));assert.match(stdout,/FISHING_TARGET_CHECK checks=\d+ failures=0 casts=3/);assert.doesNotMatch(stderr,/SCRIPT ERROR|Parse Error/);
-  assert.equal(accepted.length,3);assert.ok(accepted.every(p=>p.distance>88&&p.distance<=128));
+  assert.equal(code,0,stdout+'\n'+stderr.slice(0,2400));assert.match(stdout,/FISHING_TARGET_CHECK checks=\d+ failures=0 casts=4/);assert.doesNotMatch(stderr,/SCRIPT ERROR|Parse Error/);
+  assert.equal(accepted.length,4);assert.ok(Math.abs(accepted[0].origin_x-6500.3)<0.01);assert.ok(Math.abs(accepted[0].origin_y-17060.3)<0.01);assert.ok(accepted.slice(0,3).every(p=>p.distance>88&&p.distance<=128));
   assert.ok(Math.hypot(accepted[0].x-6399.54,accepted[0].y-17086.92)<.05);
   assert.ok(Math.hypot(accepted[1].x-6399.54,accepted[1].y-17086.92)<.05);
+  assert.ok(Math.abs(accepted[3].origin_y-17009.6)<0.01);assert.ok(Math.abs(accepted[3].distance-48)<0.01);
   const saved=await economy.ensure(account);assert.equal(saved.gl,0);assert.ok(!saved.fish);assert.equal(fishing.sessions.size,0);
   console.log(stdout.match(/FISHING_TARGET_CHECK[^\r\n]+/)[0]);
  }finally{
