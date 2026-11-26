@@ -40,6 +40,15 @@ function protectSave(out, previous) {
  return out;
 }
 function near(p,x,y,r=90){return !!p.ok&&Number.isFinite(x)&&Number.isFinite(y)&&Math.hypot((p.in?p.ix:p.x)-x,(p.in?p.iy:p.y)-y)<=r;}
+function groundPosition(p){
+ if(!p.ok||p.hp===0||p.in||p.spar||p.football||!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>=1664*8||p.y>=2752*8)throw error('invalid_source');
+}
+function pendingDrop(state,x,y,value,rid){
+ if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>=1664*8||y>=2752*8||!Number.isSafeInteger(value)||value<=0||value>100000)throw error('invalid_reward');
+ const drops=state.drops||(state.drops=[]);
+ if(drops.length>=300)throw error('capacity');
+ const drop={id:'r-'+rid,x,y,v:value,k:''};drops.push(drop);return drop;
+}
 function merchant(p,request,npcs){
  if(!Number.isSafeInteger(request.x)||!Number.isSafeInteger(request.y))throw error('invalid_shop');
  const npc=npcs.find(n=>n.x===request.x&&n.y===request.y);
@@ -141,9 +150,52 @@ class Economy {
     if(crypto.randomInt(100)<45)gl=crypto.randomInt(100)<15?5:1;
    }
    if(request.op==='bush')state.lastCut={x:p.x,y:p.y,until:Date.now()+5000};
-   state.gl=Math.min(1000000000,state.gl+gl);return {reward:gl,source:key,op:request.op};
+   let drop;
+   if(request.op==='bush'&&p.groundDrops&&gl>0)drop=pendingDrop(state,source.x*8+(source.w||2)*4,source.y*8+(source.h||2)*4,gl,request.rid);
+   else state.gl=Math.min(1000000000,state.gl+gl);
+   return {reward:gl,source:key,op:request.op,...(drop?{drop}:{} )};
   },authorized);
+ }
+ async pickup(p,request,authorized){
+  return this.transact(p.acc,request.rid,digest(['pickup',request.id]),async(state,db)=>{
+   groundPosition(p);
+   if(typeof request.id!=='string'||!/^[rg]-[a-f0-9]{32}$/.test(request.id))throw error('drop_unavailable');
+   const index=(state.drops||[]).findIndex(d=>d.id===request.id);
+   let drop,shared=false;
+   if(index>=0)drop=state.drops[index];
+   else{
+    const row=await db.query('SELECT state FROM graal_reward_sources WHERE source_id=$1 FOR UPDATE',['ground:'+request.id]);
+    drop=row.rows[0]?.state;shared=true;
+    if(!drop||drop.taken||drop.expires<=Date.now())throw error('drop_unavailable');
+   }
+   if(!near(p,drop.x,drop.y,24))throw error('source_out_of_range');
+   if(!Number.isSafeInteger(drop.v)||drop.v<1||drop.v>100000)throw error('invalid_reward');
+   if(state.gl+drop.v>1000000000)throw error('capacity');
+   if(!authorized())throw error('session_changed');
+   state.gl+=drop.v;
+   if(shared){drop.taken=true;await db.query('UPDATE graal_reward_sources SET state=$2::jsonb WHERE source_id=$1',['ground:'+request.id,JSON.stringify(drop)]);}
+   else state.drops.splice(index,1);
+   return {drop_id:request.id,collected:drop.v,shared};
+  },authorized);
+ }
+ async adminDrop(p,request,authorized){
+  if(![1,2].includes(p.role))throw error('forbidden');
+  if(!Number.isSafeInteger(request.v)||request.v<1||request.v>100000)throw error('invalid_reward');
+  return this.transact(p.acc,request.rid,digest(['admin_drop',request.v]),async(_state,db)=>{
+   if(![1,2].includes(p.role))throw error('forbidden');groundPosition(p);
+   await db.query('SELECT pg_advisory_xact_lock(6811043)');
+   const count=await db.query("SELECT count(*)::int AS n FROM graal_reward_sources WHERE source_id LIKE 'ground:%' AND state->>'taken'='false' AND (state->>'expires')::bigint>$1",[Date.now()]);
+   if(count.rows[0].n>=300)throw error('capacity');
+   if(!authorized()||![1,2].includes(p.role))throw error('session_changed');
+   const drop={id:'g-'+crypto.randomBytes(16).toString('hex'),x:Math.min(1664*8-8,p.x+24),y:p.y,v:request.v,k:'',taken:false,expires:Date.now()+600000};
+   await db.query('INSERT INTO graal_reward_sources(source_id,state) VALUES($1,$2::jsonb)',['ground:'+drop.id,JSON.stringify(drop)]);
+   return {drop,shared:true};
+  },authorized);
+ }
+ async publicDrops(){
+  const rows=await this.pool.query("SELECT state FROM graal_reward_sources WHERE source_id LIKE 'ground:%' AND state->>'taken'='false' AND (state->>'expires')::bigint>$1 ORDER BY source_id LIMIT 300",[Date.now()]);
+  return rows.rows.map(row=>row.state);
  }
  async credit(id,amount,rid,authorized){if(!Number.isSafeInteger(amount)||amount<0||amount>100000)throw error('invalid_reward');return this.transact(id,rid,digest(['credit',amount]),s=>{s.gl=Math.min(1000000000,s.gl+amount);},authorized);}
 }
-module.exports={Economy,legacyState,accountData,protectSave,merchant,offers,buy,near,digest,error,HATS,questEvent};
+module.exports={Economy,legacyState,accountData,protectSave,merchant,offers,buy,near,digest,error,HATS,questEvent,pendingDrop};

@@ -791,6 +791,7 @@ async function economicRequest(p,m){
  const reply=result=>{if(authorized())sendTo(p.ws,{t:'eco',rid:m.rid,op:m.op,account,...result});};
  if(!authorized()||!p.economyClient||typeof m.rid!=='string'||!/^[a-f0-9]{32}$/.test(m.rid))return;
  const now=Date.now();if(now-(p.ecoWindow||0)>1000){p.ecoWindow=now;p.ecoCount=0;}if(++p.ecoCount>30){reply({ok:false,code:'busy'});return;}
+ if(p.fishing&&['consume','hit','bush','chest','pickup'].includes(m.op)){reply({ok:false,code:'busy'});return;}
  if(p.ecoBusy){reply({ok:false,code:'busy'});return;}
  p.ecoBusy=true;
  try{
@@ -801,12 +802,18 @@ async function economicRequest(p,m){
   else if(m.op==='equip')result=await economy.equip(p,m,authorized);
   else if(m.op==='hit')result=await combatRewards.hit(p,m,SP.add,authorized);
   else if(m.op==='consume')result=await economy.consume(p,m,authorized);
+  else if(m.op==='pickup'&&p.groundDrops)result=await economy.pickup(p,m,authorized);
+  else if(m.op==='admin_drop'&&p.groundDrops)result=await economy.adminDrop(p,m,authorized);
   else if(m.op==='bush'||m.op==='chest'){rewardWorld.refresh(cfg);result=await economy.reward(p,m,rewardWorld,authorized);}
   else throw Object.assign(new Error('invalid_request'),{code:'invalid_request'});
   if(result.effect&&!result.duplicate){if(result.effect==='heal')p.hp=p.hm;else if(result.effect.startsWith('hp:'))p.hp=Math.min(p.hm,p.hp+Number(result.effect.slice(3)));}
   if(m.op==='hit'&&!result.duplicate)spBroadcast({t:'mr',sid:result.sid,hp:result.hp,dead:result.dead,by:p.id,damage:result.damage});
+  if(result.shared&&!result.duplicate){
+   if(m.op==='admin_drop'){DROPS.set(result.drop.id,result.drop);groundBroadcast({t:'dr',...result.drop,pop:1,authoritative:1});}
+   else if(m.op==='pickup'){DROPS.delete(result.drop_id);groundBroadcast({t:'dp',id:result.drop_id});}
+  }
   reply({ok:true,...result});
- }catch(e){const safe=new Set(['busy','invalid_request','session_changed','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
+ }catch(e){const safe=new Set(['busy','invalid_request','session_changed','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown','forbidden','drop_unavailable','invalid_reward']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
  finally{p.ecoBusy=false;}
 }
 function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
@@ -870,6 +877,9 @@ const dungeon = require('./dungeon')({ players: P, send: sendTo, getCombatState:
   blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 setInterval(() => dungeon.tick(), 100).unref();
+const fishing=require('./fishing')({players:P,economy,world:rewardWorld,refresh:()=>rewardWorld.refresh(cfg),send:sendTo,
+ broadcast:(p,message)=>othersSame(p,message),authorized:p=>!!p.uh&&p.economyClient&&economicSession(p)&&!banOf(p.uh)&&!(KICKED.get(p.uh)>Date.now())});
+setInterval(()=>fishing.tick(),50).unref();
 /* batimento: derruba conexões mortas (aba fechada sem avisar, rede caiu) para o jogador sumir do mapa */
 setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate() } catch (e) { } continue } c.isAlive = false; c.pingAt = Date.now(); try { c.ping() } catch (e) { } } }, 10000);
 /* anfitrião dos monstros: o jogador online mais antigo no mundo principal (menor id) que mandou posição nos últimos 4s. Só ele roda a IA dos monstros. */
@@ -883,9 +893,11 @@ function electHost() {
   HOST = h; const nw = P.get(h); if (nw) sendTo(nw.ws, { t: 'host', v: 1 });
 }
 setInterval(electHost, 1000);
-/* itens no chão (Glims): o servidor lembra para quem entra depois; id -> [id,x,y,v]; máx. 300 (o mais antigo some para todos) */
+/* Glims públicos criados por admin: carteira e coleta são transações do servidor. */
 const DROPS = new Map();
-setInterval(() => { const n = Date.now(); for (const [k, a] of DROPS) if (a[5] && a[5] < n) DROPS.delete(k) }, 5000); // corações/bombas/flechas somem em 20s
+const groundBroadcast=message=>{for(const p of P.values())if(p.groundDrops)sendTo(p.ws,message);};
+const groundSnapshot=p=>sendTo(p.ws,{t:'dall',a:[...DROPS.values()].filter(d=>d.expires>Date.now()).map(d=>[d.id,d.x,d.y,d.v,0,0,1])});
+setInterval(()=>{const now=Date.now();for(const [id,drop]of DROPS)if(drop.expires<=now){DROPS.delete(id);groundBroadcast({t:'dp',id});}},5000);
 const LOCAL_CHAT_RADIUS = 320;
 function canHearLocal(sender, receiver) {
   if (String(sender.football || '') !== String(receiver?.football || '')) return false;
@@ -1104,13 +1116,12 @@ wss.on('connection', (ws, req) => {
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
-  sendTo(ws, { t: 'id', id, v: 3, economy: 1 });
+  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, fishing: 1 });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
   sendTo(ws, { t: 'spa', a: sparArea() }); // área de acesso à fila de spar, compartilhada e persistente
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
-  if (DROPS.size) { const now = Date.now(); sendTo(ws, { t: 'dall', a: [...DROPS.values()].map(a => [a[0], a[1], a[2], a[3], a[4] || 0, a[5] ? Math.max(0, a[5] - now) : 0]) }) }
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id && !o.hid) { // quem entra agora já vê skin/equip de quem está online (menos de quem está invisível)
     if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
@@ -1159,6 +1170,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', d => {
     let m; try { m = JSON.parse(d) } catch (e) { return }
     if (!m || typeof m !== 'object') return;
+    if(m.t==='fish'){if(d.length<=512)fishing.handle(p,m);return;}
     if (m.t === 'eco') {
       if (p.football && ['consume', 'hit', 'bush', 'chest'].includes(m.op)) {
         sendTo(ws, { t: 'eco', rid: m.rid, op: m.op, account: p.acc, ok: false, code: 'busy' }); return;
@@ -1170,7 +1182,11 @@ wss.on('connection', (ws, req) => {
       if(!p.economyClient){sendTo(ws,{t:'kick',r:'Atualize o jogo ou recarregue a página para usar as compras e recompensas validadas.'});setTimeout(()=>ws.close(),100);return;}
       // identidade do navegador (segredo aleatório; o servidor só guarda o hash)
       if (p.uh || typeof m.uid !== 'string' || !/^[a-f0-9]{32}$/.test(m.uid)) return;
+      p.groundDrops=m.ground_drops===1;
+      p.fishingClient=m.fishing===1;
       p.uh = sha(m.uid);
+      if(p.groundDrops)groundSnapshot(p);
+      if(p.fishingClient)fishing.sync(p);
       for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); football.disconnect(o.id); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
       const bn = banOf(p.uh); if (bn) { sendTo(ws, { t: 'kick', r: banMsg(bn) }); setTimeout(() => ws.close(), 100); return }
       const ku = KICKED.get(p.uh);
@@ -1312,14 +1328,7 @@ wss.on('connection', (ws, req) => {
       BCUT.set(k, now + BUSH_MS); others(id, { t: 'bc', x, y, l: BUSH_MS }); return;
     }
     if (m.t === 'ty') { p.ty = m.v ? 1 : 0; return } // chat aberto: mostra balão "..." na cabeça
-    if (m.t === 'dr') { return; // rewards are created by the server, never client drop amounts
-      const now = Date.now(); if (now - (p.drW || 0) > 1000) { p.drW = now; p.drN = 0 } if (++p.drN > 40) return;
-      if (typeof m.id !== 'string' || !/^\d{1,9}-\d{1,9}$/.test(m.id) || DROPS.has(m.id)) return;
-      const x = Math.round(num(m.x, -1e6, 1e6)), y = Math.round(num(m.y, -1e6, 1e6)), v = num(m.v, 0, 5000) | 0, pop = m.pop ? 1 : 0;
-      const k = /^[hba]$/.test(m.k) ? m.k : 0; DROPS.set(m.id, [m.id, x, y, v, k, k ? now + 20000 : 0]);
-      if (DROPS.size > 300) { const k = DROPS.keys().next().value; DROPS.delete(k); wss.clients.forEach(c => sendTo(c, { t: 'dp', id: k })) }
-      others(id, { t: 'dr', id: m.id, x, y, v, pop, k }); return;
-    }
+    if (m.t === 'dr') return; // somente admin_drop e recompensas validadas criam Glims
     if (m.t === 'bo' || m.t === 'ar' || m.t === 'fl' || m.t === 'th') { // bomba colocada/jogada, flecha atirada, fogo do cavalo: só efeito visual para os outros
       if (p.football) return;
       if (p.hid) return; // invisível não deixa rastro
@@ -1330,10 +1339,7 @@ wss.on('connection', (ws, req) => {
       else othersSame(p, { t: 'ar', x: num(m.x, -1e6, 1e6), y: num(m.y, -1e6, 1e6), vx: num(m.vx, -400, 400), vy: num(m.vy, -400, 400) });
       return;
     }
-    if (m.t === 'dp') { return; // legacy untrusted drops cannot grant currency
-      if (typeof m.id !== 'string' || !DROPS.delete(m.id)) return;
-      others(id, { t: 'dp', id: m.id }); return;
-    }
+    if (m.t === 'dp') return; // pickup valida proximidade e credita numa transação
     if (m.t === 'ms') { // estado dos monstros: só o anfitrião manda; vai para todos os outros
       if (p.football) return;
       if (p.id !== HOST || d.length > 20000 || !Array.isArray(m.e) || m.e.length > 300) return;
@@ -1427,7 +1433,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
-  ws.on('close', () => { football.disconnect(id); parties.disconnect(id); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); if (!P.size) DROPS.clear() });
+  ws.on('close', () => { fishing.disconnect(id); football.disconnect(id); parties.disconnect(id); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); /* drops públicos persistem até coleta/expiração */ });
   ws.on('error', () => { });
 });
 
@@ -1450,7 +1456,7 @@ setInterval(() => {
   }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>televisionStore.load()).then(data=>televisions.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(() => {
+Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>televisionStore.load()).then(data=>televisions.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(()=>economy.publicDrops()).then(drops=>{for(const drop of drops)DROPS.set(drop.id,drop);}).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
