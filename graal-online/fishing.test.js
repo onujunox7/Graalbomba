@@ -114,3 +114,26 @@ test('published level water and map edits override the base water manifest',()=>
  world.refresh({levels:{mundo:{[slot]:{t:raw.toString('base64'),c:[]}}}});assert.equal(world.isWater(x*8+4,y*8+4),false);
  assert.equal(world.isWater(-1,y*8),false);
 });
+
+
+test('relaxed timing catches all species with 300ms decisions and forgives a one-second mistake',async()=>{
+ let roll=0;
+ for(const fish of require('./fishing-data/fish_catalog.json').fish){
+  const s=setup({},roll);s.cast();let seq=0,reelSteps=0;
+  for(let i=0;i<600&&s.fishing.sessions.has(1);i++){
+   const session=s.fishing.sessions.get(1);if(session.phase==='resolve')break;
+   if(session.phase==='reel'){
+    if(reelSteps%6===0)s.fishing.handle(s.p,{op:'input',sid:session.id,seq:++seq,held:reelSteps<20?false:session.target>session.bar+session.velocity*0.4});
+    reelSteps++;
+   }
+   s.step(50);
+  }
+  await settle(()=>s.messages.some(m=>m.op==='caught'));
+  assert.equal(s.messages.find(m=>m.op==='caught').fish,fish.id);roll+=fish.weight;
+ }
+});
+
+test('leaving the controls untouched still lets the fish escape',()=>{
+ const s=setup();s.cast();for(let i=0;i<600&&s.fishing.sessions.has(1);i++)s.step(50);
+ assert.equal(s.fishing.sessions.size,0);assert.ok(s.messages.some(m=>m.reason==='escaped'));assert.ok(!s.messages.some(m=>m.op==='caught'));
+});

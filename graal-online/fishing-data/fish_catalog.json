@@ -1,11 +1,11 @@
 {
   "version": 1,
   "fish": [
-    {"id":"lambari","name":"Lambari prateado","rarity":"Comum","color":"#8de2e0","weight":32,"min_g":40,"max_g":220,"speed":0.72,"window":0.31,"atlas":0},
-    {"id":"tilapia","name":"Tilápia verde","rarity":"Comum","color":"#a8d473","weight":28,"min_g":180,"max_g":1400,"speed":0.8,"window":0.3,"atlas":1},
-    {"id":"carpa","name":"Carpa dourada","rarity":"Incomum","color":"#f1b84f","weight":18,"min_g":400,"max_g":2800,"speed":0.94,"window":0.27,"atlas":2},
-    {"id":"bagre","name":"Bagre azul","rarity":"Raro","color":"#849feb","weight":12,"min_g":600,"max_g":4200,"speed":1.04,"window":0.25,"atlas":3},
-    {"id":"truta","name":"Truta coral","rarity":"Raro","color":"#f59b9f","weight":8,"min_g":300,"max_g":2200,"speed":1.12,"window":0.24,"atlas":4},
-    {"id":"lua","name":"Peixe-lua","rarity":"Lendário","color":"#c59bff","weight":2,"min_g":900,"max_g":3200,"speed":1.22,"window":0.22,"atlas":5}
+    {"id":"lambari","name":"Lambari prateado","rarity":"Comum","color":"#8de2e0","weight":32,"min_g":40,"max_g":220,"speed":0.5,"window":0.40,"atlas":0},
+    {"id":"tilapia","name":"Tilápia verde","rarity":"Comum","color":"#a8d473","weight":28,"min_g":180,"max_g":1400,"speed":0.56,"window":0.39,"atlas":1},
+    {"id":"carpa","name":"Carpa dourada","rarity":"Incomum","color":"#f1b84f","weight":18,"min_g":400,"max_g":2800,"speed":0.66,"window":0.36,"atlas":2},
+    {"id":"bagre","name":"Bagre azul","rarity":"Raro","color":"#849feb","weight":12,"min_g":600,"max_g":4200,"speed":0.73,"window":0.34,"atlas":3},
+    {"id":"truta","name":"Truta coral","rarity":"Raro","color":"#f59b9f","weight":8,"min_g":300,"max_g":2200,"speed":0.78,"window":0.33,"atlas":4},
+    {"id":"lua","name":"Peixe-lua","rarity":"Lendário","color":"#c59bff","weight":2,"min_g":900,"max_g":3200,"speed":0.85,"window":0.31,"atlas":5}
   ]
 }

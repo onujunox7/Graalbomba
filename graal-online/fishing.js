@@ -43,7 +43,7 @@ module.exports=function createFishing({players,economy,world,refresh=()=>{},send
   const distance=Math.hypot(m.x-p.x,m.y-p.y);
   if(!Number.isFinite(m.x)||!Number.isFinite(m.y)||distance<24||distance>MAX_CAST_DISTANCE||!world.isWater(m.x,m.y)||world.isWater(p.x,p.y)){notify(p,'not_water',m.rid);return;}
   let roll=randomInt(100),fish=CATALOG[0];for(const entry of CATALOG){if(roll<entry.weight){fish=entry;break;}roll-=entry.weight;}
-  const s={p,account:p.acc,id:crypto.randomBytes(16).toString('hex'),rid:m.rid,phase:'cast',x:p.x,y:p.y,tx:m.x,ty:m.y,fish,seed:randomInt(6284)/1000,start:now(),biteAt:now()+randomInt(2400,4801),last:now(),sent:now(),bar:0.45,velocity:0,target:0.5,progress:0.35,held:false,seq:-1,inputAt:now(),inputWindow:now(),inputCount:0,cancelled:false};
+  const s={p,account:p.acc,id:crypto.randomBytes(16).toString('hex'),rid:m.rid,phase:'cast',x:p.x,y:p.y,tx:m.x,ty:m.y,fish,seed:randomInt(6284)/1000,start:now(),biteAt:now()+randomInt(2400,4801),last:now(),sent:now(),bar:0.45,velocity:0,target:0.5,progress:0.4,held:false,seq:-1,inputAt:now(),inputWindow:now(),inputCount:0,cancelled:false};
   sessions.set(p.id,s);p.fishing=true;send(p.ws,state(s));broadcast(p,visual(s));
  }
  function handle(p,m){
@@ -69,7 +69,7 @@ module.exports=function createFishing({players,economy,world,refresh=()=>{},send
    s.bar=clamp(s.bar+s.velocity*dt,s.fish.window/2,1-s.fish.window/2);
    if(s.bar<=s.fish.window/2||s.bar>=1-s.fish.window/2)s.velocity=0;
    s.target=clamp(0.5+0.31*Math.sin(elapsed*s.fish.speed+s.seed)+0.08*Math.sin(elapsed*s.fish.speed*2.7+s.seed*0.5),0.06,0.94);
-   s.progress=clamp(s.progress+(Math.abs(s.bar-s.target)<=s.fish.window/2?0.18:-0.13)*dt,0,1);
+   s.progress=clamp(s.progress+(Math.abs(s.bar-s.target)<=s.fish.window/2?0.20:-0.10)*dt,0,1);
    if(s.progress>=1){finish(s);continue;}
    if(s.progress<=0||elapsed>=20){end(s,'escaped');continue;}
    if(time-s.sent>=100){s.sent=time;send(s.p.ws,state(s));}
