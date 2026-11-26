@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
+const {PLAYER_HIT_INV_MS,MONSTER_HIT_INV_MS}=require('./combat-timing');
 const MAP = require('./dungeon_ruins.json');
 const SOLID = Buffer.from(MAP.s, 'base64');
 const CELL = 8;
@@ -12,7 +13,7 @@ const inMap = p => !!p?.in && !p.football && !p.spar && Number.isFinite(p.ix) &&
   within({ x: p.ix - MAP.origin[0], y: p.iy - MAP.origin[1] }, { x: 0, y: 0, w: MAP.w * CELL, h: MAP.h * CELL });
 
 module.exports = function createDungeon({ players, send, authorized, getCombatState = () => ({}), blocksMove = () => false, now = Date.now }) {
-  const positions = new Map(), rates = new Map(), attacks = new Map(), shots = new Map();
+  const positions = new Map(), rates = new Map(), attacks = new Map(), shots = new Map(), hurtUntil = new Map();
   let enemies, generation, key, gate, flames, solved, relic, completed, visited, emptyAt;
   let lastStep = now(), lastBroadcast = 0;
   const live = p => !!p && players.get(p.id) === p && p.ws.readyState === 1 && authorized(p);
@@ -24,10 +25,10 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
 
   function reset() {
     generation = crypto.randomBytes(8).toString('hex');
-    enemies = MAP.enemies.map(e => ({ ...e, ...center(e.cell), max: e.hp, phase: 'idle', until: 0, next: 0, face: 'Down', walking: false }));
+    enemies = MAP.enemies.map(e => ({ ...e, ...center(e.cell), max: e.hp, phase: 'idle', until: 0, next: 0, hitUntil: 0, face: 'Down', walking: false }));
     key = false; gate = false; flames = []; solved = false; relic = false;
     completed = new Set(); visited = false; emptyAt = null;
-    positions.clear(); attacks.clear(); shots.clear();
+    positions.clear(); attacks.clear(); shots.clear(); hurtUntil.clear();
   }
   reset();
 
@@ -99,7 +100,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
 
   function hit(p, message) {
     const enemy = enemies.find(e => e.id === message.enemy);
-    if (!enemy || enemy.hp <= 0 || enemy.room === 'boss' && !gate) return;
+    if (!enemy || enemy.hp <= 0 || enemy.hitUntil > now() || enemy.room === 'boss' && !gate) return;
     const hero = point(p), stats = getCombatState(p) || {};
     const weapon = message.weapon || 'sword';
     let multiplier = 1;
@@ -120,6 +121,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
     }
     const damage = Math.max(3, Math.round(((stats.lvl || 1) * 5 + 30 + (stats.up || 0) * 8 + crypto.randomInt(1, 20)) * multiplier) - enemy.def);
     enemy.hp = Math.max(0, enemy.hp - damage);
+    enemy.hitUntil = now() + MONSTER_HIT_INV_MS;
     if (!enemy.hp) { enemy.walking = false; enemy.phase = 'dead'; }
     broadcast();
   }
@@ -192,8 +194,9 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
         if (enemy.phase === 'windup') {
           enemy.walking = false;
           if (stamp >= enemy.until) {
-            for (const hero of targets) if (Math.hypot(point(hero).x - enemy.x, point(hero).y - enemy.y) <= enemy.reach + 6) {
+            for (const hero of targets) if (Math.hypot(point(hero).x - enemy.x, point(hero).y - enemy.y) <= enemy.reach + 6 && (hurtUntil.get(hero.id) || 0) <= stamp) {
               hero.hp = Math.max(0, hero.hp - enemy.damage);
+              hurtUntil.set(hero.id, stamp + PLAYER_HIT_INV_MS);
               emit(hero, { op: 'hurt', damage: enemy.damage, x: enemy.x, y: enemy.y });
             }
             enemy.phase = 'idle'; enemy.next = stamp + enemy.cooldown;
@@ -207,7 +210,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
       }
       if (stamp - lastBroadcast >= 200) broadcast();
     }
-    for (const table of [positions, rates, attacks]) for (const id of table.keys()) if (!players.has(id)) table.delete(id);
+    for (const table of [positions, rates, attacks, hurtUntil]) for (const id of table.keys()) if (!players.has(id)) table.delete(id);
     for (const [id, shot] of shots) if (shot.until <= stamp) shots.delete(id);
   }
 

@@ -26,7 +26,7 @@ function fixture(blocksMove) {
       if (enemy.hp <= 0) return;
       move(1, enemy.x, enemy.y + 14);
       command('hit', { enemy: id, weapon: 'sword' });
-      advance(400);
+      advance(1000);
     }
     throw new Error('Enemy survived normal sword attacks');
   }
@@ -206,4 +206,24 @@ test('combate externo recusa o uso de um projétil que nasceu no interior', asyn
   const economy = { transact: async (_acc, _rid, _digest, action) => action(state, {}) };
   const combat = new CombatRewards(economy);
   await assert.rejects(combat.hit({ acc: 'a', hp: 60, ok: true, x: 100, y: 100 }, { sid: 1, weapon: 'a' }, [{ id: 1, k: 'blue', x: 100, y: 100 }], () => true), e => e.code === 'invalid_source');
+});
+
+test('a dungeon enemy is protected for one second across different attackers', () => {
+ const f=fixture(),enemy=f.state().enemies[0];
+ for(const id of [1,2])f.move(id,enemy.x,enemy.y+14);
+ f.command('hit',{enemy:enemy.id,weapon:'sword'});const hp=f.state().enemies[0].hp;
+ f.command('hit',{enemy:enemy.id,weapon:'sword'},2);assert.equal(f.state().enemies[0].hp,hp);
+ f.advance(999);f.command('hit',{enemy:enemy.id,weapon:'sword'},2);assert.equal(f.state().enemies[0].hp,hp);
+ f.advance(1);f.command('hit',{enemy:enemy.id,weapon:'sword'},2);assert(f.state().enemies[0].hp<hp);
+});
+
+test('dungeon damage events for one player are at least two seconds apart', () => {
+ const f=fixture(),enemy=f.state().enemies[0];f.move(1,enemy.x,enemy.y+8);
+ for(let i=0;i<200;i++){
+  const current=f.state().enemies[0];f.move(1,current.x,current.y+8);f.advance(50);
+  const events=f.messages.get(1).filter(m=>m.op==='hurt');
+  if(events.length && events.at(-1)._test_at===undefined)events.at(-1)._test_at=f.now();
+ }
+ const events=f.messages.get(1).filter(m=>m.op==='hurt');assert(events.length>=2);
+ for(let i=1;i<events.length;i++)assert(events[i]._test_at-events[i-1]._test_at>=2000);
 });

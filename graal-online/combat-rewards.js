@@ -1,5 +1,6 @@
 'use strict';
 const crypto=require('crypto');
+const {MONSTER_HIT_INV_MS}=require('./combat-timing');
 const {error,near,digest,questEvent,pendingDrop}=require('./economy');
 // The host still animates/moves monsters. Health, hit cadence, loot and respawn
 // eligibility belong to the server; a host cannot submit a death or a reward.
@@ -39,7 +40,7 @@ class CombatRewards{
    if(mob.hp<=0){if(mob.next>Date.now())throw error('cooldown');mob.hp=maxHP;}
    if(mob.hit>Date.now())throw error('cooldown');
    const damage=Math.max(3,Math.round((state.lvl*5+30+state.up*8+crypto.randomInt(1,20))*multiplier)-base[1]-level*3-6);
-   mob.hp=Math.max(0,mob.hp-damage);mob.hit=Date.now()+450;state.nextHit=Date.now()+350;
+   mob.hp=Math.max(0,mob.hp-damage);mob.hit=Date.now()+MONSTER_HIT_INV_MS;state.nextHit=Date.now()+350;
    let reward=0;
    if(mob.hp===0){mob.next=Date.now()+30000;if(crypto.randomInt(100)<70){const roll=crypto.randomInt(100);reward=roll>=95?30:roll>=60?5:1;}if(p.groundDrops&&reward>0)pendingDrop(state,pos.x,pos.y,reward,request.rid);else state.gl=Math.min(1000000000,state.gl+reward);const drop=crypto.randomInt(100);if(drop<16)state.a=Math.max(state.a,Math.min(60,state.a+1));else if(drop<26)state.b=Math.max(state.b,Math.min(30,state.b+1));state.kills++;state.exp+=Math.round(base[2]*(1+0.2*(level-1)));while(state.exp>=100){state.exp-=100;state.lvl=Math.min(999,state.lvl+1);}}
    if(mob.hp===0){questEvent(state,'kill');if(s.k==='skE')questEvent(state,'elite');if(!['sk','skE'].includes(s.k))questEvent(state,'mon');}
