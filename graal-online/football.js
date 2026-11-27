@@ -37,7 +37,7 @@ module.exports = function createFootball({ players, send, authorized, viewPlayer
   let queueUntil = 0;
 
   const live = p => !!p && players.get(p.id) === p && p.ws.readyState === 1 && authorized(p);
-  const eligible = p => live(p) && p.ok && !p.hid && !p.in && !p.spar && !p.sparPending &&
+  const eligible = p => live(p) && p.ok && !p.hid && !p.in && !p.spar && !p.sparPending && !p.ctf && !p.ctfQueued &&
     !p.mt && !p.cy && p.hp > 0 && Number.isFinite(p.x) && Number.isFinite(p.y);
   const emit = (p, data) => { if (p && p.ws.readyState === 1) send(p.ws, { t: 'football', ...data }); };
   const error = (p, message) => emit(p, { op: 'error', message });

@@ -801,6 +801,7 @@ async function economicRequest(p,m){
  if(p.fishing&&['consume','hit','bush','chest','pickup'].includes(m.op)){reply({ok:false,code:'busy'});return;}
  if(p.spar&&['consume','buy','pickup'].includes(m.op)){reply({ok:false,code:'busy'});return;}
  if(p.ecoBusy){reply({ok:false,code:'busy'});return;}
+ if(p.ctf&&!['sync','look_equip'].includes(m.op)){reply({ok:false,code:'busy'});return;}
  p.ecoBusy=true;
  try{
   let result;
@@ -838,7 +839,7 @@ function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
   if (n > ACC_MAX) { console.error('Save da conta ' + a.id + ' ignorado: grande demais (' + n + ' > ' + ACC_MAX + ')'); return }
   if (out.graal_nick !== undefined) out.graal_nick = out.graal_nick.slice(0, 12);
   if (!Object.keys(out).length) return;
-  if (out.graal_pos_v1 !== undefined && (p.football || out.graal_pos_v1.length > 400)) delete out.graal_pos_v1; // posição é um JSON minúsculo
+  if (out.graal_pos_v1 !== undefined && (p.football || p.ctf || out.graal_pos_v1.length > 400)) delete out.graal_pos_v1; // posição é um JSON minúsculo
   const slow = Object.keys(out).every(k => k === 'graal_pos_v1');
   p.svT = Date.now(); a.data = Object.assign(a.data || {}, protectSave(out,accountData(a.data||{},economy.peek(a.id)))); a.last = p.svT; saveACC(a.id, slow);
 }
@@ -886,6 +887,10 @@ const televisions = require('./televisions')({ players: P, send: sendTo, media: 
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 setInterval(() => televisions.tick(), 500).unref();
 setInterval(() => football.tick(), 50).unref();
+const ctf = require('./capture-flag')({players:P,send:sendTo,viewPlayer:p=>pstate(p),
+  eligible:p=>!football.has(p)&&!SPAR_QUEUE.includes(p.id),
+  authorized:p=>!!p.uh&&p.economyClient&&economicSession(p)&&!banOf(p.uh)&&!(KICKED.get(p.uh)>Date.now())});
+setInterval(()=>ctf.tick(),50).unref();
 setInterval(() => parties.tick(), 1000).unref();
 const dungeon = require('./dungeon')({ players: P, send: sendTo, getCombatState: p => economy.peek(p.acc),
   blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
@@ -900,7 +905,7 @@ setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { tr
 let HOST = 0;
 function electHost() {
   const now = Date.now(); let h = 0, hh = 0; // hh: melhor candidato entre os ocultos (invisível/espectador) — só vale se não houver ninguém visível
-  for (const q of P.values()) if (q.ok && !q.in && !q.football && now - q.uT < 4000) { if (q.hid) { if (!hh || q.id < hh) hh = q.id } else if (!h || q.id < h) h = q.id }
+  for (const q of P.values()) if (q.ok && !q.in && !q.football && !q.ctf && now - q.uT < 4000) { if (q.hid) { if (!hh || q.id < hh) hh = q.id } else if (!h || q.id < h) h = q.id }
   if (!h) h = hh;
   if (h === HOST) return;
   const old = P.get(HOST); if (old) sendTo(old.ws, { t: 'host', v: 0 });
@@ -914,6 +919,7 @@ const groundSnapshot=p=>sendTo(p.ws,{t:'dall',a:[...DROPS.values()].filter(d=>d.
 setInterval(()=>{const now=Date.now();for(const [id,drop]of DROPS)if(drop.expires<=now){DROPS.delete(id);groundBroadcast({t:'dp',id});}},5000);
 const LOCAL_CHAT_RADIUS = 320;
 function canHearLocal(sender, receiver) {
+  if (String(sender.ctf || '') !== String(receiver?.ctf || '')) return false;
   if (String(sender.football || '') !== String(receiver?.football || '')) return false;
   if (!receiver || !receiver.ok || !!sender.in !== !!receiver.in) return false;
   // Os interiores compartilham coordenadas; a porta diferencia as casas.
@@ -925,7 +931,7 @@ function canHearLocal(sender, receiver) {
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 /* v16: igual a others(), mas só para quem está no mesmo espaço (mundo aberto ou dentro de casa): bombas/flechas/fogo de dentro de casa não aparecem no mundo e vice-versa */
-const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (!q || String(q.spar || '') !== String(p.spar || '') || String(q.football || '') !== String(p.football || '') || !!q.in !== !!p.in) return; sendTo(c, msg) });
+const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (!q || String(q.spar || '') !== String(p.spar || '') || String(q.football || '') !== String(p.football || '') || String(q.ctf || '') !== String(p.ctf || '') || !!q.in !== !!p.in) return; sendTo(c, msg) });
 const SPAR_QUEUE = [];
 const SPAR_MATCHES = new Map();
 const SPAR_PENDING = new Map();
@@ -1066,7 +1072,7 @@ function startSparNow(a, b, sparConfig, spawns, returns) {
   }
 }
 function requestSpar(p, join) {
-  if (join && football.has(p)) return sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Saia do futebol antes de entrar no Spar.' });
+  if (join && (football.has(p) || ctf.has(p))) return sendTo(p.ws, { t: 'spq', s: 'error', msg: 'Saia do minigame antes de entrar no Spar.' });
   if (!join) {
     removeSparQueue(p.id);
     if (p.sparPending) cancelSparCountdown(p.sparPending);
@@ -1134,7 +1140,7 @@ wss.on('connection', (ws, req) => {
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
-  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, fishing: 1, fishing_range:fishing.maxCastDistance });
+  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, fishing: 1, ctf:1, fishing_range:fishing.maxCastDistance });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
@@ -1159,7 +1165,7 @@ wss.on('connection', (ws, req) => {
 
   { // mesmo aparelho (cookie ggid) já online com OUTRA identidade (ex.: acabou de sair da conta Discord): remove o antigo na hora, sem esperar o fechamento do socket
     const dev = guestOf(req);
-    if (dev) { p.dev = dev; for (const o of [...P.values()]) if (o !== p && o.dev === dev) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); football.disconnect(o.id); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } }
+    if (dev) { p.dev = dev; for (const o of [...P.values()]) if (o !== p && o.dev === dev) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); football.disconnect(o.id); ctf.disconnect(o.id); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } }
   }
   { // conectou com a sessão do Discord: a identidade (bans/admins) passa a ser a conta, e o progresso vem do servidor
     const sid = sessionOf(req);
@@ -1189,7 +1195,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', d => {
     let m; try { m = JSON.parse(d) } catch (e) { return }
     if (!m || typeof m !== 'object') return;
-    if(m.t==='fish'){if(d.length<=512)fishing.handle(p,m);return;}
+    if(m.t==='fish'){if(p.ctf||p.ctfQueued)return;if(d.length<=512)fishing.handle(p,m);return;}
     if (m.t === 'eco') {
       if (p.football && ['consume', 'hit', 'bush', 'chest'].includes(m.op)) {
         sendTo(ws, { t: 'eco', rid: m.rid, op: m.op, account: p.acc, ok: false, code: 'busy' }); return;
@@ -1206,7 +1212,7 @@ wss.on('connection', (ws, req) => {
       p.uh = sha(m.uid);
       if(p.groundDrops)groundSnapshot(p);
       if(p.fishingClient)fishing.sync(p);
-      for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); football.disconnect(o.id); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
+      for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); football.disconnect(o.id); ctf.disconnect(o.id); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
       const bn = banOf(p.uh); if (bn) { sendTo(ws, { t: 'kick', r: banMsg(bn) }); setTimeout(() => ws.close(), 100); return }
       const ku = KICKED.get(p.uh);
       if (ku && ku > Date.now()) { sendTo(ws, { t: 'kick', r: 'Você foi expulso do servidor. Volte em ' + fmtDur(ku - Date.now()) + '.' }); setTimeout(() => ws.close(), 100); return }
@@ -1222,9 +1228,11 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'speaker') { void speakers.handle(p, m).catch(() => sendTo(ws, { t: 'speaker', op: 'error', message: 'Não foi possível alterar a caixa.' })); return }
     if (m.t === 'television') { void televisions.handle(p, m).catch(() => sendTo(ws, { t: 'television', op: 'error', message: 'Não foi possível alterar a TV.' })); return }
-    if (m.t === 'dungeon') { if (d.length <= 512) dungeon.handle(p, m); return }
+    if (m.t === 'dungeon') { if(p.ctf||p.ctfQueued)return; if (d.length <= 512) dungeon.handle(p, m); return }
     if (m.t === 'party') { parties.handle(p, m); return }
+    if (m.t === 'ctf') { if (d.length <= 512) ctf.handle(p,m); return }
     if (m.t === 'football') {
+      if(m.op==='join'&&ctf.has(p)){sendTo(ws,{t:'football',op:'error',message:'Saia do roube-bandeira antes de entrar no futebol.'});return;}
       if (m.op === 'join' && SPAR_QUEUE.includes(p.id)) {
         sendTo(ws, { t: 'football', op: 'error', message: 'Saia da fila do Spar antes de entrar no futebol.' }); return;
       }
@@ -1344,7 +1352,7 @@ wss.on('connection', (ws, req) => {
       p.svD = null; applySv(p, m.d); return;
     }
     if (m.t === 'bc') { // arbusto cortado: valida, guarda e avisa os outros (quem cortou já mostrou na própria tela)
-      if (p.football) return;
+      if (p.football || p.ctf) return;
       const x = m.x | 0, y = m.y | 0, now = Date.now();
       if (!p.ok || m.x !== x || m.y !== y || x < 0 || y < 0 || x >= 1664 || y >= 2752) return;
       if (now - p.bT > 1000) { p.bT = now; p.bN = 0 } if (++p.bN > 30) return;
@@ -1355,7 +1363,7 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'ty') { p.ty = m.v ? 1 : 0; return } // chat aberto: mostra balão "..." na cabeça
     if (m.t === 'dr') return; // somente admin_drop e recompensas validadas criam Glims
     if (m.t === 'bo' || m.t === 'ar' || m.t === 'fl' || m.t === 'th') { // bomba colocada/jogada, flecha atirada, fogo do cavalo: só efeito visual para os outros
-      if (p.football) return;
+      if (p.football || p.ctf) return;
       if (p.hid) return; // invisível não deixa rastro
       const now = Date.now(); if (now - (p.evW || 0) > 1000) { p.evW = now; p.evN = 0 } if (++p.evN > 30) return;
       if (m.t === 'bo') othersSame(p, { t: 'bo', sx: num(m.sx, -1e6, 1e6), sy: num(m.sy, -1e6, 1e6), tx: num(m.tx, -1e6, 1e6), ty: num(m.ty, -1e6, 1e6), fl: num(m.fl, 0, 1), bt: num(m.bt, 0, 5) }); // bt = tempo de pavio que falta (o outro lado explode junto)
@@ -1366,7 +1374,7 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'dp') return; // pickup valida proximidade e credita numa transação
     if (m.t === 'ms') { // estado dos monstros: só o anfitrião manda; vai para todos os outros
-      if (p.football) return;
+      if (p.football || p.ctf) return;
       if (p.id !== HOST || d.length > 20000 || !Array.isArray(m.e) || m.e.length > 300) return;
       combatRewards.observe(m.e,SP.add);
       const states=[];
@@ -1396,7 +1404,7 @@ wss.on('connection', (ws, req) => {
       if (!p.hid) others(id, Object.assign({ t: 'pi', id }, p.pi)); return;
     }
     if (m.t === 'ph') { // golpe de sparring: só vale se os dois aceitaram e estão perto; o servidor repassa só à vítima
-      if (p.football) return;
+      if (p.football || p.ctf) return;
       const now = Date.now(); if (now - (p.phW || 0) > 1000) { p.phW = now; p.phN = 0 } if (++p.phN > 8) return;
       const q = P.get(m.to | 0); if (!q || q === p || p.hid || q.hid || q.football) return;
       if (p.sparPending || q.sparPending) return; if (p.spar || q.spar) { const match = SPAR_MATCHES.get(String(p.spar || '')); if (!p.spar || p.spar !== q.spar || !match || !match.players.includes(q.id)) return }
@@ -1417,7 +1425,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (m.t === 'pk') { // a vítima do sparring avisa quem a derrubou (só vale se levou golpe dele há pouco)
-      if (p.football) return;
+      if (p.football || p.ctf) return;
       const k = P.get(m.by | 0), now = Date.now(); if (!k || k === p || p.phFrom !== k.id || now - (p.phT || 0) > 15000) return;
       if (p.spar && (p.spar !== k.spar || p.hp > 0)) return;
       p.phFrom = 0; sendTo(k.ws, { t: 'pk', id, nm: p.nm });
@@ -1425,7 +1433,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (m.t === 'ip') { // posição DENTRO de uma casa (o 'u' não vem de lá): guardada só para gravar na conta se ele sair
-      if (p.football) return;
+      if (p.football || p.ctf) return;
       if (d.length > 300 || !p.ok) return;
       const x = Math.round(+m.x), y = Math.round(+m.y), r = m.r && Number.isFinite(+m.r.x) && Number.isFinite(+m.r.y) ? { x: Math.round(+m.r.x), y: Math.round(+m.r.y) } : null;
       if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) return;
@@ -1433,7 +1441,7 @@ wss.on('connection', (ws, req) => {
     }
     if (m.t === 'lag') { sendTo(ws, { t: 'lag', ms: Math.round(ws.pingMs || 0) }); return; }
     if (m.t === 'u') {
-      if (p.football) return; // No futebol, posição e velocidade vêm da simulação do servidor.
+      if (p.football || p.ctf) return; // No futebol, posição e velocidade vêm da simulação do servidor.
       if (d.length > 400) return;
       /* v16 — dentro de casa o cliente continua mandando 'u': x,y = a PORTA (clientes antigos veem o jogador parado nela), in:1 + ix,iy = posição real no interior, ia = animação.
          Quem também está dentro desenha o jogador andando de verdade; quem está fora não o vê (ele "entrou"). */
@@ -1469,7 +1477,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
-  ws.on('close', () => { fishing.disconnect(id); football.disconnect(id); parties.disconnect(id); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); /* drops públicos persistem até coleta/expiração */ });
+  ws.on('close', () => { fishing.disconnect(id); football.disconnect(id); ctf.disconnect(id); parties.disconnect(id); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); /* drops públicos persistem até coleta/expiração */ });
   ws.on('error', () => { });
 });
 
@@ -1482,7 +1490,7 @@ function normAn(a) {
   return m[1] + '_' + (/^[0-3]$/.test(m[2]) ? AN_DIR[+m[2]] : m[2]);
 }
 
-const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt | 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, cy: p.cy | 0, ac: p.ac | 0, fl: p.fl | 0, in: p.in ? 1 : undefined, ix: p.in ? p.ix : undefined, iy: p.in ? p.iy : undefined, ia: p.in ? p.ia : undefined });
+const pstate = p => ({ id: p.id, ct: p.ct, ak: p.ak, ad: p.ad, x: p.x, y: p.y, nm: p.nm, an: p.an, al: p.al, b: p.b, h: p.h, s: p.s, sw: p.sw, mt: p.mt | 0, r: p.role, tp: p.ty | 0, lv: p.lv, hp: p.hp, hm: p.hm, kl: p.kl, ctf: p.ctf || undefined, cy: p.cy | 0, ac: p.ac | 0, fl: p.fl | 0, in: p.in ? 1 : undefined, ix: p.in ? p.ix : undefined, iy: p.in ? p.iy : undefined, ia: p.in ? p.ia : undefined });
 setInterval(() => {
   for (const c of wss.clients) {
     const self = P.get(c.pid);
