@@ -110,3 +110,24 @@ test('production admin handler allows admins to set 0 and 20000; rejects ordinar
   for(const v of [-1,20001,1.5,'20000'])set(2,'head',v);
   set(2,'__proto__',0);assert.equal(saves,2);assert.ok(messages.some(m=>m.t==='look_prices'));
 });
+
+test('native animated atlas confirms without GIF reconversion; validates every untrusted animation field',async()=>{
+  const report=path.resolve(__dirname,'../../../reports/fast-look-confirmation-20261126');
+  const request=JSON.parse(fs.readFileSync(path.join(report,'native-upload.json'),'utf8'));
+  const start=performance.now();
+  const asset=await looks.prepare(request.kind,request.png,request.animation);
+  console.log('NATIVE_ATLAS_VALIDATION ms='+ (performance.now()-start).toFixed(3));
+  assert.equal(asset.animation.delays.length,2);assert.equal(asset.animation.height,128);
+  for(const animation of [false,{}, {height:128,delays:[]},{height:128,delays:[0]},{height:128,delays:[Infinity]},
+    {height:128,delays:['0.1']},{height:128,delays:[601]},{height:128,delays:Array(33).fill(0.1)},
+    {height:129,delays:[0.1,0.25]},{height:128.5,delays:[0.1,0.25]}, {height:128,delays:[0.1]}]) {
+    await assert.rejects(looks.prepare(request.kind,request.png,animation),{code:'invalid_png'});
+  }
+  const economy=new Economy(pool),p=actor();await economy.ensure(p.acc);await economy.credit(p.acc,20000,rid(),()=>true);
+  const purchase={...request,price:20000,rid:rid()};
+  const buying=performance.now();const bought=await economy.buyLook(p,purchase,()=>({head:20000}),()=>true);
+  console.log('NATIVE_ATLAS_PURCHASE_ACK ms='+ (performance.now()-buying).toFixed(3));
+  assert.equal(bought.state.gl,0);assert.equal(bought.state.looks.library.head[0].animation.delays.length,2);
+  assert.equal((await economy.buyLook(p,purchase,()=>({head:20000}),()=>true)).duplicate,true);
+  assert.equal((await economy.ensure(p.acc)).gl,0);
+});

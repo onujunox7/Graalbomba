@@ -24,6 +24,10 @@ function crc32(bytes) {
 }
 // Validate the complete PNG before persisting or charging. Inflation is bounded by dimensions.
 function validate(kind, png, animation = null) {
+  if (animation !== null) {
+    if (!animation || !Number.isSafeInteger(animation.height) || animation.height < 1 || animation.height > 1024 || !Array.isArray(animation.delays) || !animation.delays.length || animation.delays.length > 32 || animation.delays.some(d=>!Number.isFinite(d)||d<0.02||d>600)) fail('invalid_png');
+    animation = {height:animation.height,delays:[...animation.delays]};
+  }
   if (!KINDS.includes(kind) || typeof png !== 'string' || png.length > 22 + Math.ceil(MAX_PNG / 3) * 4 || !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(png)) fail('invalid_png');
   const bytes = Buffer.from(png.slice(22), 'base64');
   if (bytes.length > MAX_PNG || bytes.length < 57 || bytes.toString('base64') !== png.slice(22) || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) fail('invalid_png');
@@ -38,7 +42,7 @@ function validate(kind, png, animation = null) {
       w = data.readUInt32BE(0); h = data.readUInt32BE(4); depth = data[8]; color = data[9];
       const validDepth = {0:[1,2,4,8,16],2:[8,16],3:[1,2,4,8],4:[8,16],6:[8,16]};
       const logicalHeight = animation ? animation.height : h;
-      if (!dimensions(kind,w,logicalHeight) || (animation && h !== logicalHeight * animation.delays.length) || !validDepth[color]?.includes(depth) || data[10] !== 0 || data[11] !== 0 || data[12] !== 0) fail('invalid_png');
+      if (!dimensions(kind,w,logicalHeight) || w*h>1048576 || (animation && h !== logicalHeight * animation.delays.length) || !validDepth[color]?.includes(depth) || data[10] !== 0 || data[11] !== 0 || data[12] !== 0) fail('invalid_png');
     } else if (tag === 'PLTE') { if (!n || n > 768 || n % 3) fail('invalid_png'); palette = true; }
     else if (tag === 'IDAT') compressed.push(data);
     else if (tag === 'IEND') { if (n !== 0 || end !== bytes.length) fail('invalid_png'); ended = true; break; }
@@ -80,8 +84,8 @@ function gifInfo(kind, bytes) {
   }
   fail('invalid_png');
 }
-async function prepare(kind, data) {
-  if (typeof data !== 'string' || !data.startsWith('data:image/gif;base64,')) return validate(kind,data);
+async function prepare(kind, data, metadata = null) {
+  if (typeof data !== 'string' || !data.startsWith('data:image/gif;base64,')) return validate(kind,data,metadata);
   if (data.length > 22 + Math.ceil(MAX_PNG / 3) * 4 || !/^data:image\/gif;base64,[A-Za-z0-9+/]+={0,2}$/.test(data)) fail('invalid_png');
   const bytes = Buffer.from(data.slice(22),'base64');
   if (bytes.toString('base64') !== data.slice(22)) fail('invalid_png');

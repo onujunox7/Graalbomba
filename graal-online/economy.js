@@ -117,7 +117,7 @@ class Economy {
  }
  async buyLook(p,request,prices,authorized){
   if(p.spar||p.football)throw error('busy');
-  const asset=await looks.prepare(request.kind,request.png);
+  const asset=await looks.prepare(request.kind,request.png,request.animation ?? null);
   return this.transact(p.acc,request.rid,digest(request),state=>{if(p.spar||p.football)throw error('busy');return looks.buy(state,request,prices(),asset);},authorized);
  }
  async equipLook(p,request,authorized){
