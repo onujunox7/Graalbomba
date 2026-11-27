@@ -19,6 +19,7 @@
  */
 const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+const { readWebSocketCredential, selectWebSocketProtocol } = require('./websocket_identity');
 const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
@@ -285,12 +286,12 @@ const baseUrl = req => PUBLIC_URL || ((req.headers['x-forwarded-proto'] || 'http
 const ck = (req, name, val, sec) => name + '=' + encodeURIComponent(val) + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + sec + (baseUrl(req).startsWith('https') ? '; Secure' : '');
 function sessionOf(req) { // id da conta se o cookie de sessão for válido e assinado por nós
   if (!AUTH_ON) return null;
-  const v = readCookie(req, 'gsid'), i = v.lastIndexOf('.'); if (i < 1) return null;
+  const v = readWebSocketCredential(req, 'gsid') ?? readCookie(req, 'gsid'), i = v.lastIndexOf('.'); if (i < 1) return null;
   const p = v.slice(0, i), a = Buffer.from(v.slice(i + 1)), b = Buffer.from(sign(p));
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try { const o = JSON.parse(Buffer.from(p, 'base64url').toString()); return o && o.exp > Date.now() && ACC[o.id] ? o.id : null } catch (e) { return null }
 }
-const guestOf = req => { const v = readCookie(req, 'ggid'); return GID_RE.test(v) ? v : null };
+const guestOf = req => { const v = readWebSocketCredential(req, 'ggid') ?? readCookie(req, 'ggid'); return GID_RE.test(v) ? v : null };
 const ensureGuest = id => ensurePid(ACC[id] || (ACC[id] = { id, guest: true, name: 'Visitante', av: null, at: Date.now(), last: Date.now(), data: {} }));
 const avatarOf = a => a.guest ? 'https://cdn.discordapp.com/embed/avatars/0.png' : a.av ? 'https://cdn.discordapp.com/avatars/' + a.id + '/' + a.av + '.png?size=64' : 'https://cdn.discordapp.com/embed/avatars/' + Number((BigInt(a.id) >> 22n) % 6n) + '.png';
 const nickOf = n => String(n).replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12) || 'Jogador';
@@ -782,7 +783,7 @@ const srv = http.createServer((req, res) => {
 try { fs.stat(INDEX, (e0, st) => { if (e0) return; fs.readFile(INDEX, (e, d) => { if (e || IDX) return; const cur = IDX = { m: st.mtimeMs, raw: d, gz: null, br: null, etag: '"' + crypto.createHash('sha1').update(d).digest('hex').slice(0, 16) + '"' }; zlib.gzip(d, { level: 9 }, (er, b) => { if (!er) cur.gz = b }); zlib.brotliCompress(d, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: d.length } }, (er, b) => { if (!er) cur.br = b }) }) }) } catch (e) { }
 
 /* ---------------- jogo (WebSocket, protocolo v3) ---------------- */
-const wss = new WebSocketServer({ server: srv, maxPayload: 700 * 1024 });
+const wss = new WebSocketServer({ server: srv, maxPayload: 700 * 1024, handleProtocols: selectWebSocketProtocol });
 let nid = 1; const P = new Map();
 // Uma única conexão ativa por conta Discord: impede que uma aba/dispositivo antigo
 // sobrescreva o progresso mais recente depois de uma nova entrada.
