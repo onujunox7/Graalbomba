@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('crypto');
+const looks = require('./custom-looks');
 const HATS = new Set(['hat_01','hat_02','hat_03','hat_04','hat_05']);
 const integer = (v, lo, hi, fallback=0) => Number.isSafeInteger(Number(v)) ? Math.max(lo,Math.min(hi,Number(v))) : fallback;
 const parse = (v, fallback={}) => { try { const d=typeof v==='string'?JSON.parse(v):v; return d && typeof d==='object'?d:fallback; } catch { return fallback; } };
@@ -19,7 +20,7 @@ function legacyState(data={}) {
  const quest=parse(sv.q);
  const bag={}; for(const [k,v] of Object.entries(parse(data.graal_npc_bag_v1)).slice(0,500)) if(k.length<=100&&k!=='__proto__') bag[k]=integer(v,0,99999);
  return {v:0, gl:integer(sv.gl,0,1000000000), lvl:integer(sv.lvl,1,999,1), exp:integer(sv.exp,0,99), kills:integer(sv.kills,0,1000000000), hats, hat:hats.includes(data.graal_hat_equip)?data.graal_hat_equip:'', mount:data.graal_mount_owned==='1', bag,
-  pot:integer(sv.pot,0,9,1), up:integer(sv.up,0,5), b:integer(ammo.b,0,99999,10), a:integer(ammo.a,0,99999,20), chests:[],quest:{i:integer(quest.i,0,QUESTS.length),n:integer(quest.n,0,15)}};
+  pot:integer(sv.pot,0,9,1), up:integer(sv.up,0,5), b:integer(ammo.b,0,99999,10), a:integer(ammo.a,0,99999,20), chests:[],quest:{i:integer(quest.i,0,QUESTS.length),n:integer(quest.n,0,15)}, looks:looks.legacy(data)};
 }
 function accountData(data, state) {
  if(!state)return {...data};
@@ -31,6 +32,7 @@ function accountData(data, state) {
  return out;
 }
 function protectSave(out, previous) {
+ delete out.graal_custom_v1; delete out.graal_headbuy_v1;
  for(const k of ['graal_hats_owned','graal_hat_equip','graal_mount_owned','graal_npc_bag_v1','graal_classic_zelda_v1']) delete out[k];
  if(typeof out.graal_classic_save_v1==='string'){
   const next=parse(out.graal_classic_save_v1), old=parse(previous.graal_classic_save_v1);
@@ -92,6 +94,7 @@ class Economy {
  peek(id){return this.cache.get(id);}
  async ensure(id,seed=legacyState()){
   await this.pool.query('INSERT INTO graal_economy(account_id,state) VALUES($1,$2::jsonb) ON CONFLICT DO NOTHING',[id,JSON.stringify(seed)]);
+  await this.pool.query("UPDATE graal_economy SET state=jsonb_set(state,'{looks}',$2::jsonb) WHERE account_id=$1 AND NOT (state ? 'looks')",[id,JSON.stringify(seed.looks||looks.empty())]);
   const row=await this.pool.query('SELECT state FROM graal_economy WHERE account_id=$1',[id]);return this.remember(id,row.rows[0].state);
  }
  async transact(id,rid,fingerprint,mutate,authorized=()=>true){
@@ -111,6 +114,14 @@ class Economy {
    await db.query('INSERT INTO graal_economy_receipts(account_id,request_id,fingerprint,result) VALUES($1,$2,$3,$4::jsonb)',[id,rid,fingerprint,JSON.stringify(result)]);
    await db.query('COMMIT');return {state:this.remember(id,state),...result};
   }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}finally{db.release();}
+ }
+ async buyLook(p,request,prices,authorized){
+  if(p.spar||p.football)throw error('busy');
+  const asset=await looks.prepare(request.kind,request.png);
+  return this.transact(p.acc,request.rid,digest(request),state=>{if(p.spar||p.football)throw error('busy');return looks.buy(state,request,prices(),asset);},authorized);
+ }
+ async equipLook(p,request,authorized){
+  return this.transact(p.acc,request.rid,digest(request),state=>looks.equip(state,request),authorized);
  }
  async purchase(p,request,npcs,authorized){
   const id=p.acc;

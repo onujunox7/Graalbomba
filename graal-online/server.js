@@ -781,6 +781,13 @@ let nid = 1; const P = new Map();
 // sobrescreva o progresso mais recente depois de uma nova entrada.
 const ACTIVE_ACC = new Map();
 const {Economy,accountData,protectSave,merchant,offers}=require('./economy');
+const customLooks=require('./custom-looks');
+const lookPrices=()=>customLooks.prices(AD.cfg.lookPrices);
+function applyLooks(p,state){
+ const chosen=customLooks.selected(state);
+ p.bs=chosen.body;p.hs=chosen.head;p.ss=chosen.sword;p.ds=chosen.shield;p.lookAnimation=customLooks.animation(state);
+ if(!p.hid)others(p.id,{t:'k',id:p.id,bs:p.bs,hs:p.hs,ss:p.ss,ds:p.ds,animation:p.lookAnimation});
+}
 const {RewardWorld}=require('./reward-world');
 const {CombatRewards}=require('./combat-rewards');
 const economy=new Economy(pgPool),rewardWorld=new RewardWorld(path.join(__dirname,'reward-data'));
@@ -792,11 +799,15 @@ async function economicRequest(p,m){
  if(!authorized()||!p.economyClient||typeof m.rid!=='string'||!/^[a-f0-9]{32}$/.test(m.rid))return;
  const now=Date.now();if(now-(p.ecoWindow||0)>1000){p.ecoWindow=now;p.ecoCount=0;}if(++p.ecoCount>30){reply({ok:false,code:'busy'});return;}
  if(p.fishing&&['consume','hit','bush','chest','pickup'].includes(m.op)){reply({ok:false,code:'busy'});return;}
+ if(p.spar&&['consume','buy','pickup'].includes(m.op)){reply({ok:false,code:'busy'});return;}
  if(p.ecoBusy){reply({ok:false,code:'busy'});return;}
  p.ecoBusy=true;
  try{
   let result;
   if(m.op==='sync')result={state:await economy.ensure(account)};
+  else if(m.op==='look_preview')result={preview:await customLooks.prepare(m.kind,m.png)};
+  else if(m.op==='look_buy')result=await economy.buyLook(p,m,lookPrices,authorized);
+  else if(m.op==='look_equip')result=await economy.equipLook(p,m,authorized);
   else if(m.op==='catalog')result={items:offers(merchant(p,m,NP.a)),x:m.x,y:m.y,state:await economy.ensure(account)};
   else if(m.op==='buy')result=await economy.purchase(p,m,NP.a,authorized);
   else if(m.op==='equip')result=await economy.equip(p,m,authorized);
@@ -806,14 +817,15 @@ async function economicRequest(p,m){
   else if(m.op==='admin_drop'&&p.groundDrops)result=await economy.adminDrop(p,m,authorized);
   else if(m.op==='bush'||m.op==='chest'){rewardWorld.refresh(cfg);result=await economy.reward(p,m,rewardWorld,authorized);}
   else throw Object.assign(new Error('invalid_request'),{code:'invalid_request'});
-  if(result.effect&&!result.duplicate){if(result.effect==='heal')p.hp=p.hm;else if(result.effect.startsWith('hp:'))p.hp=Math.min(p.hm,p.hp+Number(result.effect.slice(3)));}
+  if(result.effect&&!result.duplicate&&!p.spar){if(result.effect==='heal')p.hp=p.hm;else if(result.effect.startsWith('hp:'))p.hp=Math.min(p.hm,p.hp+Number(result.effect.slice(3)));}
   if(m.op==='hit'&&!result.duplicate)spBroadcast({t:'mr',sid:result.sid,hp:result.hp,dead:result.dead,by:p.id,damage:result.damage,kx:result.kx,ky:result.ky});
   if(result.shared&&!result.duplicate){
    if(m.op==='admin_drop'){DROPS.set(result.drop.id,result.drop);groundBroadcast({t:'dr',...result.drop,pop:1,authoritative:1});}
    else if(m.op==='pickup'){DROPS.delete(result.drop_id);groundBroadcast({t:'dp',id:result.drop_id});}
   }
+  if(result.state&&['sync','look_buy','look_equip'].includes(m.op)&&authorized())applyLooks(p,result.state);
   reply({ok:true,...result});
- }catch(e){const safe=new Set(['busy','invalid_request','session_changed','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown','forbidden','drop_unavailable','invalid_reward']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
+ }catch(e){const safe=new Set(['busy','invalid_request','invalid_png','session_changed','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown','forbidden','drop_unavailable','invalid_reward']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
  finally{p.ecoBusy=false;}
 }
 function applySv(p, d) { // grava na conta o progresso enviado pelo navegador
@@ -915,6 +927,8 @@ const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) re
 const SPAR_QUEUE = [];
 const SPAR_MATCHES = new Map();
 const SPAR_PENDING = new Map();
+const SPAR_HP = 180, SPAR_HIT_DAMAGE = 30;
+const { PLAYER_HIT_INV_MS } = require('./combat-timing');
 let sparNextId = 1;
 const SPAR_ARENA = { x: 512, y: 512, w: 288, h: 224 };
 function cleanSparArea(a) {
@@ -969,6 +983,8 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
     const q = P.get(id);
     if (!q) continue;
     q.spar = null;
+    q.hm = match.returns[id].hm;
+    q.sparHitUntil = 0;
     q.phFrom = 0; q.phT = 0;
     // Os dois saem da luta no mesmo ponto em que a fila começou. Assim a
     // partida não espalha jogadores por posições antigas da arena.
@@ -994,7 +1010,7 @@ function cancelSparCountdown(pendingId) {
 function startSpar(a, b, sparConfig) {
   if (a.sparPending || b.sparPending) return;
   const id = 'count-' + String(sparNextId++), players = [a, b], returns = {};
-  for (const q of players) returns[q.id] = { x: q.x, y: q.y, in: !!q.in, ix: q.ix, iy: q.iy, ia: q.ia, f: (/(Up|Down|Left|Right)$/.exec(String(q.in ? q.ia : q.an || '')) || [])[1] || 'Down' };
+  for (const q of players) returns[q.id] = { x: q.x, y: q.y, in: !!q.in, ix: q.ix, iy: q.iy, ia: q.ia, hm: q.hm, f: (/(Up|Down|Left|Right)$/.exec(String(q.in ? q.ia : q.an || '')) || [])[1] || 'Down' };
   const customSpawns = !!sparConfig && Array.isArray(sparConfig.spawns) && sparConfig.spawns.length === 2 && sparConfig.spawns.every(Boolean);
   const pickSpawn = area => {
     const marginX = Math.min(20, Math.floor(area.w / 4)), marginY = Math.min(20, Math.floor(area.h / 4));
@@ -1042,7 +1058,7 @@ function startSparNow(a, b, sparConfig, spawns, returns) {
   for (let i = 0; i < players.length; i++) {
     const q = players[i], other = players[1 - i], sp = spawns[i];
     q.sparAreaConfig = null;
-    q.spar = id; q.mt = 0; q.cy = 0; q.hp = q.hm; q.ac = 0; q.uT = Date.now();
+    q.spar = id; q.mt = 0; q.cy = 0; q.hm = SPAR_HP; q.hp = SPAR_HP; q.sparHitUntil = 0; q.ac = 0; q.uT = Date.now();
     if (returns[q.id].in) { q.in = 1; q.ix = sp.x; q.iy = sp.y - 80000; q.ia = 'Idle_' + sp.f } else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
     sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, in: returns[q.id].in ? 1 : 0, ix: returns[q.id].in ? sp.x : undefined, iy: returns[q.id].in ? sp.y - 80000 : undefined, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
   }
@@ -1101,7 +1117,7 @@ function setHidden(p, h, sp) {
   if (p.hid && !was) others(p.id, { t: 'l', id: p.id });          // some da tela de todo mundo
   else if (!p.hid && was) {                                        // volta a aparecer: reenvia skin/equipamento/perfil/posição
     const id = p.id;
-    if (p.bs || p.hs) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
+    if (p.bs || p.hs || p.ss || p.ds) others(id, { t: 'k', id, bs: p.bs, hs: p.hs, ss: p.ss, ds: p.ds, animation:p.lookAnimation });
     if (p.c) others(id, { t: 'kc', id, c: p.c });
     if (p.e) others(id, { t: 'q', id, e: p.e });
     if (p.pi) others(id, Object.assign({ t: 'pi', id }, p.pi));
@@ -1121,10 +1137,11 @@ wss.on('connection', (ws, req) => {
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
   sendTo(ws, { t: 'spa', a: sparArea() }); // área de acesso à fila de spar, compartilhada e persistente
+  sendTo(ws, { t: 'look_prices', prices: lookPrices() });
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id && !o.hid) { // quem entra agora já vê skin/equip de quem está online (menos de quem está invisível)
-    if (o.bs || o.hs) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs });
+    if (o.bs || o.hs || o.ss || o.ds) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs, ss: o.ss, ds: o.ds, animation:o.lookAnimation });
     if (o.c) sendTo(ws, { t: 'kc', id: o.id, c: o.c });
     if (o.e) sendTo(ws, { t: 'q', id: o.id, e: o.e });
     if (o.pi) sendTo(ws, Object.assign({ t: 'pi', id: o.id }, o.pi));
@@ -1232,6 +1249,12 @@ wss.on('connection', (ws, req) => {
       const owner = p.role === 2, c = String(m.c || ''), tg = P.get(+m.id);
       const can = o => o && o !== p && (owner ? o.role < 2 : o.role < 1); // admin só mexe em jogador comum; dono em todos menos nele mesmo
       const nameOf = o => String(o.nm || '?');
+      if (c === 'look_price') {
+        try { AD.cfg.lookPrices=customLooks.changePrice(AD.cfg.lookPrices,m.kind,m.price); }
+        catch (_) { return note('Preço inválido: use de 0 a 20000 Glims.'); }
+        saveAD(); wss.clients.forEach(client=>sendTo(client,{t:'look_prices',prices:lookPrices()}));
+        note('Preço salvo. Zero deixa o envio grátis.'); return;
+      }
       if (c === 'say') { const x = String(m.x || '').trim().slice(0, 100); if (!x) return; const out = JSON.stringify({ t: 'c', id: 0, nm: '📢 Aviso', x }); wss.clients.forEach(k => sendTo(k, out)); return }
       if (c === 'hid') { setHidden(p, !!m.v, !!m.sp); return } // invisível / espectador (some para os outros)
       if (c === 'ol') { sendTo(ws, { t: 'adm', ol: onlineList() }); return } // quem está online (inclui os invisíveis)
@@ -1378,7 +1401,18 @@ wss.on('connection', (ws, req) => {
       else if (!p.pi || !p.pi.spo || !q.pi || !q.pi.spo) return;
       if (!!p.in !== !!q.in) return; // um dentro de casa e o outro fora: não se alcançam
       if (p.in ? Math.hypot(p.ix - q.ix, p.iy - q.iy) > 110 : Math.hypot(p.x - q.x, p.y - q.y) > 110) return;
-      q.phFrom = id; q.phT = now; sendTo(q.ws, { t: 'ph', from: id, d: num(m.d, 0, 2000) }); return;
+      if (p.spar) {
+        if (p.hp <= 0 || q.hp <= 0 || now < (q.sparHitUntil || 0)) return;
+        q.hp = Math.max(0, q.hp - SPAR_HIT_DAMAGE);
+        q.sparHitUntil = now + PLAYER_HIT_INV_MS;
+      }
+      q.phFrom = id; q.phT = now;
+      sendTo(q.ws, { t: 'ph', from: id, d: p.spar ? SPAR_HIT_DAMAGE : num(m.d, 0, 2000) });
+      if (p.spar && q.hp === 0) {
+        sendTo(p.ws, { t: 'pk', id: q.id, nm: q.nm });
+        finishSpar(p.spar, id, 'finished');
+      }
+      return;
     }
     if (m.t === 'pk') { // a vítima do sparring avisa quem a derrubou (só vale se levou golpe dele há pouco)
       if (p.football) return;
@@ -1407,16 +1441,16 @@ wss.on('connection', (ws, req) => {
       } else { p.in = 0; p.il = null } // voltou ao mundo aberto
       p.x = num(m.x, -1e6, 1e6); p.y = num(m.y, -1e6, 1e6); p.nm = String(m.nm || '?').slice(0, 12);
       p.an = normAn(m.an); p.al = m.al == 1 ? 1 : .4;
-      if(m.hp===0&&!p.diedAt)p.diedAt=Date.now();
-      if(p.hp===0&&m.hp>0&&p.diedAt&&Date.now()-p.diedAt>=4000&&economicSession(p)){
+      if(!p.spar&&m.hp===0&&!p.diedAt)p.diedAt=Date.now();
+      if(!p.spar&&p.hp===0&&m.hp>0&&p.diedAt&&Date.now()-p.diedAt>=4000&&economicSession(p)){
         const account=p.acc,death=p.diedAt;p.diedAt=0;
         economy.transact(account,crypto.createHash('sha256').update(account+':respawn:'+death).digest('hex').slice(0,32),'respawn',state=>{state.b=Math.max(state.b,10);state.a=Math.max(state.a,20);},()=>p.acc===account&&economicSession(p)).then(result=>sendTo(ws,{t:'eco',account,op:'refill',ok:true,...result})).catch(()=>{});
       }
-      if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; p.kl = num(m.kl, 0, 1e9) | 0 }
+      if (m.lv != null) { p.lv = num(m.lv, 1, 999) | 0; if (!p.spar) { p.hp = num(m.hp, 0, 99999) | 0; p.hm = num(m.hm, 0, 99999) | 0; } p.kl = num(m.kl, 0, 1e9) | 0 }
       p.b = num(m.b, 0, 999) | 0; p.h = num(m.h, 0, 999) | 0; p.s = p.role > 0 ? Math.round(num(m.s, 0.3, 1) * 100) / 100 : 0.6; /* tamanho do personagem (30%-100%): só admin/dono pode mudar; os outros ficam no padrão 60% */ p.sw = m.sw ? 1 : 0; p.mt = num(m.mt, 0, 9) | 0; /* 0 a pé · skin da montaria + 1 */ p.ct = typeof m.ct === 'number' && isFinite(m.ct) ? m.ct : undefined; p.cy = m.cy === 1 || m.cy === 2 ? m.cy : num(m.cy, 0, 99999) >= 10 ? num(m.cy, 0, 99999) | 0 : 0; p.ac = m.ac ? 1 : 0; p.fl = m.fl ? 1 : 0; p.ak = num(m.ak, 0, 1e9) | 0; p.ad = num(m.ad, 50, 1000) | 0; p.uT = Date.now(); if (!p.ok) { p.ok = 1; electHost() } else p.ok = 1; dungeon.correct(p); if (!p.hid) othersSame(p, JSON.stringify({ t: 'pu', p: pstate(p) }));
     } else if (m.t === 'k') {
-      p.bs = PNG(m.bs) ? m.bs : null; p.hs = PNG(m.hs) ? m.hs : null;
-      if (!p.hid) others(id, { t: 'k', id, bs: p.bs, hs: p.hs });
+      // Only the transactional account inventory authorizes uploaded PNGs.
+      applyLooks(p,economy.peek(p.acc));
     } else if (m.t === 'kc') {
       p.c = COLS(m.c);
       if (!p.hid) others(id, { t: 'kc', id, c: p.c });
