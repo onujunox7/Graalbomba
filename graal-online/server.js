@@ -582,6 +582,13 @@ const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'applic
 let IDX = null; // index.html em memória (bruto + gzip)
 const srv = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
+  // CORS: o jogo Godot exportado pra web pode rodar em outro domínio (ex.: itch.io) e chama a API por HTTP.
+  // Sem estes cabeçalhos o navegador bloqueia a resposta (MapSync, login, fundos de perfil).
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   if (url.startsWith('/api/television/video/')) {
     const match = /^\/api\/television\/video\/([a-f0-9]{32})\/(\d{6})\.ogv$/.exec(url);
     const info = match && (req.method === 'GET' || req.method === 'HEAD') ? televisions.file(match[1], Number(match[2])) : null;
