@@ -895,7 +895,7 @@ setInterval(() => parties.tick(), 1000).unref();
 const dungeon = require('./dungeons')({ players: P, send: sendTo, getCombatState: p => economy.peek(p.acc),
   blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
-setInterval(() => dungeon.tick(), 100).unref();
+setInterval(() => dungeon.tick(), dungeon.tick_ms).unref();
 const fishing=require('./fishing')({players:P,economy,world:rewardWorld,refresh:()=>rewardWorld.refresh(cfg),send:sendTo,
  broadcast:(p,message)=>othersSame(p,message),authorized:p=>!!p.uh&&p.economyClient&&economicSession(p)&&!banOf(p.uh)&&!(KICKED.get(p.uh)>Date.now())});
 setInterval(()=>fishing.tick(),50).unref();

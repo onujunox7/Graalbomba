@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const {PLAYER_HIT_INV_MS,MONSTER_HIT_INV_MS}=require('./combat-timing');
 const MAP = require('./dungeon_ruins.json');
 const CELL = 8;
+const TICK_MS = 50;
 const ORDER = ['east', 'north', 'west'];
 const center = cell => ({ x: (cell[0] + 0.5) * CELL, y: (cell[1] + 0.5) * CELL });
 const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -13,6 +14,8 @@ const inMap = (p, map = MAP) => !!p?.in && !p.football && !p.spar && Number.isFi
 
 module.exports = function createDungeon({ players, send, authorized, getCombatState = () => ({}), blocksMove = () => false, now = Date.now, map = MAP }) {
   const MAP = map, SOLID = Buffer.from(MAP.s, 'base64');
+  const COLLISION = MAP.collision ? MAP.collision.map(c => ({x:c.rect[0],y:c.rect[1],w:c.rect[2],h:c.rect[3]})) :
+    MAP.objects.filter(o => ['chest','relic','plaque','torch'].includes(o.kind)).map(o => ({x:center(o.cell).x-6,y:center(o.cell).y-4,w:12,h:6}));
   const positions = new Map(), rates = new Map(), attacks = new Map(), shots = new Map(), hurtUntil = new Map();
   let enemies, generation, key, gate, flames, solved, relic, completed, visited, emptyAt;
   let lastStep = now(), lastBroadcast = 0;
@@ -44,8 +47,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
     }
     const open = openGates();
     if (MAP.gates.some(g => !open[g.id] && overlap(body, rect(g.rect)))) return true;
-    return MAP.objects.some(o => ['chest', 'relic', 'plaque', 'torch'].includes(o.kind) &&
-      overlap(body, { x: center(o.cell).x - 6, y: center(o.cell).y - 4, w: 12, h: 6 }));
+    return COLLISION.some(bounds => overlap(body, bounds));
   }
 
   function state(p) {
@@ -170,12 +172,45 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
   }
 
   function moveEnemy(enemy, target, delta) {
-    const dx = target.x - enemy.x, dy = target.y - enemy.y, distance = Math.hypot(dx, dy);
+    let destination = target;
+    if (Math.hypot(target.x-enemy.x,target.y-enemy.y) <= 2) { enemy.walking=false; return; }
+    if (!clearPath(enemy, target, enemy.scale)) {
+      if (!enemy.route || now() >= enemy.routeUntil) {
+        enemy.route = routeEnemy(enemy, target);
+        enemy.routeUntil = now() + 350;
+      }
+      while (enemy.route.length && Math.hypot(enemy.route[0].x-enemy.x,enemy.route[0].y-enemy.y)<2) enemy.route.shift();
+      if (enemy.route.length) destination = enemy.route[0];
+    } else enemy.route = null;
+    const dx = destination.x - enemy.x, dy = destination.y - enemy.y, distance = Math.hypot(dx, dy);
     const step = Math.min(distance, enemy.speed * delta);
     enemy.walking = distance > 2;
     if (!enemy.walking) return;
     enemy.face = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'Right' : 'Left') : (dy > 0 ? 'Down' : 'Up');
+    const oldX=enemy.x,oldY=enemy.y;
     stepEnemy(enemy, dx / distance * step, dy / distance * step);
+    enemy.walking = Math.hypot(enemy.x-oldX,enemy.y-oldY) > .001;
+  }
+
+  // Bounded room-grid search, cached350ms. Only needed when direct steering hits an obstacle.
+  function routeEnemy(enemy, target) {
+    const room=rect(MAP.rooms.find(r=>r.id===enemy.room).rect);
+    const start=Math.floor(enemy.y/CELL)*MAP.w+Math.floor(enemy.x/CELL);
+    const previous=new Map([[start,-1]]),queue=[start];
+    for(let cursor=0;cursor<queue.length;cursor++) {
+      const key=queue[cursor],x=key%MAP.w,y=Math.floor(key/MAP.w),at=center([x,y]);
+      if (Math.hypot(at.x-target.x,at.y-target.y)<=Math.max(6,enemy.reach-4) && clearPath(at,target,.2)) {
+        const route=[];
+        for(let k=key;k!==start;k=previous.get(k)) route.push(center([k%MAP.w,Math.floor(k/MAP.w)]));
+        return route.reverse();
+      }
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx=x+dx,ny=y+dy,next=ny*MAP.w+nx,point=center([nx,ny]);
+        if(previous.has(next)||!within(point,room)||blocked(point.x,point.y,enemy.scale))continue;
+        previous.set(next,key);queue.push(next);
+      }
+    }
+    return [];
   }
 
   function stepEnemy(enemy, dx, dy) {
@@ -205,7 +240,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
         if (enemy.phase === 'windup') {
           enemy.walking = false;
           if (stamp >= enemy.until) {
-            for (const hero of targets) if (Math.hypot(point(hero).x - enemy.x, point(hero).y - enemy.y) <= enemy.reach + 6 && (hurtUntil.get(hero.id) || 0) <= stamp) {
+            for (const hero of targets) if (Math.hypot(point(hero).x - enemy.x, point(hero).y - enemy.y) <= enemy.reach + 6 && (hurtUntil.get(hero.id) || 0) <= stamp && clearPath(enemy,point(hero),.2)) {
               hero.hp = Math.max(0, hero.hp - enemy.damage);
               hurtUntil.set(hero.id, stamp + PLAYER_HIT_INV_MS);
               emit(hero, { op: 'hurt', damage: enemy.damage, x: enemy.x, y: enemy.y });
@@ -215,11 +250,12 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
           continue;
         }
         const destination = target ? point(target) : center(enemy.cell);
-        if (target && Math.hypot(destination.x - enemy.x, destination.y - enemy.y) <= enemy.reach && stamp >= enemy.next) {
-          enemy.phase = 'windup'; enemy.until = stamp + enemy.windup;
+        if (target && Math.hypot(destination.x - enemy.x, destination.y - enemy.y) <= enemy.reach && clearPath(enemy,destination,.2)) {
+          enemy.walking=false;
+          if (stamp >= enemy.next) { enemy.phase = 'windup'; enemy.until = stamp + enemy.windup; }
         } else moveEnemy(enemy, destination, delta);
       }
-      if (stamp - lastBroadcast >= 200) broadcast();
+      if (stamp - lastBroadcast >= TICK_MS) broadcast();
     }
     for (const table of [positions, rates, attacks, hurtUntil]) for (const id of table.keys()) if (!players.has(id)) table.delete(id);
     for (const [id, shot] of shots) if (shot.until <= stamp) shots.delete(id);
@@ -227,4 +263,4 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
 
   return { handle, tick, correct, state, blocked, contains: p => inMap(p, MAP) };
 };
-Object.assign(module.exports, { MAP, center, inMap });
+Object.assign(module.exports, { MAP, center, inMap, TICK_MS });

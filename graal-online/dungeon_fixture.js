@@ -52,7 +52,7 @@ async function createFixture(map = MAP) {
     send(ws, { t: 'role', r: 0 });
     send(ws, { t: 'st', p: [...players.values()].filter(other => other.id !== id).map(pstate) });
   });
-  const timer = setInterval(() => dungeon.tick(), 100);
+  const timer = setInterval(() => dungeon.tick(), dungeon.tick_ms);
   async function connect(selectedMap = map) {
     const ws = new WebSocket('ws://127.0.0.1:' + wss.address().port);
     const messages = [];

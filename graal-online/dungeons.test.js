@@ -21,7 +21,7 @@ test('dungeons have independent state and reject commands from another map',()=>
   assert.equal(state(2,castle).inside,true);
   assert.equal(state(1,castle).inside,false);
   assert.notEqual(state(1,ruins).layout,state(2,castle).layout);
-  for(const enemyId of ['guard_w','guard_e']){
+  for(const enemyId of castle.enemies.filter(e=>e.room==='guards').map(e=>e.id)){
     for(let hit=0;hit<12;hit++){
       const enemy=state(2,castle).enemies.find(e=>e.id===enemyId);
       if(enemy.hp<=0)break;
