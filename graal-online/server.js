@@ -808,6 +808,8 @@ async function economicRequest(p,m){
   else if(m.op==='look_preview')result={preview:await customLooks.prepare(m.kind,m.png)};
   else if(m.op==='look_buy')result=await economy.buyLook(p,m,lookPrices,authorized);
   else if(m.op==='look_equip')result=await economy.equipLook(p,m,authorized);
+  else if(m.op==='look_sell_quote')result=await economy.lookSale(p,m,true,authorized);
+  else if(m.op==='look_sell')result=await economy.lookSale(p,m,false,authorized);
   else if(m.op==='catalog')result={items:offers(merchant(p,m,NP.a)),x:m.x,y:m.y,state:await economy.ensure(account)};
   else if(m.op==='buy')result=await economy.purchase(p,m,NP.a,authorized);
   else if(m.op==='equip')result=await economy.equip(p,m,authorized);
@@ -823,9 +825,9 @@ async function economicRequest(p,m){
    if(m.op==='admin_drop'){DROPS.set(result.drop.id,result.drop);groundBroadcast({t:'dr',...result.drop,pop:1,authoritative:1});}
    else if(m.op==='pickup'){DROPS.delete(result.drop_id);groundBroadcast({t:'dp',id:result.drop_id});}
   }
-  if(result.state&&['sync','look_buy','look_equip'].includes(m.op)&&authorized())applyLooks(p,result.state);
+  if(result.state&&['sync','look_buy','look_equip','look_sell'].includes(m.op)&&authorized())applyLooks(p,result.state);
   reply({ok:true,...result});
- }catch(e){const safe=new Set(['busy','invalid_request','invalid_png','session_changed','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown','forbidden','drop_unavailable','invalid_reward']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
+ }catch(e){const safe=new Set(['busy','invalid_request','invalid_png','session_changed','refund_changed','refund_unavailable','invalid_shop','shop_out_of_range','unknown_item','shop_changed','insufficient_glims','already_owned','capacity','invalid_price','not_owned','empty','request_conflict','invalid_source','source_out_of_range','already_open','cooldown','forbidden','drop_unavailable','invalid_reward']);reply({ok:false,code:safe.has(e.code)?e.code:'temporarily_unavailable'});}
  finally{p.ecoBusy=false;}
 }
 function applySv(p, d) { // grava na conta o progresso enviado pelo navegador

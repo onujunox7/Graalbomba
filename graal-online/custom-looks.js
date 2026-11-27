@@ -4,6 +4,7 @@ const zlib = require('node:zlib');
 const { execFile } = require('node:child_process');
 const KINDS = ['head', 'body', 'shield', 'sword'];
 const MAX_PNG = 65536, MAX_LIBRARY_BYTES = 400000, MAX_PER_KIND = 8;
+const FULL_REFUND_MS = 5 * 60 * 60 * 1000;
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 function prices(config = {}) {
   return Object.fromEntries(KINDS.map(k => [k, Number.isSafeInteger(config[k]) && config[k] >= 0 && config[k] <= 20000 ? config[k] : 0]));
@@ -127,7 +128,7 @@ function buy(state, request, config, prepared = null) {
   if (items.some(a => a.id === asset.id)) fail('already_owned');
   if (items.length >= MAX_PER_KIND || JSON.stringify(looks).length + asset.png.length > MAX_LIBRARY_BYTES) fail('capacity');
   if (state.gl < fee) fail('insufficient_glims');
-  items.push({ ...asset, name: String(request.name || request.kind).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 48) });
+  items.push({ ...asset, name: String(request.name || request.kind).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 48), paid:fee, boughtAt:Date.now() });
   state.gl -= fee; looks.equipped[request.kind] = asset.id;
   return { kind: request.kind, asset: asset.id, price: fee };
 }
@@ -138,6 +139,31 @@ function equip(state, request) {
   looks.equipped[request.kind] = request.asset;
   return { kind: request.kind, asset: request.asset };
 }
+function owned(state, request) {
+  if (!KINDS.includes(request.kind) || typeof request.asset !== 'string' || !request.asset) fail('invalid_request');
+  const asset = state.looks?.library[request.kind]?.find(a=>a.id===request.asset);
+  if (!asset) fail('not_owned');
+  return asset;
+}
+function hasPurchase(asset) {
+  return Number.isSafeInteger(asset.paid) && asset.paid>=0 && asset.paid<=20000 && Number.isSafeInteger(asset.boughtAt) && asset.boughtAt>0;
+}
+function quoteSale(state,request,now=Date.now()) {
+  const asset=owned(state,request);
+  if (!hasPurchase(asset)) fail('refund_unavailable');
+  const fullUntil=asset.boughtAt+FULL_REFUND_MS;
+  return {kind:request.kind,asset:asset.id,name:asset.name,paid:asset.paid,refund:now<fullUntil?asset.paid:Math.floor(asset.paid/2),fullUntil,quotedAt:now};
+}
+function sell(state,request,now=Date.now()) {
+  const quote=quoteSale(state,request,now);
+  if (request.refund!==quote.refund) fail('refund_changed');
+  if (state.gl+quote.refund>1000000000) fail('capacity');
+  const items=state.looks.library[request.kind];
+  items.splice(items.findIndex(a=>a.id===request.asset),1);
+  if (state.looks.equipped[request.kind]===request.asset) state.looks.equipped[request.kind]='';
+  state.gl+=quote.refund;
+  return {kind:request.kind,asset:request.asset,refund:quote.refund};
+}
 function selected(state) {
   const looks = state?.looks || empty();
   return Object.fromEntries(KINDS.map(k => [k, looks.library[k].find(a => a.id === looks.equipped[k])?.png || null]));
@@ -146,4 +172,4 @@ function animation(state) {
   const looks = state?.looks || empty();
   return Object.fromEntries(KINDS.map(k => [k, looks.library[k].find(a => a.id === looks.equipped[k])?.animation || null]));
 }
-module.exports = { KINDS, MAX_PNG, MAX_LIBRARY_BYTES, prices, changePrice, dimensions, validate, prepare, empty, legacy, buy, equip, selected, animation };
+module.exports = { KINDS, MAX_PNG, MAX_LIBRARY_BYTES, FULL_REFUND_MS, prices, changePrice, dimensions, validate, prepare, empty, legacy, buy, equip, owned, hasPurchase, quoteSale, sell, selected, animation };

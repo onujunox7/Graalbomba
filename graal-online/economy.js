@@ -123,6 +123,19 @@ class Economy {
  async equipLook(p,request,authorized){
   return this.transact(p.acc,request.rid,digest(request),state=>looks.equip(state,request),authorized);
  }
+ async lookSale(p,request,quote,authorized){
+  return this.transact(p.acc,request.rid,digest(request),async(state,db)=>{
+   if(p.spar||p.football)throw error('busy');
+   const asset=looks.owned(state,request);
+   // Compras anteriores à venda já têm recibo transacional com preço e data reais.
+   if(!looks.hasPurchase(asset)){
+    const receipt=await db.query("SELECT result, floor(extract(epoch from created_at)*1000)::bigint AS bought_at FROM graal_economy_receipts WHERE account_id=$1 AND result->>'asset'=$2 AND result->>'kind'=$3 AND result ? 'price' ORDER BY created_at DESC LIMIT 1",[p.acc,request.asset,request.kind]);
+    if(!receipt.rowCount)throw error('refund_unavailable');
+    asset.paid=receipt.rows[0].result.price;asset.boughtAt=Number(receipt.rows[0].bought_at);
+   }
+   return quote?{quote:looks.quoteSale(state,request)}:looks.sell(state,request);
+  },authorized);
+ }
  async purchase(p,request,npcs,authorized){
   const id=p.acc;
   return this.transact(id,request.rid,digest(request),state=>{
