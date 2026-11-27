@@ -2,24 +2,24 @@
 const crypto = require('node:crypto');
 const {PLAYER_HIT_INV_MS,MONSTER_HIT_INV_MS}=require('./combat-timing');
 const MAP = require('./dungeon_ruins.json');
-const SOLID = Buffer.from(MAP.s, 'base64');
 const CELL = 8;
 const ORDER = ['east', 'north', 'west'];
 const center = cell => ({ x: (cell[0] + 0.5) * CELL, y: (cell[1] + 0.5) * CELL });
 const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 const rect = values => ({ x: values[0] * CELL, y: values[1] * CELL, w: values[2] * CELL, h: values[3] * CELL });
 const within = (p, r) => p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
-const inMap = p => !!p?.in && !p.football && !p.spar && Number.isFinite(p.ix) && Number.isFinite(p.iy) &&
-  within({ x: p.ix - MAP.origin[0], y: p.iy - MAP.origin[1] }, { x: 0, y: 0, w: MAP.w * CELL, h: MAP.h * CELL });
+const inMap = (p, map = MAP) => !!p?.in && !p.football && !p.spar && Number.isFinite(p.ix) && Number.isFinite(p.iy) &&
+  within({ x: p.ix - map.origin[0], y: p.iy - map.origin[1] }, { x: 0, y: 0, w: map.w * CELL, h: map.h * CELL });
 
-module.exports = function createDungeon({ players, send, authorized, getCombatState = () => ({}), blocksMove = () => false, now = Date.now }) {
+module.exports = function createDungeon({ players, send, authorized, getCombatState = () => ({}), blocksMove = () => false, now = Date.now, map = MAP }) {
+  const MAP = map, SOLID = Buffer.from(MAP.s, 'base64');
   const positions = new Map(), rates = new Map(), attacks = new Map(), shots = new Map(), hurtUntil = new Map();
   let enemies, generation, key, gate, flames, solved, relic, completed, visited, emptyAt;
   let lastStep = now(), lastBroadcast = 0;
   const live = p => !!p && players.get(p.id) === p && p.ws.readyState === 1 && authorized(p);
-  const member = p => !!(live(p) && p.ok && inMap(p));
+  const member = p => !!(live(p) && p.ok && inMap(p, MAP));
   const point = p => ({ x: p.ix - MAP.origin[0], y: p.iy - MAP.origin[1] });
-  const emit = (p, data) => { if (live(p)) send(p.ws, { t: 'dungeon', generation, ...data }); };
+  const emit = (p, data) => { if (live(p)) send(p.ws, { t: 'dungeon', map: MAP.id, generation, ...data }); };
   const guardsCleared = () => enemies.filter(e => e.room === 'guards').every(e => e.hp <= 0);
   const bossCleared = () => enemies.find(e => e.id === 'warden').hp <= 0;
 
@@ -50,7 +50,7 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
 
   function state(p) {
     const inside = member(p);
-    return { op: 'state', version: 1, generation, inside, key, gate, flames, solved, relic,
+    return { op: 'state', version: 1, layout: MAP.layout, generation, inside, key, gate, flames, solved, relic,
       complete: inside && completed.has(p.acc || p.id), gates: openGates(),
       enemies: inside ? enemies.map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, max: e.max,
         face: e.face, walking: e.walking, phase: e.phase })) : [] };
@@ -225,6 +225,6 @@ module.exports = function createDungeon({ players, send, authorized, getCombatSt
     for (const [id, shot] of shots) if (shot.until <= stamp) shots.delete(id);
   }
 
-  return { handle, tick, correct, state, blocked, contains: inMap };
+  return { handle, tick, correct, state, blocked, contains: p => inMap(p, MAP) };
 };
 Object.assign(module.exports, { MAP, center, inMap });

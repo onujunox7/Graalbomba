@@ -164,15 +164,18 @@ test('montaria mantém movimento diagonal e admin pode usar teleporte', () => {
   const f = fixture(), p = f.players.get(1);
   p.mt = 1;
   f.dungeon.correct(p);
-  const route = [[314, 498], [288, 472], [314, 446], [340, 472], [366, 498], [392, 524], [366, 498], [340, 524]];
+  const spawn = center(MAP.spawn);
+  const route = [[-26, -26], [-52, -52], [-26, -78], [0, -52], [26, -26], [52, 0], [26, -26], [0, 0]]
+    .map(([x, y]) => [spawn.x + x, spawn.y + y]);
   for (let loop = 0; loop < 4; loop++) for (const [x, y] of route) {
     f.advance(100); f.move(1, x, y); f.dungeon.correct(p);
     assert.equal(p.ix, MAP.origin[0] + x);
     assert.equal(p.iy, MAP.origin[1] + y);
   }
   p.role = 1;
-  f.move(1, 100, 100); f.dungeon.correct(p);
-  assert.equal(p.ix, MAP.origin[0] + 100);
+  const target = center(MAP.enemies[0].cell);
+  f.move(1, target.x, target.y); f.dungeon.correct(p);
+  assert.equal(p.ix, MAP.origin[0] + target.x);
 });
 
 test('dungeon só reinicia após permanecer vazia e libera progresso para outra visita', () => {

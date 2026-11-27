@@ -892,7 +892,7 @@ const ctf = require('./capture-flag')({players:P,send:sendTo,viewPlayer:p=>pstat
   authorized:p=>!!p.uh&&p.economyClient&&economicSession(p)&&!banOf(p.uh)&&!(KICKED.get(p.uh)>Date.now())});
 setInterval(()=>ctf.tick(),50).unref();
 setInterval(() => parties.tick(), 1000).unref();
-const dungeon = require('./dungeon')({ players: P, send: sendTo, getCombatState: p => economy.peek(p.acc),
+const dungeon = require('./dungeons')({ players: P, send: sendTo, getCombatState: p => economy.peek(p.acc),
   blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
 setInterval(() => dungeon.tick(), 100).unref();

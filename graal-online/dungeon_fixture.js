@@ -17,7 +17,7 @@ async function waitFor(predicate, timeout = 8000) {
   throw new Error('Dungeon fixture timeout');
 }
 
-async function createFixture() {
+async function createFixture(map = MAP) {
   const source = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const start = source.indexOf("  ws.on('message', d => {");
   const end = source.indexOf("  ws.on('close',", start);
@@ -31,7 +31,7 @@ async function createFixture() {
     "let fixturePacket;try{fixturePacket=JSON.parse(d.toString());}catch{return;}if(!['u','dungeon'].includes(fixturePacket.t))return;");
   const players = new Map(), clients = [];
   const send = (ws, data) => { if (ws.readyState === 1) ws.send(typeof data === 'string' ? data : JSON.stringify(data)); };
-  const dungeon = createDungeon({ players, send, authorized: p => p.allowed, getCombatState: () => ({ lvl: 1, up: 0, shots: [] }) });
+  const dungeon = require('./dungeons')({ players, send, authorized: p => p.allowed, getCombatState: () => ({ lvl: 1, up: 0, shots: [] }) });
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(wss, 'listening');
   const sameLine = source.split('\n').find(line => line.startsWith('const othersSame ='));
@@ -53,19 +53,19 @@ async function createFixture() {
     send(ws, { t: 'st', p: [...players.values()].filter(other => other.id !== id).map(pstate) });
   });
   const timer = setInterval(() => dungeon.tick(), 100);
-  async function connect() {
+  async function connect(selectedMap = map) {
     const ws = new WebSocket('ws://127.0.0.1:' + wss.address().port);
     const messages = [];
     clients.push(ws);
     ws.on('message', raw => messages.push(JSON.parse(raw)));
     await once(ws, 'open');
     const packet = await waitFor(() => messages.find(message => message.t === 'id'));
-    const sendPacket = data => ws.send(JSON.stringify({ t: 'dungeon', ...data }));
-    const update = (x, y) => sendPacket({ t: 'u', x: 6704, y: 17104, in: 1, ix: MAP.origin[0] + x, iy: MAP.origin[1] + y,
+    const sendPacket = data => ws.send(JSON.stringify({ t: 'dungeon', map: selectedMap.id, ...data }));
+    const update = (x, y) => sendPacket({ t: 'u', x: 6704, y: 17104, in: 1, ix: selectedMap.origin[0] + x, iy: selectedMap.origin[1] + y,
       nm: 'Explorador', an: 'Idle_Down', ia: 'Idle_Down', lv: 1, hp: 300, hm: 300, s: 0.6 });
     return { id: packet.id, ws, messages, send: sendPacket, update,
-      state: () => messages.findLast(message => message.t === 'dungeon' && message.op === 'state'),
-      enter() { const spawn = center(MAP.spawn); update(spawn.x, spawn.y); } };
+      state: () => messages.findLast(message => message.t === 'dungeon' && message.op === 'state' && message.map === selectedMap.id),
+      enter() { const spawn = center(selectedMap.spawn); update(spawn.x, spawn.y); } };
   }
   return { players, dungeon, connect, port: wss.address().port,
     async close() {
@@ -78,7 +78,7 @@ async function createFixture() {
 
 module.exports = { createFixture, waitFor };
 if (require.main === module && process.argv.includes('--serve')) {
-  createFixture().then(async fixture => {
+  createFixture(process.env.DUNGEON_TEST_MAP === 'dungeon_castle' ? require('./dungeon_castle.json') : MAP).then(async fixture => {
     const peer = await fixture.connect();
     peer.enter();
     const reported = new Set();
