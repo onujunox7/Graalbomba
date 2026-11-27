@@ -1,13 +1,36 @@
 'use strict';
 
-const FIELD=Object.freeze({x:512,y:2048,w:640,h:384});
-const OBSTACLES=Object.freeze([[112,64,48,32],[112,288,48,32],[480,64,48,32],[480,288,48,32],
-  [208,96,24,96],[408,192,24,96],[296,64,48,48],[296,272,48,48]].map(([x,y,w,h])=>Object.freeze({x:FIELD.x+x,y:FIELD.y+y,w,h})));
+const FIELD=Object.freeze({x:512,y:2048,w:1280,h:768});
+function smooth(points){
+ for(let pass=0;pass<2;pass++){
+  const next=[];for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length];next.push({x:a.x*.75+b.x*.25,y:a.y*.75+b.y*.25},{x:a.x*.25+b.x*.75,y:a.y*.25+b.y*.75});}points=next;
+ }return points;
+}
+const OUTLINE=Object.freeze(smooth([[16,280],[64,160],[256,48],[416,96],[544,24],[736,24],[864,96],[1024,48],[1216,160],[1264,280],
+ [1264,488],[1216,608],[1024,720],[864,672],[736,744],[544,744],[416,672],[256,720],[64,608],[16,488]].map(([x,y])=>({x:FIELD.x+x,y:FIELD.y+y}))).map(Object.freeze));
+const half=[['pond',336,136,168,96],['pond',384,536,128,104],['boulder',240,280,64,48],['tree',288,424,56,56],
+ ['crate',168,144,48,40],['crate',200,584,48,40],['ruins',496,288,32,128],['ruins',496,288,96,28],['hedge',376,352,104,44],['tree',512,72,48,48]];
+const OBSTACLES=Object.freeze([...half,...half.map(([kind,x,y,w,h])=>[kind,FIELD.w-x-w,y,w,h]),
+ ['pond',600,120,80,192],['pond',600,456,80,192]].map(([kind,x,y,w,h])=>Object.freeze({kind,x:FIELD.x+x,y:FIELD.y+y,w,h})));
 const TEAM_SIZE=6,HP=180,DAMAGE=30,STEP=50,SPEED=125,DURATION=300000,TARGET=3,RADIUS=6;
-const BASES=Object.freeze([{x:FIELD.x+40,y:FIELD.y+FIELD.h/2},{x:FIELD.x+FIELD.w-40,y:FIELD.y+FIELD.h/2}]);
+const BASES=Object.freeze([{x:FIELD.x+128,y:FIELD.y+FIELD.h/2},{x:FIELD.x+FIELD.w-128,y:FIELD.y+FIELD.h/2}]);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const inside=(p,r,pad=0)=>p.x>r.x-pad&&p.y>r.y-pad&&p.x<r.x+r.w+pad&&p.y<r.y+r.h+pad;
-const blocked=p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<FIELD.x+RADIUS||p.y<FIELD.y+RADIUS||p.x>FIELD.x+FIELD.w-RADIUS||p.y>FIELD.y+FIELD.h-RADIUS||OBSTACLES.some(r=>inside(p,r,RADIUS));
+const roundObstacle=o=>['pond','boulder','tree','hedge'].includes(o.kind);
+function obstacleHit(p,o,radius=RADIUS){
+ if(!roundObstacle(o))return inside(p,o,radius);
+ const dx=(p.x-o.x-o.w/2)/(o.w/2+radius),dy=(p.y-o.y-o.h/2)/(o.h/2+radius);return dx*dx+dy*dy<1-1e-8;
+}
+function inOutline(p){
+ let hit=false;for(let i=0,j=OUTLINE.length-1;i<OUTLINE.length;j=i++){
+  const a=OUTLINE[i],b=OUTLINE[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)hit=!hit;
+ }return hit;
+}
+function edgeDistanceSquared(p,a,b){
+ const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));
+ return (p.x-a.x-t*dx)**2+(p.y-a.y-t*dy)**2;
+}
+const blocked=p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||!inOutline(p)||OUTLINE.some((a,i)=>edgeDistanceSquared(p,a,OUTLINE[(i+1)%OUTLINE.length])<RADIUS*RADIUS-1e-8)||OBSTACLES.some(o=>obstacleHit(p,o));
 function move(entry,dx,dy){
  const steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dy))/3));
  for(let i=0;i<steps;i++){
@@ -42,7 +65,7 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
   Object.assign(entry,{hp:HP,hitUntil:now()+2000,hurtUntil:0,respawnAt:0,inputs:[],dir:{x:0,y:0}});
  }
  function state(match){
-  const time=now();return {op:'state',match:match.id,phase:match.phase,field:FIELD,obstacles:OBSTACLES,bases:BASES,
+  const time=now();return {op:'state',match:match.id,phase:match.phase,field:FIELD,outline:OUTLINE,obstacles:OBSTACLES,bases:BASES,
    flags:match.flags.map(f=>({team:f.team,x:f.x,y:f.y,carrier:f.carrier,returning:Math.max(0,f.returnAt-time)})),score:[...match.score],target:TARGET,
    remaining:Math.max(0,(match.ends||time+DURATION)-time),wait:Math.max(0,match.until-time),winner:match.winner??-1,notice:match.notice||'',
    players:[...match.entries.values()].map(e=>({...viewPlayer(players.get(e.id)),id:e.id,team:e.team,x:e.x,y:e.y,hp:e.hp,hm:HP,ack:e.ack,
@@ -92,7 +115,7 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
    if(target.team===entry.team||target.hp<=0||time<target.hitUntil)continue;
    const dx=target.x-entry.x,dy=target.y-entry.y,front=dx*forward.x+dy*forward.y,side=Math.abs(dx*forward.y-dy*forward.x);
    if(front<0||front>34||side>17||distance(entry,target)>36)continue;
-   let wall=false;for(let t=0.1;t<1;t+=0.1)if(OBSTACLES.some(r=>inside({x:entry.x+dx*t,y:entry.y+dy*t},r)))wall=true;
+   let wall=false;for(let t=0.1;t<1;t+=0.1)if(OBSTACLES.some(r=>obstacleHit({x:entry.x+dx*t,y:entry.y+dy*t},r,0)))wall=true;
    if(wall)continue;
    drop(match,target.id);target.hp=Math.max(0,target.hp-DAMAGE);target.hitUntil=time+2000;target.hurtUntil=time+150;
    const length=Math.max(1,Math.hypot(dx,dy));move(target,dx/length*14,dy/length*14);
@@ -166,4 +189,5 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
  }
  return {handle,tick,has:p=>!!p&&(queue.has(p.id)||members.has(p.id)),disconnect:id=>{leave(id,'disconnect');rates.delete(id);}};
 };
-module.exports.RULES={FIELD,OBSTACLES,BASES,TEAM_SIZE,HP,DAMAGE,STEP,SPEED,DURATION,TARGET};
+module.exports.RULES={FIELD,OUTLINE,OBSTACLES,BASES,TEAM_SIZE,HP,DAMAGE,STEP,SPEED,DURATION,TARGET};
+module.exports.isBlocked=blocked;
