@@ -1,6 +1,6 @@
 'use strict';
 const createDungeon = require('./dungeon');
-const maps = [require('./dungeon_ruins.json'), require('./dungeon_castle.json')];
+const maps = [require('./dungeon_ruins.json'), require('./dungeon_castle.json'), require('./dungeon_catacumbas.json')];
 module.exports = function createDungeons(options) {
   const instances = new Map(maps.map(map => [map.id, createDungeon({ ...options, map })]));
   return {
