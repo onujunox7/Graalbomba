@@ -45,11 +45,19 @@ function near(p,x,y,r=90){return !!p.ok&&Number.isFinite(x)&&Number.isFinite(y)&
 function groundPosition(p){
  if(!p.ok||p.hp===0||p.in||p.spar||p.football||!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>=1664*8||p.y>=2752*8)throw error('invalid_source');
 }
-function pendingDrop(state,x,y,value,rid){
- if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>=1664*8||y>=2752*8||!Number.isSafeInteger(value)||value<=0||value>100000)throw error('invalid_reward');
+function pendingDrop(state,x,y,value,rid,kind=''){
+ const cap=kind==='a'?60:kind==='b'?30:100000;
+ if(!['','a','b'].includes(kind)||!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>=1664*8||y>=2752*8||!Number.isSafeInteger(value)||value<=0||value>cap)throw error('invalid_reward');
  const drops=state.drops||(state.drops=[]);
  if(drops.length>=300)throw error('capacity');
- const drop={id:'r-'+rid,x,y,v:value,k:''};drops.push(drop);return drop;
+ const drop={id:'r-'+digest([rid,kind]).slice(0,32),x,y,v:value,k:kind,pop:1};drops.push(drop);return drop;
+}
+function ammunitionLoot(state,p,x,y,rid){
+ const roll=crypto.randomInt(100),kind=roll<16?'a':roll<26?'b':'';
+ if(!kind)return null;
+ if(p.groundDrops&&p.itemDrops)return pendingDrop(state,Math.min(1664*8-1,x+12),y,1,rid,kind);
+ const cap=kind==='a'?60:30;state[kind]=Math.max(state[kind],Math.min(cap,state[kind]+1));
+ return null;
 }
 function merchant(p,request,npcs){
  if(!Number.isSafeInteger(request.x)||!Number.isSafeInteger(request.y))throw error('invalid_shop');
@@ -177,6 +185,7 @@ class Economy {
    let drop;
    if(request.op==='bush'&&p.groundDrops&&gl>0)drop=pendingDrop(state,source.x*8+(source.w||2)*4,source.y*8+(source.h||2)*4,gl,request.rid);
    else state.gl=Math.min(1000000000,state.gl+gl);
+   if(request.op==='bush')ammunitionLoot(state,p,source.x*8+(source.w||2)*4,source.y*8+(source.h||2)*4,request.rid);
    return {reward:gl,source:key,op:request.op,...(drop?{drop}:{} )};
   },authorized);
  }
@@ -193,13 +202,14 @@ class Economy {
     if(!drop||drop.taken||drop.expires<=Date.now())throw error('drop_unavailable');
    }
    if(!near(p,drop.x,drop.y,24))throw error('source_out_of_range');
-   if(!Number.isSafeInteger(drop.v)||drop.v<1||drop.v>100000)throw error('invalid_reward');
-   if(state.gl+drop.v>1000000000)throw error('capacity');
+   const kind=drop.k||'',key=kind===''?'gl':kind,cap=kind===''?1000000000:kind==='a'?60:30;
+   if(!['','a','b'].includes(kind)||!Number.isSafeInteger(drop.v)||drop.v<1||drop.v>(kind===''?100000:cap))throw error('invalid_reward');
+   if(state[key]>=cap||(kind===''&&state.gl+drop.v>cap))throw error('capacity');
    if(!authorized())throw error('session_changed');
-   state.gl+=drop.v;
+   const collected=Math.min(drop.v,cap-state[key]);state[key]+=collected;
    if(shared){drop.taken=true;await db.query('UPDATE graal_reward_sources SET state=$2::jsonb WHERE source_id=$1',['ground:'+request.id,JSON.stringify(drop)]);}
    else state.drops.splice(index,1);
-   return {drop_id:request.id,collected:drop.v,shared};
+   return {drop_id:request.id,collected,kind,shared};
   },authorized);
  }
  async adminDrop(p,request,authorized){
@@ -222,4 +232,4 @@ class Economy {
  }
  async credit(id,amount,rid,authorized){if(!Number.isSafeInteger(amount)||amount<0||amount>100000)throw error('invalid_reward');return this.transact(id,rid,digest(['credit',amount]),s=>{s.gl=Math.min(1000000000,s.gl+amount);},authorized);}
 }
-module.exports={Economy,legacyState,accountData,protectSave,merchant,offers,buy,near,digest,error,HATS,questEvent,pendingDrop};
+module.exports={Economy,legacyState,accountData,protectSave,merchant,offers,buy,near,digest,error,HATS,questEvent,pendingDrop,ammunitionLoot};

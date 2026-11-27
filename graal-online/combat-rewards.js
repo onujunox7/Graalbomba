@@ -1,7 +1,7 @@
 'use strict';
 const crypto=require('crypto');
 const {MONSTER_HIT_INV_MS}=require('./combat-timing');
-const {error,near,digest,questEvent,pendingDrop}=require('./economy');
+const {error,near,digest,questEvent,pendingDrop,ammunitionLoot}=require('./economy');
 // The host still animates/moves monsters. Health, hit cadence, loot and respawn
 // eligibility belong to the server; a host cannot submit a death or a reward.
 const TYPES={blue:[80,6,14],red:[100,8,22],chasupa:[40,2,16],popo:[36,1,12],bubble:[20,0,18],sblue:[90,6,18],sgray:[120,8,24],lizard:[140,9,30],ninja:[110,7,32],sgold:[160,11,34],dragon:[260,14,60],green_eyegore:[80,6,14],blue_taros:[90,6,18],red_taros:[100,8,22],moblin:[120,8,24],sk:[34,3,10],skE:[80,5,35]};
@@ -42,7 +42,7 @@ class CombatRewards{
    const damage=Math.max(3,Math.round((state.lvl*5+30+state.up*8+crypto.randomInt(1,20))*multiplier)-base[1]-level*3-6);
    mob.hp=Math.max(0,mob.hp-damage);mob.hit=Date.now()+MONSTER_HIT_INV_MS;state.nextHit=Date.now()+350;
    let reward=0;
-   if(mob.hp===0){mob.next=Date.now()+30000;if(crypto.randomInt(100)<70){const roll=crypto.randomInt(100);reward=roll>=95?30:roll>=60?5:1;}if(p.groundDrops&&reward>0)pendingDrop(state,pos.x,pos.y,reward,request.rid);else state.gl=Math.min(1000000000,state.gl+reward);const drop=crypto.randomInt(100);if(drop<16)state.a=Math.max(state.a,Math.min(60,state.a+1));else if(drop<26)state.b=Math.max(state.b,Math.min(30,state.b+1));state.kills++;state.exp+=Math.round(base[2]*(1+0.2*(level-1)));while(state.exp>=100){state.exp-=100;state.lvl=Math.min(999,state.lvl+1);}}
+   if(mob.hp===0){mob.next=Date.now()+30000;if(crypto.randomInt(100)<70){const roll=crypto.randomInt(100);reward=roll>=95?30:roll>=60?5:1;}if(p.groundDrops&&reward>0)pendingDrop(state,pos.x,pos.y,reward,request.rid);else state.gl=Math.min(1000000000,state.gl+reward);ammunitionLoot(state,p,pos.x,pos.y,request.rid);state.kills++;state.exp+=Math.round(base[2]*(1+0.2*(level-1)));while(state.exp>=100){state.exp-=100;state.lvl=Math.min(999,state.lvl+1);}}
    if(mob.hp===0){questEvent(state,'kill');if(s.k==='skE')questEvent(state,'elite');if(!['sk','skE'].includes(s.k))questEvent(state,'mon');}
    await db.query('UPDATE graal_reward_sources SET state=$2 WHERE source_id=$1',[key,JSON.stringify(mob)]);
    let dx=pos.x-origin.x,dy=pos.y-origin.y,length=Math.hypot(dx,dy);

@@ -803,7 +803,7 @@ const combatRewards=new CombatRewards(economy);
 const economicSession=p=>!!p.acc&&ACTIVE_ACC.get(p.acc)===p&&p.ws.readyState===1;
 async function economicRequest(p,m){
  const account=p.acc,authorized=()=>p.acc===account&&economicSession(p);
- const reply=result=>{if(authorized())sendTo(p.ws,{t:'eco',rid:m.rid,op:m.op,account,...result});};
+ const reply=result=>{if(!authorized())return;if(result.state&&!p.itemDrops&&Array.isArray(result.state.drops))result={...result,state:{...result.state,drops:result.state.drops.filter(d=>!d.k)}};sendTo(p.ws,{t:'eco',rid:m.rid,op:m.op,account,...result});};
  if(!authorized()||!p.economyClient||typeof m.rid!=='string'||!/^[a-f0-9]{32}$/.test(m.rid))return;
  const now=Date.now();if(now-(p.ecoWindow||0)>1000){p.ecoWindow=now;p.ecoCount=0;}if(++p.ecoCount>30){reply({ok:false,code:'busy'});return;}
  if(p.fishing&&['consume','hit','bush','chest','pickup'].includes(m.op)){reply({ok:false,code:'busy'});return;}
@@ -923,7 +923,7 @@ setInterval(electHost, 1000);
 /* Glims públicos criados por admin: carteira e coleta são transações do servidor. */
 const DROPS = new Map();
 const groundBroadcast=message=>{for(const p of P.values())if(p.groundDrops)sendTo(p.ws,message);};
-const groundSnapshot=p=>sendTo(p.ws,{t:'dall',a:[...DROPS.values()].filter(d=>d.expires>Date.now()).map(d=>[d.id,d.x,d.y,d.v,0,0,1])});
+const groundSnapshot=p=>sendTo(p.ws,{t:'dall',a:[...DROPS.values()].filter(d=>d.expires>Date.now()).map(d=>[d.id,d.x,d.y,d.v,d.k||0,0,1])});
 setInterval(()=>{const now=Date.now();for(const [id,drop]of DROPS)if(drop.expires<=now){DROPS.delete(id);groundBroadcast({t:'dp',id});}},5000);
 const LOCAL_CHAT_RADIUS = 320;
 function canHearLocal(sender, receiver) {
@@ -1148,7 +1148,7 @@ wss.on('connection', (ws, req) => {
   const p = { id, ws, x: 0, y: 0, nm: '?', an: 'Idle_Down', al: 1, b: 0, h: 0, s: 0, sw: 0, ok: 0, bs: null, hs: null, c: null, e: null, lastChat: 0, bT: 0, bN: 0, svT: 0, acc: null,
     role: 0, uh: null, muted: 0, authFails: 0, cmdT: 0, spT: 0 };
   P.set(id, p);
-  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, fishing: 1, ctf:1, fishing_range:fishing.maxCastDistance });
+  sendTo(ws, { t: 'id', id, v: 3, economy: 1, ground_drops: 1, item_drops: 1, fishing: 1, ctf:1, fishing_range:fishing.maxCastDistance });
   if (HOST) sendTo(ws, { t: 'host', v: 0 }); // já existe anfitrião: este cliente só copia os monstros
   sendTo(ws, spAll()); // spawns de monstros (iguais para todos)
   sendTo(ws, npAll()); // NPCs vendedores (iguais para todos)
@@ -1213,13 +1213,17 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'hi') {
       p.economyClient=m.economy===1;
       if(!p.economyClient){sendTo(ws,{t:'kick',r:'Atualize o jogo ou recarregue a página para usar as compras e recompensas validadas.'});setTimeout(()=>ws.close(),100);return;}
-      // identidade do navegador (segredo aleatório; o servidor só guarda o hash)
-      if (p.uh || typeof m.uid !== 'string' || !/^[a-f0-9]{32}$/.test(m.uid)) return;
+      if(p.capabilitiesReady)return;
+      if(!p.uh&&(typeof m.uid!=='string'||!/^[a-f0-9]{32}$/.test(m.uid)))return;
       p.groundDrops=m.ground_drops===1;
+      p.itemDrops=p.groundDrops&&m.item_drops===1;
       p.fishingClient=m.fishing===1;
-      p.uh = sha(m.uid);
+      p.capabilitiesReady=true;
       if(p.groundDrops)groundSnapshot(p);
       if(p.fishingClient)fishing.sync(p);
+      // Feature negotiation applies to signed accounts too; only guest identity needs hashing.
+      if(p.uh)return;
+      p.uh=sha(m.uid);
       for (const o of P.values()) if (o !== p && o.uh === p.uh && !o.acc) { sendTo(o.ws, { t: 'dup' }); setTimeout(() => { try { o.ws.close() } catch (e) { } }, 100); football.disconnect(o.id); ctf.disconnect(o.id); parties.disconnect(o.id); P.delete(o.id); others(o.id, { t: 'l', id: o.id }) } // mesmo navegador já online como visitante: remove o antigo
       const bn = banOf(p.uh); if (bn) { sendTo(ws, { t: 'kick', r: banMsg(bn) }); setTimeout(() => ws.close(), 100); return }
       const ku = KICKED.get(p.uh);
