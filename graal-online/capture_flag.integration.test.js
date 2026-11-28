@@ -47,7 +47,7 @@ test('native Godot client joins through production routing, moves in arena and l
  const f=await fixture();let timer,child;
  try{
   const bot=await f.connect();bot.send('join',{team:0});await until(()=>bot.last('queue')?.joined);
-  const report=path.resolve(__dirname,'../../../reports/capture-flag-20261126');
+  const report=path.resolve(__dirname,'../../../reports/ctf-fixes-20261127');
   const out=fs.openSync(path.join(report,'network-native-out.log'),'w'),err=fs.openSync(path.join(report,'network-native-err.log'),'w');
   timer=setInterval(()=>f.advance(250),50);
   child=spawn('C:/Users/Junior/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64.exe',

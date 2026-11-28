@@ -13,6 +13,20 @@ const half=[['pond',336,136,168,96],['pond',384,536,128,104],['boulder',240,280,
 const OBSTACLES=Object.freeze([...half,...half.map(([kind,x,y,w,h])=>[kind,FIELD.w-x-w,y,w,h]),
  ['pond',600,120,80,192],['pond',600,456,80,192]].map(([kind,x,y,w,h])=>Object.freeze({kind,x:FIELD.x+x,y:FIELD.y+y,w,h})));
 const TEAM_SIZE=6,HP=180,DAMAGE=30,STEP=50,SPEED=125,DURATION=300000,TARGET=3,RADIUS=6;
+const CAPTURE_RADIUS=34; // Same stone platform radius drawn by GCtfArt._base.
+// GSkinRig.sword_frame_bounds at scale 1: five visible sword frames per facing.
+const SWORD_FRAMES=[[[14,-41,16,28],[-10,-57,14,20],[-16,-63,10,22],[-24,-53,10,24],[-40,-39,24,28]],
+ [[-26,-39,28,28],[-40,-39,24,28],[-42,-13,34,12],[-38,-7,28,28],[-28,3,28,24]],
+ [[-28,-15,28,28],[-26,-1,28,24],[2,9,12,24],[8,-1,14,24],[18,-9,24,28]],
+ [[-2,-39,28,28],[12,-39,24,28],[14,-13,34,12],[10,-7,28,28],[0,3,28,24]]];
+function swordContact(attacker,target,face,scale){
+ return SWORD_FRAMES[face].some(([x,y,w,h])=>{
+  const left=attacker.x+x*scale,top=attacker.y+y*scale;
+  const nearX=Math.max(left,Math.min(left+w*scale,target.x));
+  const nearY=Math.max(top,Math.min(top+h*scale,target.y-6));
+  return (nearX-target.x)**2+(nearY-target.y+6)**2<=64;
+ });
+}
 const BASES=Object.freeze([{x:FIELD.x+128,y:FIELD.y+FIELD.h/2},{x:FIELD.x+FIELD.w-128,y:FIELD.y+FIELD.h/2}]);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const inside=(p,r,pad=0)=>p.x>r.x-pad&&p.y>r.y-pad&&p.x<r.x+r.w+pad&&p.y<r.y+r.h+pad;
@@ -30,7 +44,8 @@ function edgeDistanceSquared(p,a,b){
  const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));
  return (p.x-a.x-t*dx)**2+(p.y-a.y-t*dy)**2;
 }
-const blocked=p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||!inOutline(p)||OUTLINE.some((a,i)=>edgeDistanceSquared(p,a,OUTLINE[(i+1)%OUTLINE.length])<RADIUS*RADIUS-1e-8)||OBSTACLES.some(o=>obstacleHit(p,o));
+const blocked=p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||!inOutline(p)||OUTLINE.some((a,i)=>edgeDistanceSquared(p,a,OUTLINE[(i+1)%OUTLINE.length])<RADIUS*RADIUS-1e-8)||OBSTACLES.some(o=>o.kind!=='pond'&&obstacleHit(p,o));
+const inWater=p=>OBSTACLES.some(o=>o.kind==='pond'&&obstacleHit({x:p.x,y:p.y-2},o,0));
 function move(entry,dx,dy){
  const steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dy))/3));
  for(let i=0;i<steps;i++){
@@ -70,7 +85,7 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
    remaining:Math.max(0,(match.ends||time+DURATION)-time),wait:Math.max(0,match.until-time),winner:match.winner??-1,notice:match.notice||'',
    players:[...match.entries.values()].map(e=>({...viewPlayer(players.get(e.id)),id:e.id,team:e.team,x:e.x,y:e.y,hp:e.hp,hm:HP,ack:e.ack,
     face:e.face,an:(e.hp===0?'Hurt_':time<e.attackUntil?'Attack_':e.dir.x||e.dir.y?'Run_':'Idle_')+['Up','Left','Down','Right'][e.face],
-    speed:flagFor(match,e.id)?SPEED*0.82:SPEED,inv:Math.max(0,e.hitUntil-time),respawn:Math.max(0,e.respawnAt-time)}))};
+    speed:flagFor(match,e.id)?SPEED*0.82:SPEED,inv:Math.max(0,e.hitUntil-time),wet:inWater(e)?1:0,sw:inWater(e)?1:0,respawn:Math.max(0,e.respawnAt-time)}))};
  }
  function snapshot(match){
   for(const e of match.entries.values()){const p=players.get(e.id);if(p){p.x=e.x;p.y=e.y;p.hp=e.hp;p.hm=HP;}}
@@ -107,16 +122,28 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
   if(!match.entries.size){matches.delete(match.id);return;}
   if(![0,1].every(team=>[...match.entries.values()].some(e=>e.team===team)))finish(match,'forfeit');else snapshot(match);
  }
- function hit(match,entry){
-  const time=now();if(entry.hp<=0||time-entry.attackAt<400)return;
-  entry.attackAt=time;entry.attackUntil=time+180;
+ function hit(match,entry,message){
+  const time=now();if(entry.hp<=0||inWater(entry))return;
+  const native=message.to!==undefined||message.sw!==undefined||message.face!==undefined;
+  const face=message.face===undefined?entry.face:message.face;
+  if(native&&(!Number.isSafeInteger(message.to)||message.to<=0||!Number.isSafeInteger(message.sw)||message.sw<=0||message.sw>2147483647||!Number.isInteger(face)||face<0||face>3))return;
+  const sameSwing=native&&entry.swing===message.sw;
+  if(sameSwing){if(time>entry.swingUntil||face!==entry.swingFace||entry.swingHits.has(message.to))return;}
+  else{
+   if(time-entry.attackAt<(native?200:400)||(native&&message.sw<=(entry.swing||0)))return;
+   entry.attackAt=time;entry.attackUntil=time+200;
+   if(native){entry.swing=message.sw;entry.swingFace=face;entry.swingUntil=time+250;entry.swingHits=new Set();}
+  }
+  if(native)entry.face=entry.swingFace;
   const forward=[{x:0,y:-1},{x:-1,y:0},{x:0,y:1},{x:1,y:0}][entry.face];
   for(const target of match.entries.values()){
-   if(target.team===entry.team||target.hp<=0||time<target.hitUntil)continue;
+   if(target.team===entry.team||target.hp<=0||time<target.hitUntil||inWater(target)||(native&&target.id!==message.to))continue;
    const dx=target.x-entry.x,dy=target.y-entry.y,front=dx*forward.x+dy*forward.y,side=Math.abs(dx*forward.y-dy*forward.x);
-   if(front<0||front>34||side>17||distance(entry,target)>36)continue;
-   let wall=false;for(let t=0.1;t<1;t+=0.1)if(OBSTACLES.some(r=>obstacleHit({x:entry.x+dx*t,y:entry.y+dy*t},r,0)))wall=true;
+   const scale=Math.max(.3,Math.min(1,Number(players.get(entry.id)?.s)||.6));
+   if(native?!swordContact(entry,target,entry.face,scale):(front<0||front>34||side>17||distance(entry,target)>36))continue;
+   let wall=false;for(let t=0.1;t<1;t+=0.1)if(OBSTACLES.some(r=>r.kind!=='pond'&&obstacleHit({x:entry.x+dx*t,y:entry.y+dy*t},r,0)))wall=true;
    if(wall)continue;
+   if(native)entry.swingHits.add(target.id);
    drop(match,target.id);target.hp=Math.max(0,target.hp-DAMAGE);target.hitUntil=time+2000;target.hurtUntil=time+150;
    const length=Math.max(1,Math.hypot(dx,dy));move(target,dx/length*14,dy/length*14);
    if(target.hp===0){target.respawnAt=time+2000;target.inputs=[];target.dir={x:0,y:0};}
@@ -134,18 +161,22 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
    const speed=flagFor(match,entry.id)?SPEED*0.82:SPEED;move(entry,command.x*speed*STEP/1000,command.y*speed*STEP/1000);
    const p=players.get(entry.id);if(p){p.x=entry.x;p.y=entry.y;p.hp=entry.hp;p.hm=HP;p.uT=time;}
   }
+  for(const entry of match.entries.values()){
+   if(entry.hp<=0||!inWater(entry))continue;
+   const carried=flagFor(match,entry.id);if(carried){home(carried);match.notice='Bandeira voltou para a base!';}
+  }
   for(const flag of match.flags){
    if(flag.returnAt&&time>=flag.returnAt)home(flag);
    if(flag.carrier){const entry=match.entries.get(flag.carrier);if(entry){flag.x=entry.x;flag.y=entry.y;}continue;}
    for(const entry of match.entries.values()){
-    if(entry.hp<=0||distance(entry,flag)>17||(flag.blockedId===entry.id&&time<flag.blockedUntil))continue;
+    if(entry.hp<=0||inWater(entry)||distance(entry,flag)>17||(flag.blockedId===entry.id&&time<flag.blockedUntil))continue;
     if(entry.team===flag.team){if(flag.returnAt){home(flag);match.notice='Bandeira recuperada!';}continue;}
     if(flagFor(match,entry.id))continue;flag.carrier=entry.id;flag.returnAt=0;match.notice='Bandeira roubada!';break;
    }
   }
   for(const entry of match.entries.values()){
    const flag=flagFor(match,entry.id),own=match.flags[entry.team];
-   if(flag&&entry.hp>0&&distance(entry,BASES[entry.team])<=22&&!own.carrier&&!own.returnAt){
+   if(flag&&entry.hp>0&&distance(entry,BASES[entry.team])<=CAPTURE_RADIUS&&!own.carrier&&!own.returnAt){
     match.score[entry.team]++;home(flag);match.notice='Captura do time '+(entry.team===0?'Azul':'Vermelho')+'!';
     if(match.score[entry.team]>=TARGET){finish(match,'score');return;}
    }
@@ -167,7 +198,7 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
    if(!Number.isSafeInteger(message.seq)||message.seq<=entry.seq||message.seq>2147483647||!Number.isFinite(message.dx)||!Number.isFinite(message.dy)||Math.abs(message.dx)>1||Math.abs(message.dy)>1||entry.inputs.length>=8)return;
    const length=Math.max(1,Math.hypot(message.dx,message.dy));entry.seq=message.seq;entry.lastInput=time;
    entry.inputs.push({seq:message.seq,x:message.dx/length,y:message.dy/length});
-  }else if(message.op==='hit')hit(match,entry);
+  }else if(message.op==='hit')hit(match,entry,message);
   else if(message.op==='drop'){drop(match,p.id);snapshot(match);}
  }
  function tick(){
@@ -189,5 +220,5 @@ module.exports=function createCaptureFlag({players,send,authorized,viewPlayer=p=
  }
  return {handle,tick,has:p=>!!p&&(queue.has(p.id)||members.has(p.id)),disconnect:id=>{leave(id,'disconnect');rates.delete(id);}};
 };
-module.exports.RULES={FIELD,OUTLINE,OBSTACLES,BASES,TEAM_SIZE,HP,DAMAGE,STEP,SPEED,DURATION,TARGET};
+module.exports.RULES={FIELD,OUTLINE,OBSTACLES,BASES,TEAM_SIZE,HP,DAMAGE,STEP,SPEED,DURATION,TARGET,CAPTURE_RADIUS,SWORD_FRAMES};
 module.exports.isBlocked=blocked;
