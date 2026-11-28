@@ -881,6 +881,10 @@ const num = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)) };
 const parties = require('./party')({ players: P, send: sendTo,
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+const friendsStore = require('./speaker_store')(pgPool, path.join(DATA_DIR, 'graal-friends.json'), message => console.warn(message), 'friends');
+const friends = require('./friends')({ players: P, send: sendTo, online: acc => ACTIVE_ACC.get(acc), save: friendsStore.save,
+  authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
+setInterval(() => friends.tick(), 5000).unref();
 const football = require('./football')({ players: P, send: sendTo, viewPlayer: p => pstate(p),
   blocksMove: (p,from,to) => speakers.blocksMove(p,from,to) || televisions.blocksMove(p,from,to),
   authorized: p => !!p.uh && p.economyClient && economicSession(p) && !banOf(p.uh) && !(KICKED.get(p.uh) > Date.now()) });
@@ -1245,6 +1249,8 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'television') { void televisions.handle(p, m).catch(() => sendTo(ws, { t: 'television', op: 'error', message: 'Não foi possível alterar a TV.' })); return }
     if (m.t === 'dungeon') { if(p.ctf||p.ctfQueued)return; if (d.length <= 512) dungeon.handle(p, m); return }
     if (m.t === 'party') { parties.handle(p, m); return }
+    if (m.t === 'fr') { friends.handle(p, m); return }
+    if (m.t === 'pm') { friends.pm(p, m); return }
     if (m.t === 'ctf') { if (d.length <= 512) ctf.handle(p,m); return }
     if (m.t === 'football') {
       if(m.op==='join'&&ctf.has(p)){sendTo(ws,{t:'football',op:'error',message:'Saia do roube-bandeira antes de entrar no futebol.'});return;}
@@ -1492,7 +1498,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (!local || c.pid === id || canHearLocal(p, P.get(c.pid))) sendTo(c, out) });
     }
   });
-  ws.on('close', () => { fishing.disconnect(id); football.disconnect(id); ctf.disconnect(id); parties.disconnect(id); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); /* drops públicos persistem até coleta/expiração */ });
+  ws.on('close', () => { fishing.disconnect(id); football.disconnect(id); ctf.disconnect(id); parties.disconnect(id); friends.disconnect(p); removeSparQueue(id); if (p.sparPending) cancelSparCountdown(p.sparPending); if (p.spar) finishSpar(p.spar, 0, 'disconnect'); if (p.svTm) clearTimeout(p.svTm); if (p.svD) { applySv(p, p.svD); p.svD = null } savePosOnLeave(p); if (p.acc && ACC[p.acc] && accDirty.has(String(p.acc))) saveACC(p.acc); /* saiu: grava a posição final no banco já, sem esperar o ciclo lento */ if (p.acc && ACTIVE_ACC.get(p.acc) === p) ACTIVE_ACC.delete(p.acc); { const g = p.gid, a = g && ACC[g]; if (a && !ACTIVE_ACC.has(g) && !accDirty.has(g) && !Object.keys(a.data || {}).length) delete ACC[g] } P.delete(id); others(id, { t: 'l', id }); if (id === HOST) electHost(); /* drops públicos persistem até coleta/expiração */ });
   ws.on('error', () => { });
 });
 
@@ -1515,7 +1521,7 @@ setInterval(() => {
   }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora
 
-Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>televisionStore.load()).then(data=>televisions.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(()=>economy.publicDrops()).then(drops=>{for(const drop of drops)DROPS.set(drop.id,drop);}).then(() => {
+Promise.all([initConfigDB().then(initHistoryDB), initAccountsDB(), initSpawnsDB(), initPfDB(), initNpcsDB(), initRolesDB()]).then(()=>speakerStore.load()).then(data=>speakers.restore(data)).then(()=>televisionStore.load()).then(data=>televisions.restore(data)).then(()=>friendsStore.load()).then(data=>friends.restore(data)).then(()=>economy.init(ACC)).then(()=>combatRewards.init()).then(()=>economy.publicDrops()).then(drops=>{for(const drop of drops)DROPS.set(drop.id,drop);}).then(() => {
   srv.listen(PORT, () => {
     console.log('Graal Online em http://localhost:' + PORT);
     if (!ADMIN) console.log('AVISO: ADMIN_TOKEN não definido — só o localhost consegue salvar edições no servidor.');
