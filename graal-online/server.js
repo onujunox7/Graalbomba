@@ -793,8 +793,8 @@ const customLooks=require('./custom-looks');
 const lookPrices=()=>customLooks.prices(AD.cfg.lookPrices);
 function applyLooks(p,state){
  const chosen=customLooks.selected(state);
- p.bs=chosen.body;p.hs=chosen.head;p.ss=chosen.sword;p.ds=chosen.shield;p.lookAnimation=customLooks.animation(state);
- if(!p.hid)others(p.id,{t:'k',id:p.id,bs:p.bs,hs:p.hs,ss:p.ss,ds:p.ds,animation:p.lookAnimation});
+ p.bs=chosen.body;p.hs=chosen.head;p.ss=chosen.sword;p.ds=chosen.shield;p.ts=chosen.hat;p.lookAnimation=customLooks.animation(state);
+ if(!p.hid)others(p.id,{t:'k',id:p.id,bs:p.bs,hs:p.hs,ss:p.ss,ds:p.ds,ts:p.ts,animation:p.lookAnimation});
 }
 const {RewardWorld}=require('./reward-world');
 const {CombatRewards}=require('./combat-rewards');
@@ -939,7 +939,10 @@ function canHearLocal(sender, receiver) {
 const CHAT = []; // histórico do chat global (últimas 60 mensagens), enviado a quem entra
 const others = (id, msg) => wss.clients.forEach(c => { if (c.pid !== id) sendTo(c, msg) });
 /* v16: igual a others(), mas só para quem está no mesmo espaço (mundo aberto ou dentro de casa): bombas/flechas/fogo de dentro de casa não aparecem no mundo e vice-versa */
-const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid === p.id) return; const q = P.get(c.pid); if (!q || String(q.spar || '') !== String(p.spar || '') || String(q.football || '') !== String(p.football || '') || String(q.ctf || '') !== String(p.ctf || '') || !!q.in !== !!p.in) return; sendTo(c, msg) });
+// World/interior spar shares the map; the legacy private arena remains isolated.
+const sparSpace = p => p.spar && !p.sparPublic ? String(p.spar) : '';
+const sameVisibleSpace = (p, q) => !!q && sparSpace(p) === sparSpace(q) && String(p.football || '') === String(q.football || '') && String(p.ctf || '') === String(q.ctf || '') && !!p.in === !!q.in;
+const othersSame = (p, msg) => wss.clients.forEach(c => { if (c.pid !== p.id && sameVisibleSpace(p, P.get(c.pid))) sendTo(c, msg) });
 const SPAR_QUEUE = [];
 const SPAR_MATCHES = new Map();
 const SPAR_PENDING = new Map();
@@ -998,7 +1001,7 @@ function finishSpar(matchId, winnerId = 0, reason = 'cancelled') {
   for (const id of match.players) {
     const q = P.get(id);
     if (!q) continue;
-    q.spar = null;
+    q.spar = null; q.sparPublic = false;
     q.hm = match.returns[id].hm;
     q.sparHitUntil = 0;
     q.phFrom = 0; q.phT = 0;
@@ -1074,7 +1077,7 @@ function startSparNow(a, b, sparConfig, spawns, returns) {
   for (let i = 0; i < players.length; i++) {
     const q = players[i], other = players[1 - i], sp = spawns[i];
     q.sparAreaConfig = null;
-    q.spar = id; q.mt = 0; q.cy = 0; q.hm = SPAR_HP; q.hp = SPAR_HP; q.sparHitUntil = 0; q.ac = 0; q.uT = Date.now();
+    q.sparPublic = customSpawns; q.spar = id; q.mt = 0; q.cy = 0; q.hm = SPAR_HP; q.hp = SPAR_HP; q.sparHitUntil = 0; q.ac = 0; q.uT = Date.now();
     if (returns[q.id].in) { q.in = 1; q.ix = sp.x; q.iy = sp.y - 80000; q.ia = 'Idle_' + sp.f } else { q.x = sp.x; q.y = sp.y; q.in = 0; q.an = 'Idle_' + sp.f }
     sendTo(q.ws, { t: 'spm', s: 'start', m: id, x: sp.x, y: sp.y, f: sp.f, custom: customSpawns ? 1 : 0, in: returns[q.id].in ? 1 : 0, ix: returns[q.id].in ? sp.x : undefined, iy: returns[q.id].in ? sp.y - 80000 : undefined, ox: SPAR_ARENA.x, oy: SPAR_ARENA.y, ow: SPAR_ARENA.w, oh: SPAR_ARENA.h, oi: other.id, on: String(other.nm || '?') });
   }
@@ -1133,7 +1136,7 @@ function setHidden(p, h, sp) {
   if (p.hid && !was) others(p.id, { t: 'l', id: p.id });          // some da tela de todo mundo
   else if (!p.hid && was) {                                        // volta a aparecer: reenvia skin/equipamento/perfil/posição
     const id = p.id;
-    if (p.bs || p.hs || p.ss || p.ds) others(id, { t: 'k', id, bs: p.bs, hs: p.hs, ss: p.ss, ds: p.ds, animation:p.lookAnimation });
+    if (p.bs || p.hs || p.ss || p.ds || p.ts) others(id, { t: 'k', id, bs: p.bs, hs: p.hs, ss: p.ss, ds: p.ds, ts: p.ts, animation:p.lookAnimation });
     if (p.c) others(id, { t: 'kc', id, c: p.c });
     if (p.e) others(id, { t: 'q', id, e: p.e });
     if (p.pi) others(id, Object.assign({ t: 'pi', id }, p.pi));
@@ -1157,7 +1160,7 @@ wss.on('connection', (ws, req) => {
   if (CHAT.length) sendTo(ws, { t: 'chh', a: CHAT });
   { const now = Date.now(), a = []; BCUT.forEach((t, k) => { if (t > now) { const q = k.split(','); a.push([+q[0], +q[1], t - now]) } }); if (a.length) sendTo(ws, { t: 'ball', a }) } // arbustos que estão cortados agora
   for (const o of P.values()) if (o.id !== id && !o.hid) { // quem entra agora já vê skin/equip de quem está online (menos de quem está invisível)
-    if (o.bs || o.hs || o.ss || o.ds) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs, ss: o.ss, ds: o.ds, animation:o.lookAnimation });
+    if (o.bs || o.hs || o.ss || o.ds || o.ts) sendTo(ws, { t: 'k', id: o.id, bs: o.bs, hs: o.hs, ss: o.ss, ds: o.ds, ts: o.ts, animation:o.lookAnimation });
     if (o.c) sendTo(ws, { t: 'kc', id: o.id, c: o.c });
     if (o.e) sendTo(ws, { t: 'q', id: o.id, e: o.e });
     if (o.pi) sendTo(ws, Object.assign({ t: 'pi', id: o.id }, o.pi));
@@ -1507,7 +1510,7 @@ setInterval(() => {
   for (const c of wss.clients) {
     const self = P.get(c.pid);
     if (!self || !self.ok) continue;
-    const a = [...P.values()].filter(p => p.ok && !p.hid && String(p.spar || '') === String(self.spar || '') && String(p.football || '') === String(self.football || '') && !!p.in === !!self.in).map(pstate);
+    const a = [...P.values()].filter(p => p.ok && !p.hid && sameVisibleSpace(p, self)).map(pstate);
     sendTo(c, { t: 'st', p: a });
   }
 }, 500); // sincronização completa (limpeza de quem saiu); o movimento vai por 'pu', na hora

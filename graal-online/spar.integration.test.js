@@ -61,8 +61,8 @@ async function fixture() {
     send(ws, { t: 'id', id });
   });
   return { players, helpers, advance: ms => { time += ms; }, purchases: () => purchases,
-    start(a, b) {
-      helpers.startSpar(players.get(a), players.get(b), null);
+    start(a, b, config = null) {
+      helpers.startSpar(players.get(a), players.get(b), config);
       for (const [id, callback] of timers) { timers.delete(id); callback(); }
     },
     async connect() {
@@ -85,6 +85,20 @@ async function fixture() {
       await new Promise(resolve => server.close(resolve));
     } };
 }
+
+test('Map spar is public while observers cannot damage participants', {timeout:10000},async()=>{
+  const f=await fixture();
+  try {
+    const a=await f.connect(),b=await f.connect(),observer=await f.connect();
+    const config={x:512,y:512,w:288,h:224,spawns:[{x:600,y:600,w:16,h:16},{x:620,y:600,w:16,h:16}]};
+    f.start(a.id,b.id,config);
+    assert.equal(f.players.get(a.id).sparPublic,true);assert.equal(f.players.get(b.id).sparPublic,true);
+    observer.send({t:'ph',to:a.id,d:2000});await observer.flush();
+    assert.equal(f.players.get(a.id).hp,180);
+    f.helpers.finishSpar(f.players.get(a.id).spar,0,'cancelled');
+    assert.equal(f.players.get(a.id).sparPublic,false);
+  } finally {await f.close();}
+});
 
 test('Spar: six confirmed hits regardless of level, client damage, health claims or healing', { timeout: 15000 }, async () => {
   const f = await fixture();

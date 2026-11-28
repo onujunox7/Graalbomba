@@ -6,7 +6,7 @@ const { Pool } = require('pg');
 const looks = require('./custom-looks');
 const { Economy, legacyState, protectSave } = require('./economy');
 const rid = () => crypto.randomBytes(16).toString('hex');
-const SIZES = { head:[32,128],body:[128,224],shield:[38,20],sword:[128,96] };
+const SIZES = { head:[32,128],body:[128,224],shield:[38,20],sword:[128,96],hat:[192,48] };
 function crc(bytes) { let c=0xffffffff; for(const b of bytes){c^=b;for(let n=0;n<8;n++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^0xffffffff)>>>0; }
 function chunk(tag,data) { const b=Buffer.alloc(data.length+12);b.writeUInt32BE(data.length);b.write(tag,4);data.copy(b,8);b.writeUInt32BE(crc(b.subarray(4,-4)),b.length-4);return b; }
 function png(kind,color=100) {
@@ -33,7 +33,7 @@ before(async()=>{assert.ok(process.env.AETHERIA_TEST_DATABASE,'Use the isolated 
 after(async()=>{if(pool)await pool.end();});
 const actor=()=>({acc:'looks-'+rid(),hp:100,hm:100,ok:true});
 
-test('all four PNG formats validate; corrupt, truncated and huge images are rejected',()=>{
+test('all five PNG formats validate; corrupt, truncated and huge images are rejected',()=>{
   for(const kind of looks.KINDS)assert.match(looks.validate(kind,png(kind)).id,/^[a-f0-9]{64}$/);
   assert.throws(()=>looks.validate('head',png('body')),{code:'invalid_png'});
   assert.throws(()=>looks.validate('head',png('head').slice(0,-10)),{code:'invalid_png'});
@@ -50,6 +50,7 @@ test('GIFs preserve both frames and per-frame delays for every type',async()=>{
     assert.deepEqual(asset.animation.delays,[0.1,0.25]);assert.equal(asset.animation.height,SIZES[kind][1]);
     const raw=Buffer.from(asset.png.slice(22),'base64');assert.equal(raw.readUInt32BE(20),SIZES[kind][1]*2);
     fixtures[kind]={...asset,name:'Teste animado '+kind};
+    fs.writeFileSync(path.resolve(__dirname,'../../../reports/spar-equipment-20261127/test-'+kind+'.gif'),Buffer.from(gif(kind).slice(22),'base64'));
   }
   const report=path.resolve(__dirname,'../../../reports/custom-looks-20261126');
   fs.writeFileSync(path.join(report,'native-fixtures.json'),JSON.stringify(fixtures));
@@ -67,7 +68,7 @@ test('0 through 20000 Glims, durable ownership, idempotency and no double charge
   assert.equal((await economy.buyLook(p,request,()=>config,()=>true)).duplicate,true);
   assert.equal((await economy.ensure(p.acc)).gl,20000);
   await assert.rejects(economy.buyLook(p,{...request,rid:rid()},()=>config,()=>true),{code:'already_owned'});
-  for(const kind of ['body','shield','sword'])await economy.buyLook(p,{kind,png:gif(kind),name:kind,price:0,rid:rid()},()=>config,()=>true);
+  for(const kind of ['body','shield','sword','hat'])await economy.buyLook(p,{kind,png:gif(kind),name:kind,price:0,rid:rid()},()=>config,()=>true);
   const saved=await new Economy(pool).ensure(p.acc);
   assert.equal(saved.gl,20000);for(const kind of looks.KINDS)assert.equal(saved.looks.library[kind].length,1);
   await economy.equipLook(p,{kind:'head',asset:'',rid:rid()},()=>true);

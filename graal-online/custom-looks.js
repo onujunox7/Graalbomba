@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { execFile } = require('node:child_process');
-const KINDS = ['head', 'body', 'shield', 'sword'];
+const KINDS = ['head', 'body', 'shield', 'sword', 'hat'];
 const MAX_PNG = 65536, MAX_LIBRARY_BYTES = 400000, MAX_PER_KIND = 8;
 const FULL_REFUND_MS = 5 * 60 * 60 * 1000;
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -16,7 +16,7 @@ function changePrice(config, kind, price) {
 function dimensions(kind, w, h) {
   return kind === 'head' ? w === 32 && h >= 128 && h <= 1024 :
     kind === 'body' ? w === 128 && h >= 224 && h <= 1024 :
-    kind === 'sword' ? w === 128 && h === 96 : kind === 'shield' && w === 38 && h === 20;
+    kind === 'sword' ? w === 128 && h === 96 : kind === 'hat' ? w === 192 && h === 48 : kind === 'shield' && w === 38 && h === 20;
 }
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -121,10 +121,18 @@ function legacy(data = {}) {
   }
   return state;
 }
+function ensure(state) {
+  const looks = state.looks ||= empty();
+  for (const kind of KINDS) {
+    looks.library[kind] ||= [];
+    looks.equipped[kind] ||= '';
+  }
+  return looks;
+}
 function buy(state, request, config, prepared = null) {
   const asset = prepared || validate(request.kind, request.png), fee = prices(config)[request.kind];
   if (request.price !== fee) fail('shop_changed');
-  const looks = state.looks ||= empty(), items = looks.library[request.kind];
+  const looks = ensure(state), items = looks.library[request.kind];
   if (items.some(a => a.id === asset.id)) fail('already_owned');
   if (items.length >= MAX_PER_KIND || JSON.stringify(looks).length + asset.png.length > MAX_LIBRARY_BYTES) fail('capacity');
   if (state.gl < fee) fail('insufficient_glims');
@@ -134,7 +142,7 @@ function buy(state, request, config, prepared = null) {
 }
 function equip(state, request) {
   if (!KINDS.includes(request.kind) || typeof request.asset !== 'string') fail('invalid_request');
-  const looks = state.looks ||= empty();
+  const looks = ensure(state);
   if (request.asset && !looks.library[request.kind].some(a => a.id === request.asset)) fail('not_owned');
   looks.equipped[request.kind] = request.asset;
   return { kind: request.kind, asset: request.asset };
@@ -166,10 +174,10 @@ function sell(state,request,now=Date.now()) {
 }
 function selected(state) {
   const looks = state?.looks || empty();
-  return Object.fromEntries(KINDS.map(k => [k, looks.library[k].find(a => a.id === looks.equipped[k])?.png || null]));
+  return Object.fromEntries(KINDS.map(k => [k, looks.library[k]?.find(a => a.id === looks.equipped[k])?.png || null]));
 }
 function animation(state) {
   const looks = state?.looks || empty();
-  return Object.fromEntries(KINDS.map(k => [k, looks.library[k].find(a => a.id === looks.equipped[k])?.animation || null]));
+  return Object.fromEntries(KINDS.map(k => [k, looks.library[k]?.find(a => a.id === looks.equipped[k])?.animation || null]));
 }
 module.exports = { KINDS, MAX_PNG, MAX_LIBRARY_BYTES, FULL_REFUND_MS, prices, changePrice, dimensions, validate, prepare, empty, legacy, buy, equip, owned, hasPurchase, quoteSale, sell, selected, animation };
